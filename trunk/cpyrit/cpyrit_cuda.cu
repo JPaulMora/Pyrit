@@ -25,6 +25,15 @@
 #include <cuda_runtime.h>
 #include "cutil.h"
 
+
+/* This is a 'special-version' of the SHA1 round function. *ctx is the current state,
+   that gets updated by *data. See comments for the cpyrit_pmk function. Also notice the lack
+   of endianess-changes here.
+   This follows the more-instructions-less-space paradigm, since registers
+   and (fast) memory on the device are precious, threads are not.
+   Only the starting values of W[0] to W[4] are undefined, we fix the rest and
+   leave the possible register allocation optimization to the compiler
+*/
 __device__
 void sha1_process( const SHA_DEV_CTX *ctx, SHA_DEV_CTX *data) {
 
@@ -176,6 +185,9 @@ void sha1_process( const SHA_DEV_CTX *ctx, SHA_DEV_CTX *data) {
   data->h4 = ctx->h4 + E;
 
 }
+
+/* This is the kernel called by the cpu. We grab as many as we can from
+   global (slow) memory, the IPAD and OPAD values are cached */
 __global__
 void cuda_pmk_kernel( gpu_inbuffer *inbuffer, gpu_outbuffer *outbuffer, const int numLines) {
     int i;
@@ -214,6 +226,12 @@ void cuda_pmk_kernel( gpu_inbuffer *inbuffer, gpu_outbuffer *outbuffer, const in
     
 }
 
+/* Takes list of passwords, gives PMKs... Since the size of passwords
+   may exceed one block of SHA-1 (64-padding), the first HMAC is done on the cpu while
+   the other 8190 rounds can then be easily done on the gpu - the block is always
+   20 bytes wide then. Notice that we only have to change the endianess once here, not
+   between every single round of SHA-1
+*/
 extern "C"
 PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
 {
@@ -288,13 +306,17 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         GET_BE(c_inbuffer[line].e2.h4, temp, 16);
     }
 
+    // We promise not to touch python objects beyond this point 
     Py_BEGIN_ALLOW_THREADS;
 
     cudaMalloc(&g_inbuffer, numLines*sizeof(gpu_inbuffer));
     cudaMemcpy(g_inbuffer, c_inbuffer, numLines*sizeof(gpu_inbuffer), cudaMemcpyHostToDevice);
     cudaMalloc(&g_outbuffer, numLines*sizeof(gpu_outbuffer));
     free(c_inbuffer);
-    
+ 
+    // Execute the kernel in blocks of 64 threads each. The GPU can decide to execute as many blocks
+    // as possible and needed to complete the task. Remember to fix the size of ipad[] and opad[] in the
+    // kernel if you change this value. You must also use the occupancy calculator - more may be worse!   
     int block_size = 64;
     int n_blocks = numLines / block_size + (numLines % block_size == 0 ? 0 : 1);
     cudaEventCreate(&evt);
@@ -306,6 +328,7 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     cudaFree(g_inbuffer);
     cudaMemcpy(c_outbuffer, g_outbuffer, numLines*sizeof(gpu_outbuffer), cudaMemcpyDeviceToHost);
     cudaFree(g_outbuffer);
+    
     Py_END_ALLOW_THREADS;
 	
     PyObject *destlist = PyList_New(numLines);
