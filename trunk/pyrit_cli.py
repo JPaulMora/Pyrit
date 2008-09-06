@@ -52,7 +52,7 @@ class Pyrit_CLI(object):
         command = commands[0]
         if command == "export_cowpatty":
             if self.options["file"] is None:
-                print "One must specify a filename using the -f option. See --help"
+                print "One must specify a filename using the -f option. See 'help'"
             else:
                 if self.options["essid"] is None:
                     print "The cowpatty-format only supports one ESSID per file. Please specify one using the -e option."
@@ -63,20 +63,11 @@ class Pyrit_CLI(object):
             pass
         
         elif command == "import_password":
-            if self.options["file"] is None:
-                print "One must specify a filename using the -f options. See --help"
-            else:
-                if self.options["file"] == "-":
-                    f = sys.stdin
-                else:
-                    f = open(self.options["file"], "r")
-                self.pyrit_obj.import_passwords(f)
-                if f != sys.stdin:
-                    f.close()
+            self.import_passwords()
         
         elif command == "export_passwords":
             if self.options["file"] is None:
-                print "One must specify a filename using the -f option. See --help"
+                print "One must specify a filename using the -f option. See 'help'"
             else:
                 self.export_passwords()
 
@@ -85,14 +76,35 @@ class Pyrit_CLI(object):
                 print e
         
         elif command == "eval_results":
-            for e in self.pyrit_obj.eval_results(self.options["essid"]):
-                print "ESSID:\t '%s'" % e[1]
-                print "Passwords available:\t %i" % e[2]
-                print "Passwords done so far:\t %i (%.2f%%)" % (e[3], e[3] / e[2])
-                print "" 
-        else:
-            print "Don't know that command. See valid commands with --help"
+            self.eval_results()
+            
         
+        elif command == 'help':
+            print "The Pyrit commandline-client.\nSomeone write some help here."
+        
+        else:
+            print "Don't know that command. See valid commands with 'help'"
+        
+        
+    def import_passwords(self):
+        if self.options["file"] is None:
+            print "One must specify a filename using the -f options. See 'help'"
+        else:
+            if self.options["file"] == "-":
+                f = sys.stdin
+            else:
+                f = open(self.options["file"], "r")
+            self.pyrit_obj.import_passwords(f)
+            if f != sys.stdin:
+                f.close()    
+
+    def eval_results(self):
+        for e in self.pyrit_obj.eval_results(self.options["essid"]):
+            print "ESSID:\t '%s'" % e[1]
+            print "Passwords available:\t %i" % e[2]
+            print "Passwords done so far:\t %i (%.2f%%)" % (e[3], e[3] / e[2])
+            print ""
+    
     def export_passwords(self):
         if self.options["file"] == "-":
             f = sys.stdout
