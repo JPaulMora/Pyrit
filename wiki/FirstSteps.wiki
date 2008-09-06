@@ -1,0 +1,22 @@
+#summary Getting started
+
+= Getting the code =
+
+First of all, you have to get yourself  a copy of _Pyrit_'s sourcecode. There is no binary distribution, you have to compile it yourself. Get the latest code directly from [http://code.google.com/p/pyrit/source/checkout].
+
+_Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managing the blobspace, the commandline-client and such. And the _CPyrit_-extension-module, which features the computational cores written in C.
+
+  * Get yourself a copy of the latest code from [http://code.google.com/p/pyrit/source/checkout]
+  * If you have a NVIDIA GF-8800 or later, you can use the CUDA-core for a massive performance gain. Get yourself a copy of the CUDA-compatible drivers and the SDK from [http://www.nvidia.com/object/cuda_get.html]. You'll have to symlink the library files into /usr/lib and such.
+  * If you don't have such a GPU or don't want CUDA support, comment the line _"HAVE_CUDA"_ in the file _cpyrit.h_ in the cpyrit subdirectory.
+  * Modify the file _"make"_ (which is not a Makefile...) and setup.py to your needs and build and install the cpyrit module to your python site-packages.
+
+= Using the tools =
+
+_Pyrit_'s uses two subdirectories for storage: One for the ESSIDs and the PMKs and one for password files. The default for _Pyrit_ is set to 'blobspace/essid' and 'blobspace/password' which will probably be ok for everyone.
+
+  * Create some ESSID using 'pyrit -e FOOBAR create'
+  * Import some list of passwords using 'pyrit -f foobar.txt import_passwords'
+  * Start batchprocessing using 'pyrit batchprocess'
+  * Use the results with cowpatty after doing 'pyrit -e FOOBAR -f output.cow export_cowpatty'
+  * See more commands with 'pyrit help'
