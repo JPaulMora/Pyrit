@@ -1,5 +1,8 @@
 # -*- coding: UTF-8 -*-
 
+#
+#    Copyright 2008, Lukas Lueg, knabberknusperhaus@yahoo.de
+#
 #    This file is part of Pyrit.
 #
 #    Pyrit is free software: you can redistribute it and/or modify
