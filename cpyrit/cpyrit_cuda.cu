@@ -16,14 +16,10 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
-#define _DEBUG
-
+*/
 #include "cpyrit.h"
 #include <cuda/cuda.h>
 #include <cuda_runtime.h>
-#include "cutil.h"
 
 
 /* This is a 'special-version' of the SHA1 round function. *ctx is the current state,

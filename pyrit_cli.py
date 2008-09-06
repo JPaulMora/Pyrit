@@ -19,10 +19,18 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-
 from pyrit import Pyrit
 import sys
 import getopt
+import random, time
+
+def tform(i):
+    y = ["%.2f %s" % (i / x[1], x[0]) for x in [('secs',1),('mins',60.0**1),('hrs',60**2),('days',24*(60**2))] if i / x[1] >= 1.00]
+    if len(y) > 0:
+        return y[-1]
+    else:
+        return "NaN"
+
 
 class Pyrit_CLI(object):
     def __init__(self):
@@ -52,7 +60,10 @@ class Pyrit_CLI(object):
                 
         self.pyrit_obj = Pyrit(self.options["essidstore_path"], self.options["passwdstore_path"])        
         
-        command = commands[0]
+        if len(commands) == 0:
+            command = "help"
+        else:
+            command = commands[0]
         if command == "export_cowpatty":
             if self.options["file"] is None:
                 print "One must specify a filename using the -f option. See 'help'"
@@ -65,7 +76,7 @@ class Pyrit_CLI(object):
         elif command == "import_cowpatty":
             pass
         
-        elif command == "import_password":
+        elif command == "import_passwords":
             self.import_passwords()
         
         elif command == "export_passwords":
@@ -77,10 +88,22 @@ class Pyrit_CLI(object):
         elif command == "list_essids":
             for e in pyrit_obj.list_essids():
                 print e
+                
+        elif command == "create_essid":
+            essid = self.options["essid"]
+            if essid is None:
+                print "One must specify a ESSID using the -e option. See 'help'"
+            elif essid in self.pyrit_obj.list_essids():
+                print "ESSID already created"
+            else:
+                self.pyrit_obj.create_essid(essid)
+                print "Created ESSID '%s'" % essid
         
         elif command == "eval_results":
             self.eval_results()
             
+        elif command == "batchprocess":
+            self.batchprocess()
         
         elif command == 'help':
             print "The Pyrit commandline-client.\nSomeone write some help here."
@@ -93,13 +116,17 @@ class Pyrit_CLI(object):
         if self.options["file"] is None:
             print "One must specify a filename using the -f options. See 'help'"
         else:
+            print "Importing from",
             if self.options["file"] == "-":
+                print "stdin."
                 f = sys.stdin
             else:
+                print "'%s'" % self.options["file"]
                 f = open(self.options["file"], "r")
             self.pyrit_obj.import_passwords(f)
             if f != sys.stdin:
-                f.close()    
+                f.close()
+            print "Done"
 
     def eval_results(self):
         for e in self.pyrit_obj.eval_results(self.options["essid"]):
@@ -151,7 +178,58 @@ class Pyrit_CLI(object):
                     sys.stdout.flush()
             f.close()
             print "\nAll done."
+
+    def batchprocess(self):
+        comptime = 0
+        rescount = 0    
+        essids = self.pyrit_obj.list_essids()
+        if self.options["essid"] is not None:
+            if self.options["essid"] not in essids:
+                print "The ESSID '%s' is not found in the repository" % essid
+                return
+            else:
+                essids = [self.options["essid"]]
+        else:
+            random.shuffle(essids)
         
+        for essid in essids:
+            essid_object = self.pyrit_obj.open_essid(essid)
+            essid_results = essid_object.results
+            print "Working on ESSID '%s'" % essid_object.essid
+            pwfiles = self.pyrit_obj.list_passwords()
+            random.shuffle(pwfiles)
+            for pwfile_e in enumerate(pwfiles):
+                print " Working on unit '%s' (%i/%i)," % (pwfile_e[1], pwfile_e[0], len(pwfiles)),
+                try:
+                    pwfile = self.pyrit_obj.open_password(pwfile_e[1])
+                    pyr_obj = essid_object.open_result(pwfile_e[1])
+                    known_pw = set(pyr_obj.results.keys())
+                    passwords = [x for x in pwfile.yieldPassword() if x not in known_pw]
+                    print "%i PMKs to do." % len(passwords)
+
+                    if len(passwords) > 0:
+                        #We slice the workunit to smaller parts since calc_pmklist won't return on KeyboardInterrupt
+                        #the overhead of slicing is minimal
+                        for pwslice in xrange(0,len(passwords), 15000):
+                            pwset = passwords[pwslice:pwslice+15000]
+                            t = time.time()
+                            pyr_obj.results.update(self.pyrit_obj.solve(essid_object.essid, pwset))
+                            comptime += time.time() - t
+                            rescount += len(pwset)
+                            print "\r  -> %.2f%% done" % (pwslice * 100.0 / len(passwords)),
+                            if (comptime > 5):
+                                print "(%.2f PMK/sec, %.2f SHA1/sec, %s left)." % (rescount / comptime, rescount * 8192 / comptime, tform((len(passwords) - pwslice) / (rescount / comptime))),
+                            else:
+                                print "", 
+                            sys.stdout.flush()
+                        print "\r  -> All done. (%s, %.2f PMK/sec, %.2f SHA1/sec)" % (tform(comptime), rescount / comptime, rescount * 8192 / comptime)
+                        pyr_obj.savefile()
+                    pyr_obj.close()
+                except:
+                    print "Unhandled exception while working on workunit '%s'" % pwfile_e[1]
+                    raise
+
 if __name__ == "__main__":
+    print "This is Pyrit"
     p = Pyrit_CLI()
     p.init(sys.argv)

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 # -*- coding: UTF-8 -*-
 
 #
@@ -21,10 +20,13 @@
 
 
 from blobspace import *
+from cpyrit import CPyrit
 
 class Pyrit(object):
-""" The Pyrit class is a further abstraction of general tasks from the blobspace class.
-    The commandline-client and to-be-written GUIs are built upon this common codebase."""
+    """
+    The Pyrit class is a further abstraction of general tasks from the blobspace class.
+    The commandline-client and to-be-written GUIs are built upon this common codebase.
+    """
     
     def __init__(self, essidstore_path='blobspace/essid', pwstore_path='blobspace/password'):
         self.pwstore = PasswordStore(pwstore_path)
@@ -87,8 +89,19 @@ class Pyrit(object):
         return list(self.essidstore.essids)
         
     def list_passwords(self):
-        return list(self.passwdstore.passwords.keys())
+        return list(self.pwstore.passwords.keys())
+        
+    def open_essid(self, essid):
+        return self.essidstore.open_essid(essid)
+        
+    def open_password(self, key):
+        return self.pwstore.getPWFile(key)
     
     def create_essid(self, essid):
         if essid not in self.essidstore.essids:
             self.essidstore.create_essid(essid)
+            
+    def solve(self, essid, passwordlist, corename=None):
+        return CPyrit().getCore(corename).solve(essid, passwordlist)
+
+
