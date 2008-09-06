@@ -21,6 +21,9 @@
 from blobspace import *
 
 class Pyrit(object):
+""" The Pyrit class is a further abstraction of general tasks from the blobspace class.
+    The commandline-client and to-be-written GUIs are built upon this common codebase."""
+    
     def __init__(self, essidstore_path='blobspace/essid', pwstore_path='blobspace/password'):
         self.pwstore = PasswordStore(pwstore_path)
         self.essidstore = EssidStore(essidstore_path)

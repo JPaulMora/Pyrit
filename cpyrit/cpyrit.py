@@ -106,6 +106,8 @@ class CPUCore(object):
     
 
 class CPyrit(object):
+""" The CPyrit class takes the _cpyrit-module into the python world.
+    It's much easier to do some of the task in python than in c."""
     def __init__(self):
         self.cores = {}
         avail = dir(_cpyrit)
