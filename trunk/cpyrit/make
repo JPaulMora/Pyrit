@@ -1,0 +1,6 @@
+#!/bin/bash
+
+nvcc -code sm_11 -arch sm_11 -Xptxas "-v -maxrregcount=42" -c cpyrit_cuda.cu && rm -rf build/ && python setup.py install
+#rm -rf build
+#python setup.py install
+
