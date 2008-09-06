@@ -185,7 +185,7 @@ class Pyrit_CLI(object):
         essids = self.pyrit_obj.list_essids()
         if self.options["essid"] is not None:
             if self.options["essid"] not in essids:
-                print "The ESSID '%s' is not found in the repository" % essid
+                print "The ESSID '%s' is not found in the repository" % self.options["essid"]
                 return
             else:
                 essids = [self.options["essid"]]
