@@ -24,7 +24,9 @@ import threading
 import time
 
 class MicroCore(threading.Thread):
-""" Used by GPU-kernels to spread work between CPU and GPU"""
+    """
+    Used by GPU-kernels to spread work between CPU and GPU
+    """
     def __init__(self, func, blocksize, workcontrol):
         threading.Thread.__init__(self)
         self.workcontrol = workcontrol
@@ -108,13 +110,15 @@ class CPUCore(object):
     
 
 class CPyrit(object):
-""" The CPyrit class takes the _cpyrit-module into the python world.
-    It's much easier to do some of the task in python than in c."""
+    """
+    The CPyrit class takes the _cpyrit-module into the python world.
+    It's much easier to do some of the task in python than in C.
+    """
     def __init__(self):
         self.cores = {}
         avail = dir(_cpyrit)
         assert 'calc_pmk' in avail
-        for fname, c in [('calc_cuda', CUDACore), ('calc_pmklist', CPUCore)]:
+        for fname, c in [('calc_pmklist', CPUCore), ('calc_cuda', CUDACore)]:
             if fname in avail:
                 self.cores[c.name] = c
                 self.core = c
