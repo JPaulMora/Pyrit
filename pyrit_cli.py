@@ -20,9 +20,8 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
 from pyrit import Pyrit
-import sys
-import getopt
-import random, time
+import cpyrit
+import sys, getopt, random, time, md5
 
 def tform(i):
     y = ["%.2f %s" % (i / x[1], x[0]) for x in [('secs',1),('mins',60.0**1),('hrs',60**2),('days',24*(60**2))] if i / x[1] >= 1.00]
@@ -104,6 +103,9 @@ class Pyrit_CLI(object):
             
         elif command == "batchprocess":
             self.batchprocess()
+        
+        elif command == "benchmark":
+            self.benchmark()
         
         elif command == 'help':
             print "The Pyrit commandline-client.\nSomeone write some help here."
@@ -229,7 +231,37 @@ class Pyrit_CLI(object):
                     print "Unhandled exception while working on workunit '%s'" % pwfile_e[1]
                     raise
 
+
+    def benchmark(self):
+        c = cpyrit.CPyrit()
+        print "Benchmarking cores", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
+        pws = ["bar_%i" % i for i in xrange(10000)]
+
+        core = c.getCore('Standard CPU')
+        print "Testing CPU-only core '%s'..." % core.name
+        t = time.time()
+        res = sorted(core.solve('foo', pws))
+        t = time.time() - t
+        print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
+        md = md5.new()
+        map(md.update, [x[1] for x in res])
+        print "Result hash: %s" % md.hexdigest()
+        print ""
+
+        if 'Nvidia CUDA' in [x[0] for x in c.listCores()]:
+            core = c.getCore('Nvidia CUDA')
+            print "Testing GPU core '%s'..." % core.name
+            t = time.time()
+            res = sorted(core.solve('foo', pws))
+            t = time.time() - t
+            print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
+            print "GPU performance: %.2f PMKs/s" % (core.gpu_perf[0] / core.gpu_perf[1])
+            print "CPU performance: %.2f PMKs/s" % (core.cpu_perf[0] / core.cpu_perf[1])
+            md = md5.new()
+            map(md.update, [x[1] for x in res])
+            print "Result hash: %s" % md.hexdigest()
+            print ""
+            
 if __name__ == "__main__":
-    print "This is Pyrit"
     p = Pyrit_CLI()
     p.init(sys.argv)
