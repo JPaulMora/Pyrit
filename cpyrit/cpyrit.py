@@ -113,6 +113,12 @@ class CPyrit(object):
     """
     The CPyrit class takes the _cpyrit-module into the python world.
     It's much easier to do some of the task in python than in C.
+    
+    IMPORTANT: Given a list of ['foo1','foo2'], the Core-classes always
+    return lists of tuples such as [(foo1, bar1), (foo2, bar2)].
+    There is no guarantee that the order of 'foo' in the result-list
+    is the same as in the input-list!
+    
     """
     def __init__(self):
         self.cores = {}

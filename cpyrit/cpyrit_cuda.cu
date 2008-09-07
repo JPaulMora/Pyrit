@@ -281,22 +281,14 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         CPY_DEVCTX(ctx_pad, c_inbuffer[line].ctx_opad);
 	    
 	    essid[slen - 1] = '\1';
-	    #ifdef HAVE_OPENSSL
-	        HMAC(EVP_sha1(), (uchar *)key, strlen(key), (uchar*)essid, slen, temp, NULL);
-	    #else
-	        HMAC((uchar *)key, strlen(key), (uchar*)essid, slen, temp);
-	    #endif
+        HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
         GET_BE(c_inbuffer[line].e1.h0, temp, 0); GET_BE(c_inbuffer[line].e1.h1, temp, 4);
         GET_BE(c_inbuffer[line].e1.h2, temp, 8); GET_BE(c_inbuffer[line].e1.h3, temp, 12);
         GET_BE(c_inbuffer[line].e1.h4, temp, 16);
 
 	    
 	    essid[slen - 1] = '\2';
-	    #ifdef HAVE_OPENSSL
-	        HMAC(EVP_sha1(), (uchar *)key, strlen(key), (uchar*)essid, slen, temp, NULL);
-	    #else
-	        HMAC((uchar *)key, strlen(key), (uchar*)essid, slen, temp);
-	    #endif
+        HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
         GET_BE(c_inbuffer[line].e2.h0, temp, 0); GET_BE(c_inbuffer[line].e2.h1, temp, 4);
         GET_BE(c_inbuffer[line].e2.h2, temp, 8); GET_BE(c_inbuffer[line].e2.h3, temp, 12);
         GET_BE(c_inbuffer[line].e2.h4, temp, 16);

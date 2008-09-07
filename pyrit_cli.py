@@ -235,8 +235,15 @@ class Pyrit_CLI(object):
     def benchmark(self):
         c = cpyrit.CPyrit()
         print "Benchmarking cores", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
-        pws = ["bar_%i" % i for i in xrange(10000)]
 
+        core = c.getCore()
+        md = md5.new()
+        md.update(core.solve('foo', 'bar'))
+        if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
+            print "WARNING: Core gives wrong single-results. The CPyrit-module is probably broken..."
+            return
+        
+        pws = ["bar_%i" % i for i in xrange(10000)]
         core = c.getCore('Standard CPU')
         print "Testing CPU-only core '%s'..." % core.name
         t = time.time()
@@ -245,7 +252,7 @@ class Pyrit_CLI(object):
         print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
         md = md5.new()
         map(md.update, [x[1] for x in res])
-        print "Result hash: %s" % md.hexdigest()
+        print "Result hash: %s" % md.hexdigest(), {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
         print ""
 
         if 'Nvidia CUDA' in [x[0] for x in c.listCores()]:
@@ -259,7 +266,7 @@ class Pyrit_CLI(object):
             print "CPU performance: %.2f PMKs/s" % (core.cpu_perf[0] / core.cpu_perf[1])
             md = md5.new()
             map(md.update, [x[1] for x in res])
-            print "Result hash: %s" % md.hexdigest()
+            print "Result hash: %s" % md.hexdigest(), {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
             print ""
             
 if __name__ == "__main__":
