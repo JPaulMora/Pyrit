@@ -102,6 +102,10 @@ class Pyrit(object):
             self.essidstore.create_essid(essid)
             
     def solve(self, essid, passwordlist, corename=None):
+        """
+        This function is only here for convenience-reasons. One should
+        use the CPyrit himself and get a core there to avoid overhead.
+        """
         return CPyrit().getCore(corename).solve(essid, passwordlist)
 
 
