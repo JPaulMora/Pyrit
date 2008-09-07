@@ -7,6 +7,7 @@ First of all, you have to get yourself  a copy of _Pyrit_'s sourcecode. There is
 _Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managing the blobspace, the commandline-client and such. And the _CPyrit_-extension-module, which features the computational cores written in C.
 
   * Get yourself a copy of the latest code from [http://code.google.com/p/pyrit/source/checkout]
+  * Get yourself a copy of the OpenSSL library and headers. On binary Linux distributions you probably have to install "openssl-dev" or similar named packages.
   * If you have a NVIDIA GF-8800 or later, you can use the CUDA-core for a massive performance gain. Get yourself a copy of the CUDA-compatible drivers and the SDK from [http://www.nvidia.com/object/cuda_get.html]. You'll have to symlink the library files into /usr/lib and such.
   * If you don't have such a GPU or don't want CUDA support, comment the line _"HAVE_CUDA"_ in the file _cpyrit.h_ in the cpyrit subdirectory.
   * Modify the file _"make"_ (which is not a Makefile...) and setup.py to your needs and build and install the cpyrit module to your python site-packages.
