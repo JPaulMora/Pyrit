@@ -22,7 +22,7 @@
 
 void calc_pmk(const char *key,const char *essid_pre, unsigned char pmk[32] )
 {
-	int i, j, slen;
+	int i, slen;
 	unsigned char buffer[64];
 	unsigned int pmkbuffer[10];
 	char essid[33+4];
