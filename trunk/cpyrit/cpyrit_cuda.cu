@@ -16,7 +16,8 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
-*/
+*/
+
 #include "cpyrit.h"
 #include <cuda/cuda.h>
 #include <cuda_runtime.h>
@@ -59,7 +60,8 @@ void sha1_process( const SHA_DEV_CTX *ctx, SHA_DEV_CTX *data) {
     temp = W[(t -  3) & 0x0F] ^ W[(t - 8) & 0x0F] ^     \
            W[(t - 14) & 0x0F] ^ W[ t      & 0x0F],      \
     ( W[t & 0x0F] = S(temp,1) )                         \
-)
+)
+
 #undef P
 #define P(a,b,c,d,e,x)                                  \
 {                                                       \
@@ -231,21 +233,16 @@ void cuda_pmk_kernel( gpu_inbuffer *inbuffer, gpu_outbuffer *outbuffer, const in
 extern "C"
 PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
 {
-    char *essid_pre;
-	char essid[33+4];
-	unsigned char temp[32];
+    char* essid_pre;
+    char essid[33+4];
+    unsigned char temp[32], pad[64];
     PyObject *listObj;
-    int numLines;
-    int i;
-    int line;
-	SHA_CTX ctx_pad;
-	unsigned char pad[64];
-	int slen;
-    void* g_inbuffer;
+    int numLines, line, slen;
+    SHA_CTX ctx_pad;
+    void* g_inbuffer, g_outbuffer;
     gpu_inbuffer* c_inbuffer;
-    void* g_outbuffer;
     gpu_outbuffer* c_outbuffer;
-    cudaEvent_t evt;    
+    cudaEvent_t evt;
 
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
@@ -255,39 +252,46 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     if (numLines < 0) return NULL;
 
     c_inbuffer = (gpu_inbuffer *)malloc(numLines*sizeof(gpu_inbuffer));
-    c_outbuffer = (gpu_outbuffer *)malloc(numLines*sizeof(gpu_outbuffer));
+    if (c_inbuffer == NULL)
+        return PyErr_NoMemory();
 
-	memset( essid, 0, sizeof(essid) );
+    c_outbuffer = (gpu_outbuffer *)malloc(numLines*sizeof(gpu_outbuffer));
+    if (c_outbuffer == NULL)
+    {
+        free(c_inbuffer);
+        return PyErr_NoMemory();
+    }
+
+    memset( essid, 0, sizeof(essid) );
     slen = strlen(essid_pre);
     slen = slen <= 32 ? slen : 32;
-	memcpy(essid, essid_pre, slen);
-	slen = strlen(essid)+4;
+    memcpy(essid, essid_pre, slen);
+    slen = strlen(essid)+4;
 
     for (line = 0; line < numLines; line++)
     {
         char *key = PyString_AsString(PyList_GetItem(listObj, line));
-        
-	    strncpy((char*)pad, key, sizeof(pad));
-	    for( i = 0; i < sizeof(pad); i++ )
-		    pad[i] ^= 0x36;
-	    SHA1_Init( &ctx_pad );
-	    SHA1_Update( &ctx_pad, pad, sizeof(pad) );
-	    CPY_DEVCTX(ctx_pad, c_inbuffer[line].ctx_ipad);
 
-	    for ( i = 0; i < sizeof(pad); i++ )
-	        pad[i] ^= (0x36 ^ 0x5c);
+        strncpy((char*)pad, key, sizeof(pad));
+        for( i = 0; i < sizeof(pad); i++ )
+            pad[i] ^= 0x36;
+        SHA1_Init( &ctx_pad );
+        SHA1_Update( &ctx_pad, pad, sizeof(pad) );
+        CPY_DEVCTX(ctx_pad, c_inbuffer[line].ctx_ipad);
+
+        for ( i = 0; i < sizeof(pad); i++ )
+            pad[i] ^= (0x36 ^ 0x5c);
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
         CPY_DEVCTX(ctx_pad, c_inbuffer[line].ctx_opad);
-	    
-	    essid[slen - 1] = '\1';
+
+        essid[slen - 1] = '\1';
         HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
         GET_BE(c_inbuffer[line].e1.h0, temp, 0); GET_BE(c_inbuffer[line].e1.h1, temp, 4);
         GET_BE(c_inbuffer[line].e1.h2, temp, 8); GET_BE(c_inbuffer[line].e1.h3, temp, 12);
         GET_BE(c_inbuffer[line].e1.h4, temp, 16);
 
-	    
-	    essid[slen - 1] = '\2';
+        essid[slen - 1] = '\2';
         HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
         GET_BE(c_inbuffer[line].e2.h0, temp, 0); GET_BE(c_inbuffer[line].e2.h1, temp, 4);
         GET_BE(c_inbuffer[line].e2.h2, temp, 8); GET_BE(c_inbuffer[line].e2.h3, temp, 12);
@@ -297,11 +301,32 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     // We promise not to touch python objects beyond this point 
     Py_BEGIN_ALLOW_THREADS;
 
-    cudaMalloc(&g_inbuffer, numLines*sizeof(gpu_inbuffer));
-    cudaMemcpy(g_inbuffer, c_inbuffer, numLines*sizeof(gpu_inbuffer), cudaMemcpyHostToDevice);
-    cudaMalloc(&g_outbuffer, numLines*sizeof(gpu_outbuffer));
+    if (cudaMalloc(&g_inbuffer, numLines*sizeof(gpu_inbuffer)) != cudaSuccess)
+    {
+        free(c_inbuffer);
+        free(c_outbuffer);
+        PyErr_SetString(PyExc_MemoryError, "Failed to allocate memory on the device.");
+        return NULL;
+    }
+    if (cudaMalloc(&g_outbuffer, numLines*sizeof(gpu_outbuffer)) != cudaSuccess)
+    {
+        free(c_inbuffer);
+        free(c_outbuffer);
+        cudaFree(g_inbuffer);
+        PyErr_SetString(PyExc_MemoryError, "Failed to allocate memory on the device.");
+        return NULL;
+    }
+    if (cudaMemcpy(g_inbuffer, c_inbuffer, numLines*sizeof(gpu_inbuffer), cudaMemcpyHostToDevice) != cudaSuccess)
+    {
+        free(c_inbuffer);
+        free(c_outbuffer);
+        cudaFree(g_outbuffer);
+        cudaFree(g_inbuffer);
+        PyErr_SetString(PyExc_IOError, "Failed to copy input to device memory.");
+        return NULL;
+    }
     free(c_inbuffer);
- 
+
     // Execute the kernel in blocks of 64 threads each. The GPU can decide to execute as many blocks
     // as possible and needed to complete the task. Remember to fix the size of ipad[] and opad[] in the
     // kernel if you change this value. You must also use the occupancy calculator - more may be worse!   
@@ -311,14 +336,29 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     cuda_pmk_kernel<<<n_blocks, block_size>>>((gpu_inbuffer*)g_inbuffer, (gpu_outbuffer*)g_outbuffer, numLines);
     cudaEventRecord(evt, NULL);
     while (cudaEventQuery(evt) == cudaErrorNotReady) { usleep(500); }
-    cudaEventDestroy(evt);
 
+    cudaEventDestroy(evt);
     cudaFree(g_inbuffer);
-    cudaMemcpy(c_outbuffer, g_outbuffer, numLines*sizeof(gpu_outbuffer), cudaMemcpyDeviceToHost);
+
+    if (cudaThreadSynchronize() != cudaSuccess)
+    {
+        cudaFree(g_outbuffer);
+        free(c_outbuffer);
+        PyErr_SetString(PyExc_SystemError, "Kernel launch failed to complete.");
+        return NULL;
+    }
+
+    if (cudaMemcpy(c_outbuffer, g_outbuffer, numLines*sizeof(gpu_outbuffer), cudaMemcpyDeviceToHost) != cudaSuccess)
+    {
+        free(c_outbuffer);
+        cudaFree(g_outbuffer);
+        PyErr_SetString(PyExc_IOError, "Failed to copy result from device memory.");
+        return NULL;
+    }
     cudaFree(g_outbuffer);
-    
+
     Py_END_ALLOW_THREADS;
-	
+
     PyObject *destlist = PyList_New(numLines);
     for (i = 0; i < numLines; i++)
     {
@@ -327,9 +367,9 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         PUT_BE(c_outbuffer[i].pmk1.h4, temp, 16);PUT_BE(c_outbuffer[i].pmk2.h0, temp, 20); 
         PUT_BE(c_outbuffer[i].pmk2.h1, temp, 24);PUT_BE(c_outbuffer[i].pmk2.h2, temp, 28); 
         PyList_SetItem(destlist, i, Py_BuildValue("(s,s#)", PyString_AsString(PyList_GetItem(listObj, i)), temp, 32));
-    }    
+    }
     free(c_outbuffer);
-    
+
     PyGILState_Release(gstate);
     return destlist;
 }

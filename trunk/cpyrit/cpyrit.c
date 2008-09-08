@@ -26,9 +26,7 @@ void calc_pmk(const char *key,const char *essid_pre, unsigned char pmk[32] )
 	unsigned char buffer[64];
 	unsigned int pmkbuffer[10];
 	char essid[33+4];
-	SHA_CTX ctx_ipad;
-	SHA_CTX ctx_opad;
-	SHA_CTX sha1_ctx;
+	SHA_CTX ctx_ipad, ctx_opad, sha1_ctx;
 
 	memset(essid,0,sizeof(essid));
     slen = strlen(essid_pre);
@@ -87,7 +85,7 @@ void calc_pmk(const char *key,const char *essid_pre, unsigned char pmk[32] )
 		pmkbuffer[6] ^= ((unsigned int*)buffer)[1];
 		pmkbuffer[7] ^= ((unsigned int*)buffer)[2];
 	}
-    
+
     memcpy(pmk, pmkbuffer, 32);
 }
 
@@ -97,7 +95,7 @@ cpyrit_pmk(PyObject *self, PyObject *args)
     const char *key;
     const char *essid;
     unsigned char pmk[40];
-    
+
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
 
@@ -114,7 +112,7 @@ pmkthread(void *ctr)
     struct thread_ctr *myctr = (struct thread_ctr*)ctr;
     int i;
     void **inbuffer = myctr->keyptr;
-    
+
     for (i = myctr->keyoffset; i < myctr->keycount; i += myctr->keystep) {
         calc_pmk(inbuffer[i], myctr->essid, myctr->bufferptr + (i*32));
     };
