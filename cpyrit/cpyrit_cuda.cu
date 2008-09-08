@@ -237,9 +237,10 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     char essid[33+4];
     unsigned char temp[32], pad[64];
     PyObject *listObj;
-    int numLines, line, slen;
+    int numLines, line, slen, i;
     SHA_CTX ctx_pad;
-    void* g_inbuffer, g_outbuffer;
+    void* g_inbuffer;
+    void* g_outbuffer;
     gpu_inbuffer* c_inbuffer;
     gpu_outbuffer* c_outbuffer;
     cudaEvent_t evt;
@@ -253,12 +254,16 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
 
     c_inbuffer = (gpu_inbuffer *)malloc(numLines*sizeof(gpu_inbuffer));
     if (c_inbuffer == NULL)
+    {
+        PyGILState_Release(gstate);
         return PyErr_NoMemory();
-
+    }
+    
     c_outbuffer = (gpu_outbuffer *)malloc(numLines*sizeof(gpu_outbuffer));
     if (c_outbuffer == NULL)
     {
         free(c_inbuffer);
+        PyGILState_Release(gstate);
         return PyErr_NoMemory();
     }
 
@@ -298,14 +303,12 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         GET_BE(c_inbuffer[line].e2.h4, temp, 16);
     }
 
-    // We promise not to touch python objects beyond this point 
-    Py_BEGIN_ALLOW_THREADS;
-
     if (cudaMalloc(&g_inbuffer, numLines*sizeof(gpu_inbuffer)) != cudaSuccess)
     {
         free(c_inbuffer);
         free(c_outbuffer);
         PyErr_SetString(PyExc_MemoryError, "Failed to allocate memory on the device.");
+        PyGILState_Release(gstate);
         return NULL;
     }
     if (cudaMalloc(&g_outbuffer, numLines*sizeof(gpu_outbuffer)) != cudaSuccess)
@@ -314,6 +317,7 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         free(c_outbuffer);
         cudaFree(g_inbuffer);
         PyErr_SetString(PyExc_MemoryError, "Failed to allocate memory on the device.");
+        PyGILState_Release(gstate);
         return NULL;
     }
     if (cudaMemcpy(g_inbuffer, c_inbuffer, numLines*sizeof(gpu_inbuffer), cudaMemcpyHostToDevice) != cudaSuccess)
@@ -323,28 +327,35 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         cudaFree(g_outbuffer);
         cudaFree(g_inbuffer);
         PyErr_SetString(PyExc_IOError, "Failed to copy input to device memory.");
+        PyGILState_Release(gstate);
         return NULL;
     }
     free(c_inbuffer);
 
+    // We promise not to touch python objects beyond this point 
+    Py_BEGIN_ALLOW_THREADS;
+
     // Execute the kernel in blocks of 64 threads each. The GPU can decide to execute as many blocks
     // as possible and needed to complete the task. Remember to fix the size of ipad[] and opad[] in the
-    // kernel if you change this value. You must also use the occupancy calculator - more may be worse!   
+    // kernel if you change this value. You also must use the occupancy calculator - more may be worse!   
     int block_size = 64;
     int n_blocks = numLines / block_size + (numLines % block_size == 0 ? 0 : 1);
     cudaEventCreate(&evt);
     cuda_pmk_kernel<<<n_blocks, block_size>>>((gpu_inbuffer*)g_inbuffer, (gpu_outbuffer*)g_outbuffer, numLines);
     cudaEventRecord(evt, NULL);
     while (cudaEventQuery(evt) == cudaErrorNotReady) { usleep(500); }
-
     cudaEventDestroy(evt);
+
     cudaFree(g_inbuffer);
 
-    if (cudaThreadSynchronize() != cudaSuccess)
+    Py_END_ALLOW_THREADS;
+
+    if (cudaThreadSynchronize() != cudaSuccess || cudaGetLastError() != cudaSuccess)
     {
         cudaFree(g_outbuffer);
         free(c_outbuffer);
         PyErr_SetString(PyExc_SystemError, "Kernel launch failed to complete.");
+        PyGILState_Release(gstate);
         return NULL;
     }
 
@@ -353,11 +364,10 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         free(c_outbuffer);
         cudaFree(g_outbuffer);
         PyErr_SetString(PyExc_IOError, "Failed to copy result from device memory.");
+        PyGILState_Release(gstate);
         return NULL;
     }
     cudaFree(g_outbuffer);
-
-    Py_END_ALLOW_THREADS;
 
     PyObject *destlist = PyList_New(numLines);
     for (i = 0; i < numLines; i++)
