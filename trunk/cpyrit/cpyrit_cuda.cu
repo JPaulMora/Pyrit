@@ -184,26 +184,22 @@ void sha1_process( const SHA_DEV_CTX *ctx, SHA_DEV_CTX *data) {
 
 }
 
-/* This is the kernel called by the cpu. We grab as many as we can from
+/* This is the kernel called by the cpu. We grab as much data as we can from
    global (slow) memory, the IPAD and OPAD values are cached */
 __global__
 void cuda_pmk_kernel( gpu_inbuffer *inbuffer, gpu_outbuffer *outbuffer, const int numLines) {
     int i;
     SHA_DEV_CTX temp_ctx, pmk_ctx;
-    __shared__ SHA_DEV_CTX ipad[64], opad[64];
     
     int idx = blockIdx.x * blockDim.x + threadIdx.x;  
     if (idx > numLines-1) return;
-    
-    CPY_DEVCTX(inbuffer[idx].ctx_ipad, ipad[threadIdx.x]);
-    CPY_DEVCTX(inbuffer[idx].ctx_opad, opad[threadIdx.x]);    
     
     CPY_DEVCTX(inbuffer[idx].e1, temp_ctx);
     CPY_DEVCTX(temp_ctx, pmk_ctx);
     for( i = 0; i < 4096-1; i++ )
     {
-        sha1_process( &ipad[threadIdx.x], &temp_ctx);
-        sha1_process( &opad[threadIdx.x], &temp_ctx);
+        sha1_process( &inbuffer[idx].ctx_ipad, &temp_ctx);
+        sha1_process( &inbuffer[idx].ctx_opad, &temp_ctx);
         pmk_ctx.h0 ^= temp_ctx.h0; pmk_ctx.h1 ^= temp_ctx.h1;
         pmk_ctx.h2 ^= temp_ctx.h2; pmk_ctx.h3 ^= temp_ctx.h3;
         pmk_ctx.h4 ^= temp_ctx.h4;
@@ -214,8 +210,8 @@ void cuda_pmk_kernel( gpu_inbuffer *inbuffer, gpu_outbuffer *outbuffer, const in
     CPY_DEVCTX(temp_ctx, pmk_ctx);
     for( i = 0; i < 4096-1; i++ )
     {
-        sha1_process( &ipad[threadIdx.x], &temp_ctx);
-        sha1_process( &opad[threadIdx.x], &temp_ctx);
+        sha1_process( &inbuffer[idx].ctx_ipad, &temp_ctx);
+        sha1_process( &inbuffer[idx].ctx_opad, &temp_ctx);
         pmk_ctx.h0 ^= temp_ctx.h0; pmk_ctx.h1 ^= temp_ctx.h1;
         pmk_ctx.h2 ^= temp_ctx.h2; pmk_ctx.h3 ^= temp_ctx.h3;
         pmk_ctx.h4 ^= temp_ctx.h4;
