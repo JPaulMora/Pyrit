@@ -332,14 +332,15 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     Py_BEGIN_ALLOW_THREADS;
 
     // Execute the kernel in blocks of 64 threads each. The GPU can decide to execute as many blocks
-    // as possible and needed to complete the task. Remember to fix the size of ipad[] and opad[] in the
-    // kernel if you change this value. You also must use the occupancy calculator - more may be worse!   
+    // as possible and needed to complete the task. You must use the occupancy calculator - more may be worse!   
     int block_size = 64;
     int n_blocks = numLines / block_size + (numLines % block_size == 0 ? 0 : 1);
     cudaEventCreate(&evt);
     cuda_pmk_kernel<<<n_blocks, block_size>>>((gpu_inbuffer*)g_inbuffer, (gpu_outbuffer*)g_outbuffer, numLines);
-    cudaEventRecord(evt, NULL);
-    while (cudaEventQuery(evt) == cudaErrorNotReady) { usleep(500); }
+    if (cudaEventRecord(evt, NULL) == cudaSuccess)
+    {
+        while (cudaEventQuery(evt) == cudaErrorNotReady) { usleep(500); }
+    }
     cudaEventDestroy(evt);
 
     cudaFree(g_inbuffer);

@@ -63,6 +63,7 @@ class Pyrit_CLI(object):
             command = "help"
         else:
             command = commands[0]
+        
         if command == "export_cowpatty":
             if self.options["file"] is None:
                 print "One must specify a filename using the -f option. See 'help'"
@@ -71,6 +72,15 @@ class Pyrit_CLI(object):
                     print "The cowpatty-format only supports one ESSID per file. Please specify one using the -e option."
                 else:
                     self.export_cowpatty()
+                    
+        elif command == "export_hashdb":
+            if 'export_hashdb' not in dir(self.pyrit_obj):
+                print "Support for SQLite seems to be missing. Please check if the pysqlite2 module is available to python."
+            else:
+                if self.options["file"] is None:
+                    print "You must specify the database filename using the -f option. See 'help'"
+                else:
+                    self.pyrit_obj.export_hashdb(self.options["essid"], self.options["file"])
         
         elif command == "import_cowpatty":
             pass
@@ -134,7 +144,7 @@ class Pyrit_CLI(object):
         for e in self.pyrit_obj.eval_results(self.options["essid"]):
             print "ESSID:\t '%s'" % e[1]
             print "Passwords available:\t %i" % e[2]
-            print "Passwords done so far:\t %i (%.2f%%)" % (e[3], e[3] / e[2])
+            print "Passwords done so far:\t %i (%.2f%%)" % (e[3], e[3] * 100.0 / e[2])
             print ""
     
     def export_passwords(self):
@@ -234,7 +244,7 @@ class Pyrit_CLI(object):
 
     def benchmark(self):
         c = cpyrit.CPyrit()
-        print "Benchmarking cores", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
+        print "Available cores:", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
 
         core = c.getCore()
         md = md5.new()
@@ -242,8 +252,8 @@ class Pyrit_CLI(object):
         if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
             print "WARNING: Core gives wrong single-results. The CPyrit-module is probably broken..."
             return
-        
         pws = ["bar_%i" % i for i in xrange(10000)]
+        
         core = c.getCore('Standard CPU')
         print "Testing CPU-only core '%s'..." % core.name
         t = time.time()

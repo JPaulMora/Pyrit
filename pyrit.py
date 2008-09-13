@@ -28,9 +28,17 @@ class Pyrit(object):
     The commandline-client and to-be-written GUIs are built upon this common codebase.
     """
     
+    try:
+        from pysqlite2 import dbapi2 as sqlite
+    except:
+        pass
+    
     def __init__(self, essidstore_path='blobspace/essid', pwstore_path='blobspace/password'):
         self.pwstore = PasswordStore(pwstore_path)
         self.essidstore = EssidStore(essidstore_path)
+        
+    def import_password(self, password):
+        self.pwstore.store_password(password)
         
     def import_passwords(self, fileobject):
         try:
@@ -45,9 +53,17 @@ class Pyrit(object):
             s = set(f.yieldPassword())
             f.close()
             yield (pw_idx, s)
+            
+    def list_results(self, essid):
+        essid_obj = self.essidstore.open_essid(essid)
+        for result in essid_obj.results:
+            pyr_obj = essid_obj.open_result(result)
+            for r in pyr_obj.results.items():
+                yield (r[0], r[1])
+            pyr_obj.close()
     
     def export_cowpatty(self, essid):
-        essid_obj = self.essidstore.open_essid('linksys-den')
+        essid_obj = self.essidstore.open_essid(essid)
         idx = len(essid_obj.results) - 1
         yield((idx, pack("<i", 0x43575041)))
         yield((idx, chr(0)*3))
@@ -108,4 +124,27 @@ class Pyrit(object):
         """
         return CPyrit().getCore(corename).solve(essid, passwordlist)
 
+    if 'sqlite' in locals():
+        def export_hashdb(self, essid_param, hashdbfile):
+            con = self.sqlite.connect(hashdbfile)
+            cur = con.cursor()
+            try:
+                for essid in [essid_param] if essid_param is not None else self.list_essids():
+                    print "Exporting ESSID '%s'" % essid
+                    cur.execute('INSERT OR IGNORE INTO essid (essid) VALUES (?)', (essid,))
+                    cur.execute('SELECT essid_id FROM ESSID WHERE essid = ?', (essid,))
+                    essid_id = cur.fetchone()[0]
+                    for passwd, result in self.list_results(essid):
+                        cur.execute('INSERT OR IGNORE INTO passwd (passwd) VALUES (?)', (passwd,))
+                        cur.execute('INSERT OR IGNORE INTO pmk (essid_id, passwd_id, pmk) \
+                                        SELECT ?, passwd_id, ? FROM passwd WHERE passwd = ?', (essid_id, buffer(result), passwd))
+                con.commit()
+            except:
+                con.rollback()
+                cur.close()
+                con.close()
+                raise
+
+            cur.close()
+            con.close()
 
