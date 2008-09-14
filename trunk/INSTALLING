@@ -1,0 +1,13 @@
+=== Requirements ===
+
+ * For CUDA support the Nvidia CUDA SDK must be installed and properly linked.
+ * The OpenSSL library and headers.
+
+=== Compilating ===
+
+ * Compilation:
+    The CPyrit extension module must be compiled and installed. Modify setup.py according to your needs and run the ./make file
+
+ * Installing:
+    Python's distutils will install the CPyrit module to the site-packages directory itself.
+

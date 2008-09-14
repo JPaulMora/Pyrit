@@ -38,8 +38,10 @@ class Pyrit_CLI(object):
                         "core_name": None,
                         "essid": None,
                         "file": None}
-        
         self.pyrit_obj = None
+        
+    def progressbar(self, idx, max_idx):
+        return "[" + '#' * int((max_idx - idx) * 30.0 / max_idx) + "-" * (30 - int((max_idx - idx) * 30.0 / max_idx)) + "]"
         
     def init(self, argv):
         options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:")
@@ -59,11 +61,7 @@ class Pyrit_CLI(object):
                 
         self.pyrit_obj = Pyrit(self.options["essidstore_path"], self.options["passwdstore_path"])        
         
-        if len(commands) == 0:
-            command = "help"
-        else:
-            command = commands[0]
-        
+        command = commands[0] if len(commands) > 0 else 'help'
         if command == "export_cowpatty":
             if self.options["file"] is None:
                 print "One must specify a filename using the -f option. See 'help'"
@@ -80,8 +78,14 @@ class Pyrit_CLI(object):
                 if self.options["file"] is None:
                     print "You must specify the database filename using the -f option. See 'help'"
                 else:
-                    self.pyrit_obj.export_hashdb(self.options["essid"], self.options["file"])
-        
+                    if self.options["essid"] is None:
+                        essids = self.pyrit_obj.list_essids()
+                    else:
+                        essids = [self.options["essid"]]
+                    for essid in essids:
+                        print "Exporting ESSID '%s'" % essid
+                        self.pyrit_obj.export_hashdb(essid, self.options["file"])
+
         elif command == "import_cowpatty":
             pass
         
@@ -123,7 +127,6 @@ class Pyrit_CLI(object):
         else:
             print "Don't know that command. See valid commands with 'help'"
         
-        
     def import_passwords(self):
         if self.options["file"] is None:
             print "One must specify a filename using the -f options. See 'help'"
@@ -131,12 +134,11 @@ class Pyrit_CLI(object):
             print "Importing from",
             if self.options["file"] == "-":
                 print "stdin."
-                f = sys.stdin
+                self.pyrit_obj.import_passwords(sys.stdin)
             else:
                 print "'%s'" % self.options["file"]
                 f = open(self.options["file"], "r")
-            self.pyrit_obj.import_passwords(f)
-            if f != sys.stdin:
+                self.pyrit_obj.import_passwords(f)
                 f.close()
             print "Done"
 
@@ -144,15 +146,14 @@ class Pyrit_CLI(object):
         for e in self.pyrit_obj.eval_results(self.options["essid"]):
             print "ESSID:\t '%s'" % e[1]
             print "Passwords available:\t %i" % e[2]
-            print "Passwords done so far:\t %i (%.2f%%)" % (e[3], e[3] * 100.0 / e[2])
+            print "Passwords done so far:\t %i (%.2f%%)" % (e[3], (e[3] * 100.0 / e[2]) if e[2] > 0 else 0.0)
             print ""
     
     def export_passwords(self):
         if self.options["file"] == "-":
-            f = sys.stdout
             for idx, rowset in self.pyrit_obj.export_passwords():
                 for row in rowset:
-                    f.write(row+"\n")
+                    sys.stdout.write(row+"\n")
             sys.stdout.flush()
         else:
             f = open(self.options["file"],"w")
@@ -161,7 +162,7 @@ class Pyrit_CLI(object):
             lines = 0
             for idx, rowset in self.pyrit_obj.export_passwords():
                 max_idx = max(idx, max_idx)
-                print "[" + '#' * int((max_idx - idx) * 20.0 / max_idx) + "-" * (20 - int((max_idx - idx) * 20.0 / max_idx)) + "]",
+                print self.progressbar(idx, max_idx),
                 print "%i lines written (%.2f%%)\r" % (lines, (max_idx - idx) * 100.0 / max_idx),
                 for row in rowset:
                     f.write(row+"\n")
@@ -185,13 +186,19 @@ class Pyrit_CLI(object):
                 f.write(row)
                 lines += 1
                 if lines % 1000 == 0:
-                    print "[" + '#' * int((max_idx - idx) * 20.0 / max_idx) + "-" * (20 - int((max_idx - idx) * 20.0 / max_idx)) + "]",
+                    print self.progressbar(idx, max_idx),
                     print "%i lines written (%.2f%%)\r" % (lines, (max_idx - idx) * 100.0 / max_idx),
                     sys.stdout.flush()
             f.close()
             print "\nAll done."
 
     def batchprocess(self):
+        if self.options["core_name"] is not None:
+            core = cpyrit.CPyrit().getCore(self.options["core_name"])
+            print "Selected core '%s'" % core.name
+        else:
+            core = cpyrit.CPyrit().getCore()
+            print "Using default core '%s'" % core.name
         comptime = 0
         rescount = 0    
         essids = self.pyrit_obj.list_essids()
@@ -225,7 +232,7 @@ class Pyrit_CLI(object):
                         for pwslice in xrange(0,len(passwords), 15000):
                             pwset = passwords[pwslice:pwslice+15000]
                             t = time.time()
-                            pyr_obj.results.update(self.pyrit_obj.solve(essid_object.essid, pwset))
+                            pyr_obj.results.update(core.solve(essid_object.essid, pwset))
                             comptime += time.time() - t
                             rescount += len(pwset)
                             print "\r  -> %.2f%% done" % (pwslice * 100.0 / len(passwords)),
@@ -272,8 +279,8 @@ class Pyrit_CLI(object):
             res = sorted(core.solve('foo', pws))
             t = time.time() - t
             print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
-            print "GPU performance: %.2f PMKs/s" % (core.gpu_perf[0] / core.gpu_perf[1])
-            print "CPU performance: %.2f PMKs/s" % (core.cpu_perf[0] / core.cpu_perf[1])
+            print "GPU performance: %.2f PMKs/s" % ((core.gpu_perf[0] / core.gpu_perf[1]) if core.gpu_perf[1] > 0 else 0.0)
+            print "CPU performance: %.2f PMKs/s" % ((core.cpu_perf[0] / core.cpu_perf[1]) if core.cpu_perf[1] > 0 else 0.0)
             md = md5.new()
             map(md.update, [x[1] for x in res])
             print "Result hash: %s" % md.hexdigest(), {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
