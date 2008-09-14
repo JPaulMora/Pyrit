@@ -1,11 +1,27 @@
+#!/usr/bin/python
 from distutils.core import setup, Extension
+import sys
+import subprocess
+
+libraries = ['ssl']
+include_dirs = ['/usr/include']
+extra_objects = []
+extra_compile_args = ['-O0','-ggdb']
+if 'HAVE_CUDA' in sys.argv:
+    print "Compiling CUDA kernel..."
+    subprocess.check_call(['nvcc', '-Xcompiler "-fPIC" -Xptxas "-maxrregcount=42" -c cpyrit_cuda.cu'])
+    print "... done."
+    libraries.extend(['cuda', 'cudart'])
+    extra_compile_args.append('-DHAVE_CUDA')
+    include_dirs.append('/usr/local/cuda/include')
+    extra_objects.append('cpyrit_cuda.o')
 
 cmodule = Extension('_cpyrit',
-                    libraries = ['cuda','cudart','ssl'],
+                    libraries = libraries,
                     sources = ['cpyrit.c'],
-                    extra_compile_args = ['-O0','-ggdb'],
-                    include_dirs = ['/usr/local/cuda/include'],
-                    extra_objects = ['cpyrit_cuda.o']
+                    extra_compile_args = extra_compile_args,
+                    include_dirs = include_dirs,
+                    extra_objects = extra_objects
                     )
 
 setup (name = 'cpyrit',

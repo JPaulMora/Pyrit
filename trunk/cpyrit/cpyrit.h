@@ -21,8 +21,6 @@
 #ifndef CPYRIT
 #define CPYRIT
 
-#define HAVE_CUDA
-
 #include <python2.5/Python.h>
 #include <pthread.h>
 #include <openssl/hmac.h>
