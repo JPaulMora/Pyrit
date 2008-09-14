@@ -8,9 +8,8 @@ _Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managi
 
   * Get yourself a copy of the latest code from [http://code.google.com/p/pyrit/source/checkout]
   * Get yourself a copy of the OpenSSL library and headers. On binary Linux distributions you probably have to install "openssl-dev" or similar named packages.
-  * If you have a NVIDIA GF-8800 or later, you can use the CUDA-core for a massive performance gain. Get yourself a copy of the CUDA-compatible drivers and the SDK from [http://www.nvidia.com/object/cuda_get.html]. You'll have to symlink the library files into /usr/lib and such.
-  * If you don't have such a GPU or don't want CUDA support, comment the line _"HAVE_CUDA"_ in the file _cpyrit.h_ in the cpyrit subdirectory.
-  * Modify the file _"make"_ (which is not a Makefile...) and setup.py to your needs and build and install the cpyrit module to your python site-packages.
+  * If you have a Nvidia GPU that supports CUDA, you can use _Pyrit_'s CUDA-core for a massive performance gain. Get yourself a copy of the CUDA-compatible drivers and the SDK from [http://www.nvidia.com/object/cuda_get.html]. You'll have to symlink the library files into /usr/lib and such.
+  * Modify setup.py to your needs and build and install the cpyrit module to your python site-packages. Give 'HAVE_CUDA' as parameter to compile and include Nvidia CUDA support.
 
 = Using the tools =
 
@@ -39,7 +38,7 @@ _Pyrit_'s uses two subdirectories for storage: One for the ESSIDs and the PMKs a
 =Example=
   * Get the code using subversion: _"svn checkout http://pyrit.googlecode.com/svn/trunk/ pyrit"_
   * Make the CLI executable: _"chmod +x pyrit_cli.py"_
-  * Compile and install the CPyrit module: _"cd cpyrit && ./make && cd .."_
+  * Compile and install the CPyrit module: _"cd cpyrit && ./setup.py install HAVE_CUDA && cd .."_
   * Create a new ESSID: _"./pyrit_cli.py -e foobar create_essid"_
   * Import a list of passwords: _"./pyrit_cli.py -f list.txt import_passwords"_
   * Run the batch-processing: _"./pyrit_cli.py -e foobar batchprocess"_
