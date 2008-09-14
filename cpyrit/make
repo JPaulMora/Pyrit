@@ -1,4 +1,0 @@
-#!/bin/bash
-
-nvcc -Xcompiler "-fPIC" -Xptxas "-v -maxrregcount=42" -c cpyrit_cuda.cu && rm -rf build/ && python setup.py install
-
