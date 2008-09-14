@@ -398,7 +398,7 @@ class PasswordStore(object):
     def refresh(self, pw_param=None):
         passwords = {}
         for pw_h1 in [x for x in os.listdir(self.passwdpath) if (pw_param is None or x == pw_param)]:
-            for pw in [x for x in os.listdir(os.path.join(self.passwdpath,pw_h1)) if x[-3:] == '.pw']:
+            for pw in [x for x in os.listdir(os.path.join(self.passwdpath, pw_h1)) if x[-3:] == '.pw']:
                 passwords[pw[:len(pw)-3]] = os.path.join(self.passwdpath, pw_h1, pw)
         return passwords
 
