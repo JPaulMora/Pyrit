@@ -343,7 +343,6 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         while (cudaEventQuery(evt) == cudaErrorNotReady) { usleep(500); }
     }
     cudaEventDestroy(evt);
-
     cudaFree(g_inbuffer);
 
     Py_END_ALLOW_THREADS;

@@ -8,8 +8,9 @@ include_dirs = ['/usr/include']
 extra_objects = []
 extra_compile_args = ['-O0','-ggdb']
 if 'HAVE_CUDA' in sys.argv:
+    sys.argv.remove('HAVE_CUDA')
     print "Compiling CUDA kernel..."
-    subprocess.check_call(['nvcc', '-Xcompiler "-fPIC" -Xptxas "-maxrregcount=42" -c cpyrit_cuda.cu'])
+    subprocess.check_call('nvcc -Xcompiler "-fPIC -DHAVE_CUDA" -Xptxas "-maxrregcount=42" -c cpyrit_cuda.cu', shell=True)
     print "... done."
     libraries.extend(['cuda', 'cudart'])
     extra_compile_args.append('-DHAVE_CUDA')

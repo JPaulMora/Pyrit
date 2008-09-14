@@ -127,20 +127,14 @@ class Pyrit(object):
             try:
                 cur.execute('INSERT OR IGNORE INTO essid (essid) VALUES (?)', (essid,))
                 essid_id = cur.execute('SELECT essid_id FROM essid WHERE essid = ?', (essid,)).fetchone()[0]
-                print "Reading..."
                 cur.execute('CREATE TEMPORARY TABLE import (passwd_id int key, passwd text key, pmk blob)')
                 for idx, result in self.enum_results(essid):
                     cur.executemany('INSERT INTO import (passwd, pmk) VALUES (?,?)', ((pw, buffer(res)) for pw,res in result))
-                print "Updating references..."
                 cur.execute('UPDATE import SET passwd_id = (SELECT passwd.passwd_id FROM passwd WHERE passwd.passwd = import.passwd)')
-                print "Inserting..."
                 cur.execute('INSERT INTO passwd (passwd) SELECT passwd FROM import WHERE passwd_id IS NULL')
-                print "Updating again..."
                 cur.execute('UPDATE import SET passwd_id = (SELECT passwd.passwd_id FROM passwd WHERE passwd.passwd = import.passwd) WHERE passwd_id IS NULL')
-                print "Writing..."
                 cur.execute('INSERT OR IGNORE INTO pmk (essid_id,passwd_id,pmk) SELECT ?, passwd_id, pmk FROM import', (essid_id,))
                 cur.execute('DROP TABLE import')
-                print "Done."
                 con.commit()
             except:
                 con.rollback()
