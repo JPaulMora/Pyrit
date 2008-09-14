@@ -240,6 +240,7 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     gpu_inbuffer* c_inbuffer;
     gpu_outbuffer* c_outbuffer;
     cudaEvent_t evt;
+    cudaError_t ret;
 
     PyGILState_STATE gstate;
     gstate = PyGILState_Ensure();
@@ -303,7 +304,7 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     {
         free(c_inbuffer);
         free(c_outbuffer);
-        PyErr_SetString(PyExc_MemoryError, "Failed to allocate memory on the device.");
+        PyErr_SetString(PyExc_MemoryError, cudaGetErrorString(cudaGetLastError()));
         PyGILState_Release(gstate);
         return NULL;
     }
@@ -312,7 +313,7 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         free(c_inbuffer);
         free(c_outbuffer);
         cudaFree(g_inbuffer);
-        PyErr_SetString(PyExc_MemoryError, "Failed to allocate memory on the device.");
+        PyErr_SetString(PyExc_MemoryError, cudaGetErrorString(cudaGetLastError()));
         PyGILState_Release(gstate);
         return NULL;
     }
@@ -322,7 +323,7 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
         free(c_outbuffer);
         cudaFree(g_outbuffer);
         cudaFree(g_inbuffer);
-        PyErr_SetString(PyExc_IOError, "Failed to copy input to device memory.");
+        PyErr_SetString(PyExc_IOError, cudaGetErrorString(cudaGetLastError()));
         PyGILState_Release(gstate);
         return NULL;
     }
@@ -347,11 +348,12 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
 
     Py_END_ALLOW_THREADS;
 
-    if (cudaThreadSynchronize() != cudaSuccess || cudaGetLastError() != cudaSuccess)
+    ret = cudaGetLastError();    
+    if (cudaThreadSynchronize() != cudaSuccess || ret != cudaSuccess)
     {
         cudaFree(g_outbuffer);
         free(c_outbuffer);
-        PyErr_SetString(PyExc_SystemError, "Kernel launch failed to complete.");
+        PyErr_SetString(PyExc_SystemError, cudaGetErrorString(ret));
         PyGILState_Release(gstate);
         return NULL;
     }
@@ -360,7 +362,7 @@ PyObject *cpyrit_cuda(PyObject *self, PyObject *args)
     {
         free(c_outbuffer);
         cudaFree(g_outbuffer);
-        PyErr_SetString(PyExc_IOError, "Failed to copy result from device memory.");
+        PyErr_SetString(PyExc_IOError, cudaGetErrorString(cudaGetLastError()));
         PyGILState_Release(gstate);
         return NULL;
     }
