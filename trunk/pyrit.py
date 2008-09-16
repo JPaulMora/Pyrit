@@ -42,7 +42,7 @@ class Pyrit(object):
         
     def import_passwords(self, fileobject):
         try:
-            for line in fileobject.readlines():
+            for line in fileobject:
                 self.pwstore.store_password(line)
         finally:
             self.pwstore.flush_buffer()
@@ -381,6 +381,9 @@ class PasswordStore(object):
         self.makedir(self.passwdpath)
         self.pwbuffer = {}
         self.pwpattern = re.compile("([a-zöäüß ]+)")
+
+    def __del__(self):
+        self.flush_buffer()
 
     def makedir(self,pathname):
         try:
