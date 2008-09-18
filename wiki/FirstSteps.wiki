@@ -9,7 +9,8 @@ _Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managi
   * Get yourself a copy of the latest code from [http://code.google.com/p/pyrit/source/checkout]
   * Get yourself a copy of the OpenSSL library and headers. On binary Linux distributions you probably have to install "openssl-dev" or similar named packages.
   * If you have a Nvidia GPU that supports CUDA, you can use _Pyrit_'s CUDA-core for a massive performance gain. Get yourself a copy of the CUDA-compatible drivers and the Toolkit from [http://www.nvidia.com/object/cuda_get.html]. You'll have to symlink the library files into /usr/lib and such.
-  * Modify setup.py to your needs and build and install the cpyrit module to your python site-packages. Give 'HAVE_CUDA' as parameter to compile and include Nvidia CUDA support.
+  * Modify setup.py to your needs
+  * Run setup.py to build and install the cpyrit module to your python site-packages. Give 'HAVE_CUDA' as parameter to compile and include Nvidia CUDA support. Give 'HAVE_PADLOCK' as parameter to include support for VIA's padlock engine.
 
 = Using the tools =
 
