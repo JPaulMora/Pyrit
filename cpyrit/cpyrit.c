@@ -20,7 +20,104 @@
 
 #include "cpyrit.h"
 
-void calc_pmk(const char *key,const char *essid_pre, unsigned char pmk[32] )
+#ifdef HAVE_PADLOCK
+
+// This instruction is not available on all CPUs (do we really care about those?)
+// Therefor it is only used on padlock-enabled machines
+static inline int bswap(int x)
+{
+    asm volatile ("bswap %0":
+                "=r" (x):
+                "0" (x));
+    return x;
+}
+
+static inline int
+padlock_xsha1_lowlevel(char *input, unsigned int *output, int count)
+{
+    int done = 0;
+    asm volatile ("xsha1"
+              : "+S"(input), "+D"(output), "+a"(done)
+              : "c"(count));
+    return done;
+}
+
+// See the padlock programming guide. XSHA1 always finalizes the hash
+// (including msglen) by itself. Therefor we can't use cached values for
+// ipad/opad. The SIGSEV-trick is even slower than this due to pipeline stalls.
+static inline int
+padlock_xsha1(const unsigned char* pad, unsigned char* buffer)
+{
+    struct xsha1_ctx ctx;
+    size_t hashed;
+
+    ctx.state[0] = 0x67452301;
+    ctx.state[1] = 0xEFCDAB89;
+    ctx.state[2] = 0x98BADCFE;
+    ctx.state[3] = 0x10325476;
+    ctx.state[4] = 0xC3D2E1F0;
+
+    memcpy(ctx.inputbuffer, pad, 64);
+    memcpy(ctx.inputbuffer+64, buffer, 20);
+    hashed = padlock_xsha1_lowlevel(ctx.inputbuffer, ctx.state, 64+20);
+
+    ((int*)buffer)[0] = bswap(ctx.state[0]); ((int*)buffer)[1] = bswap(ctx.state[1]); 
+    ((int*)buffer)[2] = bswap(ctx.state[2]); ((int*)buffer)[3] = bswap(ctx.state[3]); 
+    ((int*)buffer)[4] = bswap(ctx.state[4]); 
+
+    return hashed;
+}
+
+void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
+{
+    int i, slen;
+    unsigned char ipad[64], opad[64];
+    char essid[33+4];
+    unsigned int pmkbuffer[8], lbuffer[5], rbuffer[5];
+
+	memset(essid,0,sizeof(essid));
+    slen = strlen(essid_pre);
+    slen = slen <= 32 ? slen : 32;
+	memcpy(essid,essid_pre,slen);
+	slen = strlen(essid)+4;
+
+    strncpy((char *)ipad, key, sizeof(ipad));
+    strncpy((char *)opad, key, sizeof(opad));
+    for (i = 0; i < 64; i++)
+    {
+        ipad[i] ^= 0x36;
+        opad[i] ^= 0x5C;
+    }
+    
+    essid[slen - 1] = '\1';
+    HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)lbuffer, NULL);
+    memcpy(pmkbuffer, lbuffer, 20);    
+    
+    essid[slen - 1] = '\2';
+    HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)rbuffer, NULL);
+    memcpy(&(pmkbuffer[5]), rbuffer, 12);
+
+    for (i = 0; i < 4096-1; i++)
+    {
+        padlock_xsha1(ipad, (unsigned char*)lbuffer);
+        padlock_xsha1(opad, (unsigned char*)lbuffer);
+        padlock_xsha1(ipad, (unsigned char*)rbuffer);
+        padlock_xsha1(opad, (unsigned char*)rbuffer);
+                
+		pmkbuffer[0] ^= lbuffer[0]; pmkbuffer[1] ^= lbuffer[1];
+		pmkbuffer[2] ^= lbuffer[2]; pmkbuffer[3] ^= lbuffer[3];
+		pmkbuffer[4] ^= lbuffer[4];
+		pmkbuffer[5] ^= rbuffer[0]; pmkbuffer[6] ^= rbuffer[1];
+		pmkbuffer[7] ^= rbuffer[2];
+
+	}
+
+    memcpy(pmk, pmkbuffer, 32);
+}
+
+#else
+
+void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 {
 	int i, slen;
 	unsigned char buffer[64];
@@ -48,46 +145,38 @@ void calc_pmk(const char *key,const char *essid_pre, unsigned char pmk[32] )
 	essid[slen - 1] = '\1';
     HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)pmkbuffer, NULL);
 	memcpy( buffer, pmkbuffer, 20 );
-
-	for( i = 1; i < 4096; i++ )
-	{
-		memcpy( &sha1_ctx, &ctx_ipad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
-
-		memcpy( &sha1_ctx, &ctx_opad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
-
-		pmkbuffer[0] ^= ((unsigned int*)buffer)[0];
-		pmkbuffer[1] ^= ((unsigned int*)buffer)[1];
-		pmkbuffer[2] ^= ((unsigned int*)buffer)[2];
-		pmkbuffer[3] ^= ((unsigned int*)buffer)[3];
-		pmkbuffer[4] ^= ((unsigned int*)buffer)[4];
-		
-	}
-
+	
 	essid[slen - 1] = '\2';
     HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char *)(&pmkbuffer[5]), NULL);
-	memcpy( buffer, &pmkbuffer[5], 20 );
+	memcpy( buffer+20, (unsigned char*)(&pmkbuffer[5]), 20 );
 
-	for( i = 1; i < 4096; i++ )
+	for( i = 0; i < 4096-1; i++ )
 	{
-		memcpy( &sha1_ctx, &ctx_ipad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
+		memcpy(&sha1_ctx, &ctx_ipad, sizeof(sha1_ctx));
+		SHA1_Update(&sha1_ctx, buffer, 20);
+		SHA1_Final(buffer, &sha1_ctx);
+		memcpy(&sha1_ctx, &ctx_opad, sizeof(sha1_ctx));
+		SHA1_Update(&sha1_ctx, buffer, 20);
+		SHA1_Final(buffer, &sha1_ctx);
 
-		memcpy( &sha1_ctx, &ctx_opad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
+		memcpy(&sha1_ctx, &ctx_ipad, sizeof(sha1_ctx));
+		SHA1_Update(&sha1_ctx, buffer+20, 20);
+		SHA1_Final(buffer+20, &sha1_ctx);
+		memcpy(&sha1_ctx, &ctx_opad, sizeof(sha1_ctx));
+		SHA1_Update(&sha1_ctx, buffer+20, 20);
+		SHA1_Final(buffer+20, &sha1_ctx);
 
-		pmkbuffer[5] ^= ((unsigned int*)buffer)[0];
-		pmkbuffer[6] ^= ((unsigned int*)buffer)[1];
-		pmkbuffer[7] ^= ((unsigned int*)buffer)[2];
+		pmkbuffer[0] ^= ((unsigned int*)buffer)[0];	pmkbuffer[1] ^= ((unsigned int*)buffer)[1];
+		pmkbuffer[2] ^= ((unsigned int*)buffer)[2];	pmkbuffer[3] ^= ((unsigned int*)buffer)[3];
+		pmkbuffer[4] ^= ((unsigned int*)buffer)[4];	pmkbuffer[5] ^= ((unsigned int*)buffer)[5];
+		pmkbuffer[6] ^= ((unsigned int*)buffer)[6]; pmkbuffer[7] ^= ((unsigned int*)buffer)[7];		
+
 	}
 
     memcpy(pmk, pmkbuffer, 32);
 }
+
+#endif
 
 static PyObject *
 cpyrit_pmk(PyObject *self, PyObject *args)

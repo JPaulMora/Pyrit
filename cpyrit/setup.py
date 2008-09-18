@@ -6,16 +6,20 @@ import subprocess
 libraries = ['ssl']
 include_dirs = ['/usr/include']
 extra_objects = []
-extra_compile_args = ['-O0','-ggdb']
+extra_compile_args = ['-O2']
 if 'HAVE_CUDA' in sys.argv:
     sys.argv.remove('HAVE_CUDA')
     print "Compiling CUDA kernel..."
-    subprocess.check_call('nvcc -Xcompiler "-fPIC -DHAVE_CUDA" -Xptxas "-maxrregcount=42" -c cpyrit_cuda.cu', shell=True)
+    subprocess.check_call('nvcc -Xcompiler "-fPIC -DHAVE_CUDA" -c cpyrit_cuda.cu', shell=True)
     print "... done."
     libraries.extend(['cuda', 'cudart'])
     extra_compile_args.append('-DHAVE_CUDA')
     include_dirs.append('/usr/local/cuda/include')
     extra_objects.append('cpyrit_cuda.o')
+if 'HAVE_PADLOCK' in sys.argv:
+    sys.argv.remove('HAVE_PADLOCK')
+    print "Compiling with Via padlock support"
+    extra_compile_args.append('-DHAVE_PADLOCK')
 
 cmodule = Extension('_cpyrit',
                     libraries = libraries,
@@ -27,6 +31,9 @@ cmodule = Extension('_cpyrit',
 
 setup (name = 'cpyrit',
        version = '1.0',
-       description = 'Fast WPA/WPA2 HMAC through openssl',
+       description = 'Computational cores for Pyrit',
+       author = 'Lukas Lueg',
+       author_email = 'knabberknusperhaus@yahoo.de',
+       url = 'http://pyrit.googlecode.com',
        py_modules = ['cpyrit'],
        ext_modules = [cmodule]) 

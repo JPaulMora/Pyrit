@@ -45,7 +45,12 @@
     (b)[(i) + 3] = (unsigned char) ( (n)       );       \
 }
 
-
+#ifdef HAVE_PADLOCK
+    struct xsha1_ctx {
+        unsigned int state[32];
+        char inputbuffer[64+20+64];
+    } __attribute__((aligned(16)));
+#endif
 
 struct thread_ctr {
     pthread_t thread_id;
@@ -62,21 +67,21 @@ struct thread_ctr {
     typedef struct {
         unsigned long h0,h1,h2,h3,h4;
     } SHA_DEV_CTX;
-    
+
     #define CPY_DEVCTX(src, dst) \
     { \
         dst.h0 = src.h0; dst.h1 = src.h1; \
         dst.h2 = src.h2; dst.h3 = src.h3; \
         dst.h4 = src.h4; \
     }
- 
+
     typedef struct {
         SHA_DEV_CTX ctx_ipad;
         SHA_DEV_CTX ctx_opad;
         SHA_DEV_CTX e1;
         SHA_DEV_CTX e2;
     } gpu_inbuffer;
-    
+
     typedef struct {
         SHA_DEV_CTX pmk1;
         SHA_DEV_CTX pmk2;
