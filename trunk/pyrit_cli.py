@@ -112,17 +112,35 @@ class Pyrit_CLI(object):
                 self.pyrit_obj.create_essid(essid)
                 print "Created ESSID '%s'" % essid
         
-        elif command == "eval_results":
+        elif command == "eval":
             self.eval_results()
             
-        elif command == "batchprocess":
+        elif command == "batch":
             self.batchprocess()
         
         elif command == "benchmark":
             self.benchmark()
         
         elif command == 'help':
-            print "The Pyrit commandline-client.\nSomeone write some help here."
+            print "The Pyrit commandline-client. (C) 2008 Lukas Lueg", \
+                "http://pyrit.googlecode.com", \
+                "\nThis code is distributed under the GNU General Public License v3", \
+                "\n\nusage: pyrit_cli [options] command", \
+                "\n\nRecognized options:", \
+                "\n    -u    : path to the ESSID-blobspace", \
+                "\n    -v    : path to the Password-blobspace", \
+                "\n    -c    : specifes the name of the core to use. 'Standard CPU' is default", \
+                "\n    -e    : specifies an ESSID for the command", \
+                "\n    -f    : specifies a filename for the command", \
+                "\n\nRecognized commands:", \
+                "\n    benchmark          : Benchmark a core (-e is optional)", \
+                "\n    batch              : Start batchprocessing (-u, -v and -e are optional)", \
+                "\n    eval               : Counts the passwords available and the results already computed (-e is optional)", \
+                "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)", \
+                "\n    create_essid       : Create a new ESSID (-e is mandatory)", \
+                "\n    import_cowpatty    : Import a cowpatty-file (-f is mandatory)", \
+                "\n    export_cowpatty    : Export into a new cowpatty file (-e and -f are mandatory)", \
+                "\n    export_hashdb      : Export into an existing airolib database (-e is optional, -f is mandatory)"
         
         else:
             print "Don't know that command. See valid commands with 'help'"
@@ -237,11 +255,11 @@ class Pyrit_CLI(object):
                             rescount += len(pwset)
                             print "\r  -> %.2f%% done" % (pwslice * 100.0 / len(passwords)),
                             if (comptime > 5):
-                                print "(%.2f PMK/sec, %.2f SHA1/sec, %s left)." % (rescount / comptime, rescount * 8192 / comptime, tform((len(passwords) - pwslice) / (rescount / comptime))),
+                                print "(%.2f PMK/sec, %.2f SHA1/sec, %s left)." % (rescount / comptime, rescount * 8192*2 / comptime, tform((len(passwords) - pwslice) / (rescount / comptime))),
                             else:
                                 print "", 
                             sys.stdout.flush()
-                        print "\r  -> All done. (%s, %.2f PMK/sec, %.2f SHA1/sec)" % (tform(comptime), rescount / comptime, rescount * 8192 / comptime)
+                        print "\r  -> All done. (%s, %.2f PMK/sec, %.2f SHA1/sec)" % (tform(comptime), rescount / comptime, rescount * 8192*2 / comptime)
                         pyr_obj.savefile()
                     pyr_obj.close()
                 except:
