@@ -44,3 +44,4 @@ _Pyrit_'s uses two subdirectories for storage: One for the ESSIDs and the PMKs a
   * Import a list of passwords: _"./pyrit_cli.py -f list.txt import_passwords"_
   * Run the batch-processing: _"./pyrit_cli.py -e foobar batchprocess"_
   * Export to cowpatty: _"./pyrit_cli.py -e foobar -f output.cow export_cowpatty"_
+  * Export to airolib-ng: _"./pyrit_cli.py -e foobar -f hashdb.db export_hashdb"_
