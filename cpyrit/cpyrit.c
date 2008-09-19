@@ -61,9 +61,9 @@ padlock_xsha1(const unsigned char* pad, unsigned char* buffer)
     memcpy(ctx.inputbuffer+64, buffer, 20);
     hashed = padlock_xsha1_lowlevel(ctx.inputbuffer, ctx.state, 64+20);
 
-    ((int*)buffer)[0] = bswap(ctx.state[0]); ((int*)buffer)[1] = bswap(ctx.state[1]); 
-    ((int*)buffer)[2] = bswap(ctx.state[2]); ((int*)buffer)[3] = bswap(ctx.state[3]); 
-    ((int*)buffer)[4] = bswap(ctx.state[4]); 
+    ((int*)buffer)[0] = bswap(ctx.state[0]); ((int*)buffer)[1] = bswap(ctx.state[1]);
+    ((int*)buffer)[2] = bswap(ctx.state[2]); ((int*)buffer)[3] = bswap(ctx.state[3]);
+    ((int*)buffer)[4] = bswap(ctx.state[4]);
 
     return hashed;
 }
@@ -75,11 +75,11 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
     char essid[33+4];
     unsigned int pmkbuffer[8], lbuffer[5], rbuffer[5];
 
-	memset(essid,0,sizeof(essid));
+    memset(essid,0,sizeof(essid));
     slen = strlen(essid_pre);
     slen = slen <= 32 ? slen : 32;
-	memcpy(essid,essid_pre,slen);
-	slen = strlen(essid)+4;
+    memcpy(essid,essid_pre,slen);
+    slen = strlen(essid)+4;
 
     strncpy((char *)ipad, key, sizeof(ipad));
     strncpy((char *)opad, key, sizeof(opad));
@@ -88,11 +88,11 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
         ipad[i] ^= 0x36;
         opad[i] ^= 0x5C;
     }
-    
+
     essid[slen - 1] = '\1';
     HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)lbuffer, NULL);
-    memcpy(pmkbuffer, lbuffer, 20);    
-    
+    memcpy(pmkbuffer, lbuffer, 20);
+
     essid[slen - 1] = '\2';
     HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)rbuffer, NULL);
     memcpy(&(pmkbuffer[5]), rbuffer, 12);
@@ -103,14 +103,13 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
         padlock_xsha1(opad, (unsigned char*)lbuffer);
         padlock_xsha1(ipad, (unsigned char*)rbuffer);
         padlock_xsha1(opad, (unsigned char*)rbuffer);
-                
-		pmkbuffer[0] ^= lbuffer[0]; pmkbuffer[1] ^= lbuffer[1];
-		pmkbuffer[2] ^= lbuffer[2]; pmkbuffer[3] ^= lbuffer[3];
-		pmkbuffer[4] ^= lbuffer[4];
-		pmkbuffer[5] ^= rbuffer[0]; pmkbuffer[6] ^= rbuffer[1];
-		pmkbuffer[7] ^= rbuffer[2];
 
-	}
+        pmkbuffer[0] ^= lbuffer[0]; pmkbuffer[1] ^= lbuffer[1];
+        pmkbuffer[2] ^= lbuffer[2]; pmkbuffer[3] ^= lbuffer[3];
+        pmkbuffer[4] ^= lbuffer[4];
+        pmkbuffer[5] ^= rbuffer[0]; pmkbuffer[6] ^= rbuffer[1];
+        pmkbuffer[7] ^= rbuffer[2];
+    }
 
     memcpy(pmk, pmkbuffer, 32);
 }
@@ -126,8 +125,8 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 	SHA_CTX ctx_ipad, ctx_opad, sha1_ctx;
 
 	memset(essid,0,sizeof(essid));
-    slen = strlen(essid_pre);
-    slen = slen <= 32 ? slen : 32;
+	slen = strlen(essid_pre);
+	slen = slen <= 32 ? slen : 32;
 	memcpy(essid,essid_pre,slen);
 	slen = strlen(essid)+4;
 
@@ -143,11 +142,10 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 	SHA1_Update( &ctx_opad, buffer, 64 );
 
 	essid[slen - 1] = '\1';
-    HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)pmkbuffer, NULL);
+	HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)pmkbuffer, NULL);
 	memcpy( buffer, pmkbuffer, 20 );
-	
 	essid[slen - 1] = '\2';
-    HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char *)(&pmkbuffer[5]), NULL);
+	HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char *)(&pmkbuffer[5]), NULL);
 	memcpy( buffer+20, (unsigned char*)(&pmkbuffer[5]), 20 );
 
 	for( i = 0; i < 4096-1; i++ )
@@ -166,10 +164,10 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 		SHA1_Update(&sha1_ctx, buffer+20, 20);
 		SHA1_Final(buffer+20, &sha1_ctx);
 
-		pmkbuffer[0] ^= ((unsigned int*)buffer)[0];	pmkbuffer[1] ^= ((unsigned int*)buffer)[1];
-		pmkbuffer[2] ^= ((unsigned int*)buffer)[2];	pmkbuffer[3] ^= ((unsigned int*)buffer)[3];
-		pmkbuffer[4] ^= ((unsigned int*)buffer)[4];	pmkbuffer[5] ^= ((unsigned int*)buffer)[5];
-		pmkbuffer[6] ^= ((unsigned int*)buffer)[6]; pmkbuffer[7] ^= ((unsigned int*)buffer)[7];		
+		pmkbuffer[0] ^= ((unsigned int*)buffer)[0]; pmkbuffer[1] ^= ((unsigned int*)buffer)[1];
+		pmkbuffer[2] ^= ((unsigned int*)buffer)[2]; pmkbuffer[3] ^= ((unsigned int*)buffer)[3];
+		pmkbuffer[4] ^= ((unsigned int*)buffer)[4]; pmkbuffer[5] ^= ((unsigned int*)buffer)[5];
+		pmkbuffer[6] ^= ((unsigned int*)buffer)[6]; pmkbuffer[7] ^= ((unsigned int*)buffer)[7];
 
 	}
 
@@ -197,7 +195,7 @@ cpyrit_pmk(PyObject *self, PyObject *args)
 
 void*
 pmkthread(void *ctr)
-{   
+{
     struct thread_ctr *myctr = (struct thread_ctr*)ctr;
     int i;
     void **inbuffer = myctr->keyptr;
@@ -229,13 +227,13 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     void* outbuffer = malloc(numLines * 32);
     PyObject *destlist = PyList_New(numLines);
     void** inbuffer = malloc(numLines * sizeof(void*));
- 
+
     int pwsize = 0;
     for (i = 0; i < numLines; i++)
     {
         pwsize += strlen(PyString_AsString(PyList_GetItem(listObj,i)));
     }
-    void* pwbuffer = malloc(pwsize + numLines); 
+    void* pwbuffer = malloc(pwsize + numLines);
     void* p = pwbuffer;
     void* t = NULL;
     for (i = 0; i < numLines; i++)
@@ -245,7 +243,7 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
         inbuffer[i] = p;
         p += strlen(t) + 1;
     }
-    
+
     // Don't touch Python-objects beyond this point!
     Py_BEGIN_ALLOW_THREADS;
 
@@ -265,15 +263,15 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     {
         pthread_join(ctr[i].thread_id,NULL);
     };
-    
+
     // Re-acquire the GIL
     Py_END_ALLOW_THREADS;
-    
+
     for (i = 0; i < numLines; i++)
     {
         PyList_SetItem(destlist, i, Py_BuildValue("(s,s#)", inbuffer[i], outbuffer+(32*i), 32));
     };
-    
+
     free(outbuffer);
     free(inbuffer);
     free(pwbuffer);
@@ -308,12 +306,12 @@ main(int argc, char *argv[])
     Py_Initialize();
 
     init_cpyrit();
-    
+
     #ifdef HAVE_CUDA
         char* buffer;
         cudaMallocHost( (void**) &buffer, 4 );
         cudaFreeHost( buffer );
     #endif
-    
+
     return -1;
 }
