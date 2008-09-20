@@ -64,84 +64,51 @@ class Pyrit_CLI(object):
                 
         self.pyrit_obj = Pyrit(self.options["essidstore_path"], self.options["passwdstore_path"])        
         
-        command = commands[0] if len(commands) > 0 else 'help'
-        if command == "export_cowpatty":
-            if self.options["file"] is None:
-                print "One must specify a filename using the -f option. See 'help'"
-            else:
-                if self.options["essid"] is None:
-                    print "The cowpatty-format only supports one ESSID per file. Please specify one using the -e option."
-                else:
-                    self.export_cowpatty()
-                    
-        elif command == "export_hashdb":
-            if 'export_hashdb' not in dir(self.pyrit_obj):
-                print "Support for SQLite seems to be missing. Please check if the pysqlite2 module is available to python."
-            else:
-                if self.options["file"] is None:
-                    print "You must specify the database filename using the -f option. See 'help'"
-                else:
-                    if self.options["essid"] is None:
-                        essids = self.pyrit_obj.list_essids()
-                    else:
-                        essids = [self.options["essid"]]
-                    for essid in essids:
-                        print "Exporting ESSID '%s'" % essid
-                        self.pyrit_obj.export_hashdb(essid, self.options["file"])
+        func = {'export_cowpatty': self.export_cowpatty,
+                'export_hashdb': self.export_hashdb,
+                'export_passwords': self.export_passwords,
+                'list_essids': self.list_essids,
+                'create_essid': self.create_essid,
+                'eval': self.eval_results,
+                'batch': self.batchprocess,
+                'batchprocess': self.batchprocess,
+                'benchmark': self.benchmark,
+                'help': self.print_help
+                }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)
+        func()
+    
+    def print_help(self):
+        print "usage: pyrit_cli [options] command", \
+            "\n\nRecognized options:", \
+            "\n    -u    : path to the ESSID-blobspace", \
+            "\n    -v    : path to the Password-blobspace", \
+            "\n    -c    : specifes the name of the core to use. 'Standard CPU' is default", \
+            "\n    -e    : specifies an ESSID for the command", \
+            "\n    -f    : specifies a filename for the command ('-' is stdin/stdout)", \
+            "\n\nRecognized commands:", \
+            "\n    benchmark          : Benchmark a core (-c is optional)", \
+            "\n    batch              : Start batchprocessing (-c, -u, -v and -e are optional)", \
+            "\n    eval               : Count the passwords available and the results already computed (-e is optional)", \
+            "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)", \
+            "\n    create_essid       : Create a new ESSID (-e is mandatory)", \
+            "\n    export_cowpatty    : Export into a new cowpatty file (-e and -f are mandatory)", \
+            "\n    export_hashdb      : Export into an existing airolib database (-e is optional, -f is mandatory)"
 
-        elif command == "import_cowpatty":
-            pass
-        
-        elif command == "import_passwords":
-            self.import_passwords()
-        
-        elif command == "export_passwords":
-            if self.options["file"] is None:
-                print "One must specify a filename using the -f option. See 'help'"
-            else:
-                self.export_passwords()
-
-        elif command == "list_essids":
-            for e in pyrit_obj.list_essids():
-                print e
-                
-        elif command == "create_essid":
-            essid = self.options["essid"]
-            if essid is None:
-                print "One must specify a ESSID using the -e option. See 'help'"
-            elif essid in self.pyrit_obj.list_essids():
-                print "ESSID already created"
-            else:
-                self.pyrit_obj.create_essid(essid)
-                print "Created ESSID '%s'" % essid
-        
-        elif command == "eval":
-            self.eval_results()
-            
-        elif command in ["batch", "batchprocess"]:
-            self.batchprocess()
-        
-        elif command == "benchmark":
-            self.benchmark()
-        
+    def create_essid(self):
+        essid = self.options["essid"]
+        if essid is None:
+            print "One must specify a ESSID using the -e option. See 'help'"
+        elif essid in self.pyrit_obj.list_essids():
+            print "ESSID already created"
         else:
-            print "usage: pyrit_cli [options] command", \
-                "\n\nRecognized options:", \
-                "\n    -u    : path to the ESSID-blobspace", \
-                "\n    -v    : path to the Password-blobspace", \
-                "\n    -c    : specifes the name of the core to use. 'Standard CPU' is default", \
-                "\n    -e    : specifies an ESSID for the command", \
-                "\n    -f    : specifies a filename for the command", \
-                "\n\nRecognized commands:", \
-                "\n    benchmark          : Benchmark a core (-c is optional)", \
-                "\n    batch              : Start batchprocessing (-c, -u, -v and -e are optional)", \
-                "\n    eval               : Count the passwords available and the results already computed (-e is optional)", \
-                "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)", \
-                "\n    create_essid       : Create a new ESSID (-e is mandatory)", \
-                "\n    import_cowpatty    : Import a cowpatty-file (-f is mandatory)", \
-                "\n    export_cowpatty    : Export into a new cowpatty file (-e and -f are mandatory)", \
-                "\n    export_hashdb      : Export into an existing airolib database (-e is optional, -f is mandatory)"
-        
+            self.pyrit_obj.create_essid(essid)
+            print "Created ESSID '%s'" % essid
+
+    def list_essids(self):
+        print "Listing ESSIDs"
+        for i,e in enumerate(self.pyrit_obj.list_essids()):
+            print "#%i:  '%s'" % (i, e)
+            
     def import_passwords(self):
         if self.options["file"] is None:
             print "One must specify a filename using the -f options. See 'help'"
@@ -165,6 +132,9 @@ class Pyrit_CLI(object):
             print ""
     
     def export_passwords(self):
+        if self.options["file"] is None:
+            print "One must specify a filename using the -f option. See 'help'"
+            return
         if self.options["file"] == "-":
             for idx, rowset in self.pyrit_obj.export_passwords():
                 for row in rowset:
@@ -187,6 +157,12 @@ class Pyrit_CLI(object):
             print "\nAll done"
         
     def export_cowpatty(self):
+        if self.options["file"] is None:
+            print "One must specify a filename using the -f option. See 'help'"
+            return
+        if self.options["essid"] is None:
+            print "The cowpatty-format only supports one ESSID per file. Please specify one using the -e option."
+            return
         if self.options["file"] == "-":
             for idx, row in self.pyrit_obj.export_cowpatty(self.options["essid"]):
                 sys.stdout.write(row)
@@ -206,6 +182,22 @@ class Pyrit_CLI(object):
                     sys.stdout.flush()
             f.close()
             print "\nAll done."
+
+    def export_hashdb(self):
+        if 'export_hashdb' not in dir(self.pyrit_obj):
+            print "Support for SQLite seems to be missing. Please check if the pysqlite2 module is available to python."
+            return
+        if self.options["file"] is None:
+            print "You must specify the database filename using the -f option. See 'help'"
+            return
+        if self.options["essid"] is None:
+            essids = self.pyrit_obj.list_essids()
+        else:
+            essids = [self.options["essid"]]
+        for essid in essids:
+            print "Exporting ESSID '%s'" % essid
+            self.pyrit_obj.export_hashdb(essid, self.options["file"])
+
 
     def batchprocess(self):
         if self.options["core_name"] is not None:
