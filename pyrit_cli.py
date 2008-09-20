@@ -44,6 +44,9 @@ class Pyrit_CLI(object):
         return "[" + '#' * int((max_idx - idx) * 30.0 / max_idx) + "-" * (30 - int((max_idx - idx) * 30.0 / max_idx)) + "]"
         
     def init(self, argv):
+        print "The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com", \
+            "\nThis code is distributed under the GNU General Public License v3\n"
+
         options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:")
         for option, value in dict(options).items():
             if option == '-u':
@@ -115,17 +118,14 @@ class Pyrit_CLI(object):
         elif command == "eval":
             self.eval_results()
             
-        elif command == "batch":
+        elif command in ["batch", "batchprocess"]:
             self.batchprocess()
         
         elif command == "benchmark":
             self.benchmark()
         
-        elif command == 'help':
-            print "The Pyrit commandline-client. (C) 2008 Lukas Lueg", \
-                "http://pyrit.googlecode.com", \
-                "\nThis code is distributed under the GNU General Public License v3", \
-                "\n\nusage: pyrit_cli [options] command", \
+        else:
+            print "usage: pyrit_cli [options] command", \
                 "\n\nRecognized options:", \
                 "\n    -u    : path to the ESSID-blobspace", \
                 "\n    -v    : path to the Password-blobspace", \
@@ -133,17 +133,14 @@ class Pyrit_CLI(object):
                 "\n    -e    : specifies an ESSID for the command", \
                 "\n    -f    : specifies a filename for the command", \
                 "\n\nRecognized commands:", \
-                "\n    benchmark          : Benchmark a core (-e is optional)", \
-                "\n    batch              : Start batchprocessing (-u, -v and -e are optional)", \
-                "\n    eval               : Counts the passwords available and the results already computed (-e is optional)", \
+                "\n    benchmark          : Benchmark a core (-c is optional)", \
+                "\n    batch              : Start batchprocessing (-c, -u, -v and -e are optional)", \
+                "\n    eval               : Count the passwords available and the results already computed (-e is optional)", \
                 "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)", \
                 "\n    create_essid       : Create a new ESSID (-e is mandatory)", \
                 "\n    import_cowpatty    : Import a cowpatty-file (-f is mandatory)", \
                 "\n    export_cowpatty    : Export into a new cowpatty file (-e and -f are mandatory)", \
                 "\n    export_hashdb      : Export into an existing airolib database (-e is optional, -f is mandatory)"
-        
-        else:
-            print "Don't know that command. See valid commands with 'help'"
         
     def import_passwords(self):
         if self.options["file"] is None:
@@ -271,12 +268,6 @@ class Pyrit_CLI(object):
         c = cpyrit.CPyrit()
         print "Available cores:", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
 
-        core = c.getCore()
-        md = md5.new()
-        md.update(core.solve('foo', 'bar'))
-        if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
-            print "WARNING: Core gives wrong single-results. The CPyrit-module is probably broken..."
-            return
         pws = ["bar_%i" % i for i in xrange(10000)]
         
         core = c.getCore('Standard CPU')
@@ -289,7 +280,7 @@ class Pyrit_CLI(object):
         map(md.update, [x[1] for x in res])
         print "Result hash: %s" % md.hexdigest(), {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
         print ""
-
+        
         if 'Nvidia CUDA' in [x[0] for x in c.listCores()]:
             core = c.getCore('Nvidia CUDA')
             print "Testing GPU core '%s'..." % core.name

@@ -6,7 +6,14 @@
 === Compilating ===
 
  * Compilation:
-    The CPyrit extension module must be compiled and installed. Modify setup.py according to your needs and run the ./make file
+    The CPyrit extension module must be compiled and installed. Modify setup.py according to your needs.
+    Currently there two optional features:
+      HAVE_CUDA will enable support for Nvidia CUDA capable devices
+      HAVE_PADLOCK will enable support for VIA padlock hardware crypto
+      
+    Example:
+      ./setup.py HAVE_CUDA build
+      ./setup.py install
 
  * Installing:
     Python's distutils will install the CPyrit module to the site-packages directory itself.
