@@ -20,8 +20,7 @@
 
 
 import _cpyrit
-import threading
-import time
+import threading, time, hashlib
 
 class MicroCore(threading.Thread):
     """
@@ -72,7 +71,7 @@ class CUDACore(object):
 
         workcontrol = [threading.Lock(), password, 0, essid, []]
 
-        gpu_mcore = MicroCore(_cpyrit.calc_cuda, 1000, workcontrol)
+        gpu_mcore = MicroCore(_cpyrit.calc_cuda, 1024, workcontrol)
         cpu_mcore = MicroCore(_cpyrit.calc_pmklist, 250, workcontrol)
         t = time.time()
         gpu_mcore.start()
@@ -124,10 +123,23 @@ class CPyrit(object):
         self.cores = {}
         avail = dir(_cpyrit)
         assert 'calc_pmk' in avail
-        for fname, c in [('calc_pmklist', CPUCore), ('calc_cuda', CUDACore)]:
-            if fname in avail:
-                self.cores[c.name] = c
-                self.core = c
+        assert 'calc_pmklist' in avail
+        
+        md = hashlib.md5()
+        md.update(_cpyrit.calc_pmklist('foo', ['bar'])[0][1])
+        if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
+            raise SystemError, "WARNING: CPyrit's CPU-core is apparently broken. We can't continue..."
+        self.cores[CPUCore.name] = CPUCore
+        self.core = CPUCore
+        
+        if 'calc_cuda' in avail:
+            md = hashlib.md5()
+            md.update(_cpyrit.calc_cuda('foo', ['bar'])[0][1])
+            if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
+                print "WARNING: CPyrit's Nvidia-CUDA GPU-core is apparently broken and will be unavailable."
+            else:
+                self.cores[CUDACore.name] = CUDACore
+                self.core = CUDACore
         
     def listCores(self):
         return self.cores.items()
