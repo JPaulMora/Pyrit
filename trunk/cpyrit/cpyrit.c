@@ -22,6 +22,8 @@
 
 #ifdef HAVE_PADLOCK
 
+pthread_mutex_t padlock_sigmutex;
+
 // This instruction is not available on all CPUs (do we really care about those?)
 // Therefor it is only used on padlock-enabled machines
 static inline int bswap(int x)
@@ -32,34 +34,70 @@ static inline int bswap(int x)
     return x;
 }
 
-static inline int
-padlock_xsha1_lowlevel(char *input, unsigned int *output, int count)
+static int
+padlock_xsha1_lowlevel(char *input, unsigned int *output, int done, int count)
 {
-    int done = 0;
+    int d = done;
     asm volatile ("xsha1"
-              : "+S"(input), "+D"(output), "+a"(done)
+              : "+S"(input), "+D"(output), "+a"(d)
               : "c"(count));
-    return done;
+    return d;
 }
 
-// See the padlock programming guide. XSHA1 always finalizes the hash
-// (including msglen) by itself. Therefor we can't use cached values for
-// ipad/opad. The SIGSEV-trick is even slower than this due to pipeline stalls.
+static void
+segv_action(int sig, siginfo_t *info, void *uctxp)
+{
+    ucontext_t *uctx = uctxp;
+    uctx->uc_mcontext.gregs[14] += 4;
+    return;
+}
+
+static int
+padlock_xsha1_prepare(const unsigned char* input, unsigned char* output)
+{
+    size_t page_size = getpagesize(), buffersize = 2 * page_size, hashed = 0;
+    struct sigaction act, oldact;
+    unsigned char* inputbuffer = mmap(0, buffersize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+
+    mprotect(inputbuffer + page_size, page_size, PROT_NONE);
+
+    struct xsha1_ctx ctx;
+    ((int*)ctx.state)[0] = 0x67452301;
+    ((int*)ctx.state)[1] = 0xEFCDAB89;
+    ((int*)ctx.state)[2] = 0x98BADCFE;
+    ((int*)ctx.state)[3] = 0x10325476;
+    ((int*)ctx.state)[4] = 0xC3D2E1F0;
+
+    unsigned char *cnt = inputbuffer + page_size - (64*2);
+    memcpy(cnt, input, 64);
+    memset(&act, 0, sizeof(act));
+
+    // not smart but effective
+    pthread_mutex_lock(&padlock_sigmutex);
+    act.sa_sigaction = segv_action;
+    act.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &act, &oldact);
+
+    hashed = padlock_xsha1_lowlevel(cnt, ctx.state, 0, (64*2));
+
+    sigaction(SIGSEGV, &oldact, NULL);
+    pthread_mutex_unlock(&padlock_sigmutex);
+
+    munmap(inputbuffer, buffersize);
+    memcpy(output, ctx.state, 20);
+
+    return hashed;
+}
+
 static inline int
-padlock_xsha1(const unsigned char* pad, unsigned char* buffer)
+padlock_xsha1_finalize(unsigned char* prestate, unsigned char* buffer)
 {
     struct xsha1_ctx ctx;
     size_t hashed;
 
-    ctx.state[0] = 0x67452301;
-    ctx.state[1] = 0xEFCDAB89;
-    ctx.state[2] = 0x98BADCFE;
-    ctx.state[3] = 0x10325476;
-    ctx.state[4] = 0xC3D2E1F0;
-
-    memcpy(ctx.inputbuffer, pad, 64);
-    memcpy(ctx.inputbuffer+64, buffer, 20);
-    hashed = padlock_xsha1_lowlevel(ctx.inputbuffer, ctx.state, 64+20);
+    memcpy(ctx.state, prestate, 20);
+    memcpy(ctx.inputbuffer, buffer, 20);
+    hashed = padlock_xsha1_lowlevel(ctx.inputbuffer, ctx.state, 64, 64+20);
 
     ((int*)buffer)[0] = bswap(ctx.state[0]); ((int*)buffer)[1] = bswap(ctx.state[1]);
     ((int*)buffer)[2] = bswap(ctx.state[2]); ((int*)buffer)[3] = bswap(ctx.state[3]);
@@ -71,7 +109,7 @@ padlock_xsha1(const unsigned char* pad, unsigned char* buffer)
 void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 {
     int i, slen;
-    unsigned char ipad[64], opad[64];
+    unsigned char pad[64], ipad_state[20], opad_state[20];
     char essid[33+4];
     unsigned int pmkbuffer[8], lbuffer[5], rbuffer[5];
 
@@ -81,13 +119,15 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
     memcpy(essid,essid_pre,slen);
     slen = strlen(essid)+4;
 
-    strncpy((char *)ipad, key, sizeof(ipad));
-    strncpy((char *)opad, key, sizeof(opad));
-    for (i = 0; i < 64; i++)
-    {
-        ipad[i] ^= 0x36;
-        opad[i] ^= 0x5C;
-    }
+    strncpy((char *)pad, key, sizeof(pad));
+    for (i = 0; i < 16; i++)
+        ((unsigned int*)pad)[i] ^= 0x36363636;
+    padlock_xsha1_prepare(pad, ipad_state);
+
+    strncpy((char *)pad, key, sizeof(pad));
+    for (i = 0; i < 16; i++)
+        ((unsigned int*)pad)[i] ^= 0x5C5C5C5C;
+    padlock_xsha1_prepare(pad, opad_state);
 
     essid[slen - 1] = '\1';
     HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)lbuffer, NULL);
@@ -99,10 +139,10 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 
     for (i = 0; i < 4096-1; i++)
     {
-        padlock_xsha1(ipad, (unsigned char*)lbuffer);
-        padlock_xsha1(opad, (unsigned char*)lbuffer);
-        padlock_xsha1(ipad, (unsigned char*)rbuffer);
-        padlock_xsha1(opad, (unsigned char*)rbuffer);
+        padlock_xsha1_finalize(ipad_state, (unsigned char*)lbuffer);
+        padlock_xsha1_finalize(opad_state, (unsigned char*)lbuffer);
+        padlock_xsha1_finalize(ipad_state, (unsigned char*)rbuffer);
+        padlock_xsha1_finalize(opad_state, (unsigned char*)rbuffer);
 
         pmkbuffer[0] ^= lbuffer[0]; pmkbuffer[1] ^= lbuffer[1];
         pmkbuffer[2] ^= lbuffer[2]; pmkbuffer[3] ^= lbuffer[3];
@@ -311,6 +351,10 @@ main(int argc, char *argv[])
         char* buffer;
         cudaMallocHost( (void**) &buffer, 4 );
         cudaFreeHost( buffer );
+    #endif
+
+    #ifdef HAVE_PADLOCK
+        pthread_mutex_init(&padlock_sigmutex, NULL);
     #endif
 
     return -1;

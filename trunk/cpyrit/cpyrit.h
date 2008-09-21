@@ -46,9 +46,14 @@
 }
 
 #ifdef HAVE_PADLOCK
+    #include <sys/ucontext.h>
+    #include <signal.h>
+    #include <errno.h>
+    #include <sys/mman.h>
+
     struct xsha1_ctx {
         unsigned int state[32];
-        char inputbuffer[64+20+64];
+        char inputbuffer[20+64];
     } __attribute__((aligned(16)));
 #endif
 
