@@ -70,6 +70,7 @@ class Pyrit_CLI(object):
         func = {'export_cowpatty': self.export_cowpatty,
                 'export_hashdb': self.export_hashdb,
                 'export_passwords': self.export_passwords,
+                'import_passwords': self.import_passwords,
                 'list_essids': self.list_essids,
                 'create_essid': self.create_essid,
                 'eval': self.eval_results,
