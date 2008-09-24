@@ -34,7 +34,7 @@
 __device__
 void sha1_process( const SHA_DEV_CTX *ctx, SHA_DEV_CTX *data) {
 
-  unsigned long temp, W[16], A, B, C, D, E;
+  uint32_t temp, W[16], A, B, C, D, E;
 
   W[ 0] = data->h0; W[ 1] = data->h1;
   W[ 2] = data->h2; W[ 3] = data->h3;
