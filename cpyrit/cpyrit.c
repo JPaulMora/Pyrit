@@ -338,6 +338,10 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     return destlist;
 }
 
+#ifdef HAVE_CUDA
+    PyObject *cpyrit_cuda(PyObject *self, PyObject *args);
+#endif
+
 static PyMethodDef SpamMethods[] = {
     {"set_numThreads", cpyrit_set_numThreads, METH_VARARGS, "Set number of threads for CPU-bound calculations"},
     
