@@ -37,7 +37,8 @@ class Pyrit_CLI(object):
                         "passwdstore_path": 'blobspace/password',
                         "core_name": None,
                         "essid": None,
-                        "file": None}
+                        "file": None,
+                        "ncpus": 1}
         self.pyrit_obj = None
         
     def progressbar(self, idx, max_idx):
@@ -47,7 +48,7 @@ class Pyrit_CLI(object):
         print "The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com", \
             "\nThis code is distributed under the GNU General Public License v3\n"
 
-        options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:")
+        options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:n:")
         for option, value in dict(options).items():
             if option == '-u':
                 self.options["essidstore_path"] = value
@@ -59,6 +60,8 @@ class Pyrit_CLI(object):
                 self.options["essid"] = value
             elif option == '-f':
                 self.options["file"] = value
+            elif option == '-n':
+                self.options["ncpus"] = int(value)
             else:
                 print "Option '%s' not known. Ignoring..." % option
                 
@@ -86,8 +89,8 @@ class Pyrit_CLI(object):
             "\n    -e    : specifies an ESSID for the command", \
             "\n    -f    : specifies a filename for the command ('-' is stdin/stdout)", \
             "\n\nRecognized commands:", \
-            "\n    benchmark          : Benchmark a core (-c is optional)", \
-            "\n    batch              : Start batchprocessing (-c, -u, -v and -e are optional)", \
+            "\n    benchmark          : Benchmark a core (-c and -n are optional)", \
+            "\n    batch              : Start batchprocessing (-c, -u, -v, -n and -e are optional)", \
             "\n    eval               : Count the passwords available and the results already computed (-e is optional)", \
             "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)", \
             "\n    create_essid       : Create a new ESSID (-e is mandatory)", \
@@ -200,12 +203,13 @@ class Pyrit_CLI(object):
 
 
     def batchprocess(self):
+        cp = cpyrit.CPyrit(ncpus = self.options["ncpus"])
         if self.options["core_name"] is not None:
-            core = cpyrit.CPyrit().getCore(self.options["core_name"])
-            print "Selected core '%s'" % core.name
+            core = cp.getCore(self.options["core_name"])
+            print "Selected core '%s' (%i CPUs)" % (core.name, cp.ncpus)
         else:
-            core = cpyrit.CPyrit().getCore()
-            print "Using default core '%s'" % core.name
+            core = cp.getCore()
+            print "Using default core '%s' (%i CPUs)" % (core.name, cp.ncpus)
         comptime = 0
         rescount = 0    
         essids = self.pyrit_obj.list_essids()
@@ -257,13 +261,13 @@ class Pyrit_CLI(object):
 
 
     def benchmark(self):
-        c = cpyrit.CPyrit()
+        c = cpyrit.CPyrit(ncpus = self.options["ncpus"])
         print "Available cores:", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
 
         pws = ["bar_%i" % i for i in xrange(10000)]
         
         core = c.getCore('Standard CPU')
-        print "Testing CPU-only core '%s'..." % core.name
+        print "Testing CPU-only core '%s' (%i CPUs)..." % (core.name, c.ncpus)
         t = time.time()
         res = sorted(core.solve('foo', pws))
         t = time.time() - t

@@ -20,6 +20,8 @@
 
 #include "cpyrit.h"
 
+int numThreads = 4;
+
 #ifdef HAVE_PADLOCK
 
 pthread_mutex_t padlock_sigmutex;
@@ -44,6 +46,7 @@ padlock_xsha1_lowlevel(char *input, unsigned int *output, int done, int count)
     return d;
 }
 
+// This handler will ignore the SIGSEGV caused by the padlock_xsha1_prepare
 static void
 segv_action(int sig, siginfo_t *info, void *uctxp)
 {
@@ -52,6 +55,8 @@ segv_action(int sig, siginfo_t *info, void *uctxp)
     return;
 }
 
+// REP XSHA1 is crashed into the mprotect'ed page so we can
+// steal the state at *EDI before finalizing.
 static int
 padlock_xsha1_prepare(const unsigned char* input, unsigned char* output)
 {
@@ -89,6 +94,7 @@ padlock_xsha1_prepare(const unsigned char* input, unsigned char* output)
     return hashed;
 }
 
+// Now lie about the total number of bytes hashed by this call to get the correct hash
 static inline int
 padlock_xsha1_finalize(unsigned char* prestate, unsigned char* buffer)
 {
@@ -158,58 +164,57 @@ void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 
 void calc_pmk(const char *key, const char *essid_pre, unsigned char pmk[32])
 {
-	int i, slen;
-	unsigned char buffer[64];
-	unsigned int pmkbuffer[10];
-	char essid[33+4];
-	SHA_CTX ctx_ipad, ctx_opad, sha1_ctx;
+    int i, slen;
+    unsigned char buffer[64];
+    unsigned int pmkbuffer[10];
+    char essid[33+4];
+    SHA_CTX ctx_ipad, ctx_opad, sha1_ctx;
 
-	memset(essid,0,sizeof(essid));
-	slen = strlen(essid_pre);
-	slen = slen <= 32 ? slen : 32;
-	memcpy(essid,essid_pre,slen);
-	slen = strlen(essid)+4;
+    memset(essid,0,sizeof(essid));
+    slen = strlen(essid_pre);
+    slen = slen <= 32 ? slen : 32;
+    memcpy(essid,essid_pre,slen);
+    slen = strlen(essid)+4;
 
-	strncpy( (char *) buffer, key, sizeof( buffer ));
-	for( i = 0; i < 64; i++ )
-		buffer[i] ^= 0x36;
-	SHA1_Init( &ctx_ipad );
-	SHA1_Update( &ctx_ipad, buffer, 64 );
+    strncpy( (char *) buffer, key, sizeof( buffer ));
+    for( i = 0; i < 64; i++ )
+	    buffer[i] ^= 0x36;
+    SHA1_Init( &ctx_ipad );
+    SHA1_Update( &ctx_ipad, buffer, 64 );
 
-	for( i = 0; i < 64; i++ )
-		buffer[i] ^= 0x6A;
-	SHA1_Init( &ctx_opad );
-	SHA1_Update( &ctx_opad, buffer, 64 );
+    for( i = 0; i < 64; i++ )
+	    buffer[i] ^= 0x6A;
+    SHA1_Init( &ctx_opad );
+    SHA1_Update( &ctx_opad, buffer, 64 );
 
-	essid[slen - 1] = '\1';
-	HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)pmkbuffer, NULL);
-	memcpy( buffer, pmkbuffer, 20 );
-	essid[slen - 1] = '\2';
-	HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char *)(&pmkbuffer[5]), NULL);
-	memcpy( buffer+20, (unsigned char*)(&pmkbuffer[5]), 20 );
+    essid[slen - 1] = '\1';
+    HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char*)pmkbuffer, NULL);
+    memcpy( buffer, pmkbuffer, 20 );
+    essid[slen - 1] = '\2';
+    HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, (unsigned char *)(&pmkbuffer[5]), NULL);
+    memcpy( buffer+20, (unsigned char*)(&pmkbuffer[5]), 20 );
 
-	for( i = 0; i < 4096-1; i++ )
-	{
-		memcpy(&sha1_ctx, &ctx_ipad, sizeof(sha1_ctx));
-		SHA1_Update(&sha1_ctx, buffer, 20);
-		SHA1_Final(buffer, &sha1_ctx);
-		memcpy(&sha1_ctx, &ctx_opad, sizeof(sha1_ctx));
-		SHA1_Update(&sha1_ctx, buffer, 20);
-		SHA1_Final(buffer, &sha1_ctx);
+    for( i = 0; i < 4096-1; i++ )
+    {
+        memcpy(&sha1_ctx, &ctx_ipad, sizeof(sha1_ctx));
+        SHA1_Update(&sha1_ctx, buffer, 20);
+        SHA1_Final(buffer, &sha1_ctx);
+        memcpy(&sha1_ctx, &ctx_opad, sizeof(sha1_ctx));
+        SHA1_Update(&sha1_ctx, buffer, 20);
+        SHA1_Final(buffer, &sha1_ctx);
 
-		memcpy(&sha1_ctx, &ctx_ipad, sizeof(sha1_ctx));
-		SHA1_Update(&sha1_ctx, buffer+20, 20);
-		SHA1_Final(buffer+20, &sha1_ctx);
-		memcpy(&sha1_ctx, &ctx_opad, sizeof(sha1_ctx));
-		SHA1_Update(&sha1_ctx, buffer+20, 20);
-		SHA1_Final(buffer+20, &sha1_ctx);
+        memcpy(&sha1_ctx, &ctx_ipad, sizeof(sha1_ctx));
+        SHA1_Update(&sha1_ctx, buffer+20, 20);
+        SHA1_Final(buffer+20, &sha1_ctx);
+        memcpy(&sha1_ctx, &ctx_opad, sizeof(sha1_ctx));
+        SHA1_Update(&sha1_ctx, buffer+20, 20);
+        SHA1_Final(buffer+20, &sha1_ctx);
 
-		pmkbuffer[0] ^= ((unsigned int*)buffer)[0]; pmkbuffer[1] ^= ((unsigned int*)buffer)[1];
-		pmkbuffer[2] ^= ((unsigned int*)buffer)[2]; pmkbuffer[3] ^= ((unsigned int*)buffer)[3];
-		pmkbuffer[4] ^= ((unsigned int*)buffer)[4]; pmkbuffer[5] ^= ((unsigned int*)buffer)[5];
-		pmkbuffer[6] ^= ((unsigned int*)buffer)[6]; pmkbuffer[7] ^= ((unsigned int*)buffer)[7];
-
-	}
+        pmkbuffer[0] ^= ((unsigned int*)buffer)[0]; pmkbuffer[1] ^= ((unsigned int*)buffer)[1];
+        pmkbuffer[2] ^= ((unsigned int*)buffer)[2]; pmkbuffer[3] ^= ((unsigned int*)buffer)[3];
+        pmkbuffer[4] ^= ((unsigned int*)buffer)[4]; pmkbuffer[5] ^= ((unsigned int*)buffer)[5];
+        pmkbuffer[6] ^= ((unsigned int*)buffer)[6]; pmkbuffer[7] ^= ((unsigned int*)buffer)[7];
+    }
 
     memcpy(pmk, pmkbuffer, 32);
 }
@@ -233,6 +238,23 @@ cpyrit_pmk(PyObject *self, PyObject *args)
     return Py_BuildValue("s#", pmk, 32);
 }
 
+static PyObject *
+cpyrit_set_numThreads(PyObject *self, PyObject *args)
+{
+    PyGILState_STATE gstate;
+    gstate = PyGILState_Ensure();
+    int nthreads;
+
+    if (!PyArg_ParseTuple(args, "i", &nthreads))
+        return NULL;
+
+    nthreads = nthreads > 32 ? 32 : (nthreads < 1 ? 1 : nthreads);
+    numThreads = nthreads;
+
+    PyGILState_Release(gstate);
+    return Py_BuildValue("i", numThreads);
+}
+
 void*
 pmkthread(void *ctr)
 {
@@ -240,9 +262,8 @@ pmkthread(void *ctr)
     int i;
     void **inbuffer = myctr->keyptr;
 
-    for (i = myctr->keyoffset; i < myctr->keycount; i += myctr->keystep) {
+    for (i = myctr->keyoffset; i < myctr->keycount; i += myctr->keystep)
         calc_pmk(inbuffer[i], myctr->essid, myctr->bufferptr + (i*32));
-    };
     return NULL;
 }
 
@@ -254,7 +275,6 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     char *essid;
     PyObject *listObj;
     int numLines;
-    int numThreads = 4;
     int i;
 
     PyGILState_STATE gstate;
@@ -308,9 +328,7 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     Py_END_ALLOW_THREADS;
 
     for (i = 0; i < numLines; i++)
-    {
         PyList_SetItem(destlist, i, Py_BuildValue("(s,s#)", inbuffer[i], outbuffer+(32*i), 32));
-    };
 
     free(outbuffer);
     free(inbuffer);
@@ -320,15 +338,18 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     return destlist;
 }
 
-#ifdef HAVE_CUDA
-    PyObject *cpyrit_cuda(PyObject *self, PyObject *args);
-#endif
-
 static PyMethodDef SpamMethods[] = {
-    {"calc_pmk",  cpyrit_pmk, METH_VARARGS, "Calculate something."},
-    {"calc_pmklist", cpyrit_pmklist, METH_VARARGS, "Calculate something from a list."},
+    {"set_numThreads", cpyrit_set_numThreads, METH_VARARGS, "Set number of threads for CPU-bound calculations"},
+    
+    #ifdef HAVE_PADLOCK
+        {"calc_pmk",  cpyrit_pmk, METH_VARARGS, "Calculate PMK from ESSID and string (x86)"},
+    #else
+        {"calc_pmk",  cpyrit_pmk, METH_VARARGS, "Calculate PMK from ESSID and string (VIA Padlock)"},
+    #endif
+    {"calc_pmklist", cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings"},
+    
     #ifdef HAVE_CUDA
-        {"calc_cuda", cpyrit_cuda, METH_VARARGS, "Calculate something from a list using CUDA."},
+        {"calc_cuda", cpyrit_cuda, METH_VARARGS, "Calculate PMKs from ESSID and list of strings"},
     #endif
     {NULL, NULL, 0, NULL}
 };
