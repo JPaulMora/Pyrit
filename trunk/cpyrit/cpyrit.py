@@ -20,7 +20,7 @@
 
 
 import _cpyrit
-import threading, time, hashlib
+import threading, time, hashlib, os
 
 class MicroCore(threading.Thread):
     """
@@ -119,7 +119,7 @@ class CPyrit(object):
     is the same as in the input-list!
     
     """
-    def __init__(self):
+    def __init__(self, ncpus=None):
         self.cores = {}
         avail = dir(_cpyrit)
         assert 'calc_pmk' in avail
@@ -140,6 +140,10 @@ class CPyrit(object):
             else:
                 self.cores[CUDACore.name] = CUDACore
                 self.core = CUDACore
+
+        if ncpus is None or ncpus not in range(1,33):
+            ncpus = self.__detect_ncpus()
+        self.ncpus = _cpyrit.set_numThreads(ncpus)
         
     def listCores(self):
         return self.cores.items()
@@ -149,3 +153,24 @@ class CPyrit(object):
             return self.core()
         else:
             return self.cores[core]()
+            
+    def __detect_ncpus(self):
+        """Detect the number of effective CPUs in the system"""
+        # Snippet taken from ParallelPython
+        # For Linux, Unix and MacOS
+        if hasattr(os, "sysconf"):
+            if "SC_NPROCESSORS_ONLN" in os.sysconf_names:
+                #Linux and Unix
+                ncpus = os.sysconf("SC_NPROCESSORS_ONLN")
+                if isinstance(ncpus, int) and ncpus > 0:
+                    return ncpus
+            else:
+                #MacOS X
+                return int(os.popen2("sysctl -n hw.ncpu")[1].read())
+        #for Windows
+        if "NUMBER_OF_PROCESSORS" in os.environ:
+            ncpus = int(os.environ["NUMBER_OF_PROCESSORS"])
+            if ncpus > 0:
+                return ncpus
+        #return the default value
+        return 1

@@ -51,6 +51,8 @@
     #include <errno.h>
     #include <sys/mman.h>
 
+    PyObject *cpyrit_cuda(PyObject *self, PyObject *args);
+
     struct xsha1_ctx {
         unsigned int state[32];
         char inputbuffer[20+64];
