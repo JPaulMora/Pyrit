@@ -22,6 +22,7 @@
 #define CPYRIT
 
 #include <python2.5/Python.h>
+#include <stdint.h>
 #include <pthread.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
@@ -31,10 +32,10 @@
 
 #define GET_BE(n,b,i)                            \
 {                                                       \
-    (n) = ( (unsigned long) (b)[(i)    ] << 24 )        \
-        | ( (unsigned long) (b)[(i) + 1] << 16 )        \
-        | ( (unsigned long) (b)[(i) + 2] <<  8 )        \
-        | ( (unsigned long) (b)[(i) + 3]       );       \
+    (n) = ( (uint32_t) (b)[(i)    ] << 24 )        \
+        | ( (uint32_t) (b)[(i) + 1] << 16 )        \
+        | ( (uint32_t) (b)[(i) + 2] <<  8 )        \
+        | ( (uint32_t) (b)[(i) + 3]       );       \
 }
 
 #define PUT_BE(n,b,i)                            \
@@ -70,7 +71,7 @@ struct thread_ctr {
 #ifdef HAVE_CUDA
 
     typedef struct {
-        unsigned long h0,h1,h2,h3,h4;
+        uint32_t h0,h1,h2,h3,h4;
     } SHA_DEV_CTX;
 
     #define CPY_DEVCTX(src, dst) \
