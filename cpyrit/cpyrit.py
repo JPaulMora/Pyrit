@@ -22,36 +22,6 @@
 import _cpyrit
 import threading, time, hashlib, os
 
-class MicroCore(threading.Thread):
-    """
-    Used by GPU-kernels to spread work between CPU and GPU
-    """
-    def __init__(self, func, blocksize, workcontrol):
-        threading.Thread.__init__(self)
-        self.workcontrol = workcontrol
-        self.comptime = 0
-        self.results = 0
-        self.blocksize = blocksize
-        self.func = func
-        
-    def run(self):
-        lock = self.workcontrol[0]
-        while (self.workcontrol[2] < len(self.workcontrol[1])-1):
-            lock.acquire()
-            idx = self.workcontrol[2]
-            self.workcontrol[2] += self.blocksize
-            pws = self.workcontrol[1][idx:idx+self.blocksize]
-            lock.release()
-            
-            t = time.time()
-            res = self.func(self.workcontrol[3], pws)
-            self.comptime += time.time() - t
-            self.results += len(pws)
-            
-            lock.acquire()
-            self.workcontrol[4].extend(res)
-            lock.release()
-
 class CUDACore(object):
     name = "Nvidia CUDA"
     description = "Yeah"
@@ -66,31 +36,7 @@ class CUDACore(object):
             return _cpyrit.calc_pmk(essid, password)
         assert isinstance(password, list)
         
-        if 'calc_pmklist' not in dir(_cpyrit) or len(password) < 1000:
-            return _cpyrit.calc_cuda(essid, password)
-
-        workcontrol = [threading.Lock(), password, 0, essid, []]
-
-        gpu_mcore = MicroCore(_cpyrit.calc_cuda, 1024, workcontrol)
-        cpu_mcore = MicroCore(_cpyrit.calc_pmklist, 250, workcontrol)
-        t = time.time()
-        gpu_mcore.start()
-        cpu_mcore.start()
-        gpu_mcore.join()
-        cpu_mcore.join()
-        t = time.time() - t
-        
-        #print "\nGPU occupancy: %.2f%%" % (gpu_mcore.comptime / t * 100)
-        #print "CPU occupancy: %.2f%%" % (cpu_mcore.comptime / t * 100)
-        
-        self.gpu_perf = (self.gpu_perf[0] + gpu_mcore.results, self.gpu_perf[1] + gpu_mcore.comptime)
-        self.cpu_perf = (self.cpu_perf[0] + cpu_mcore.results, self.cpu_perf[1] + cpu_mcore.comptime)
-        
-        #print "GPU performance: %.2f/sec" % (self.gpu_perf[0] / self.gpu_perf[1])
-        #print "CPU performance: %.2f/sec\n" % (self.cpu_perf[0] / self.cpu_perf[1])
-        
-        return workcontrol[4]
-
+        return _cpyrit.calc_cuda(essid, password)
 
 class CPUCore(object):
     name = "Standard CPU"

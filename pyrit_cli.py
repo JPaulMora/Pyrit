@@ -284,8 +284,6 @@ class Pyrit_CLI(object):
             res = sorted(core.solve('foo', pws))
             t = time.time() - t
             print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
-            print "GPU performance: %.2f PMKs/s" % ((core.gpu_perf[0] / core.gpu_perf[1]) if core.gpu_perf[1] > 0 else 0.0)
-            print "CPU performance: %.2f PMKs/s" % ((core.cpu_perf[0] / core.cpu_perf[1]) if core.cpu_perf[1] > 0 else 0.0)
             md = md5.new()
             map(md.update, [x[1] for x in res])
             print "Result hash: %s" % md.hexdigest(), {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
