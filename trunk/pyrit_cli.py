@@ -86,9 +86,10 @@ class Pyrit_CLI(object):
             "\n\nRecognized options:", \
             "\n    -u    : path to the ESSID-blobspace", \
             "\n    -v    : path to the Password-blobspace", \
-            "\n    -c    : specifes the name of the core to use. 'Standard CPU' is default", \
-            "\n    -e    : specifies an ESSID for the command", \
-            "\n    -f    : specifies a filename for the command ('-' is stdin/stdout)", \
+            "\n    -c    : name of the core to use. 'Standard CPU' is default", \
+            "\n    -e    : ESSID for the command", \
+            "\n    -f    : filename for the command ('-' is stdin/stdout)", \
+            "\n    -n    : number of CPUs/cores to use", \
             "\n\nRecognized commands:", \
             "\n    benchmark          : Benchmark a core (-c and -n are optional)", \
             "\n    batch              : Start batchprocessing (-c, -u, -v, -n and -e are optional)", \
