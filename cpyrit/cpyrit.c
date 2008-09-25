@@ -346,9 +346,9 @@ static PyMethodDef SpamMethods[] = {
     {"set_numThreads", cpyrit_set_numThreads, METH_VARARGS, "Set number of threads for CPU-bound calculations"},
     
     #ifdef HAVE_PADLOCK
-        {"calc_pmk",  cpyrit_pmk, METH_VARARGS, "Calculate PMK from ESSID and string (x86)"},
-    #else
         {"calc_pmk",  cpyrit_pmk, METH_VARARGS, "Calculate PMK from ESSID and string (VIA Padlock)"},
+    #else
+        {"calc_pmk",  cpyrit_pmk, METH_VARARGS, "Calculate PMK from ESSID and string (x86)"},
     #endif
     {"calc_pmklist", cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings"},
     
