@@ -22,6 +22,12 @@
 
 int numThreads = 4;
 
+#ifdef HAVE_CUDA
+    int cudadev;
+    int cudadevcount;
+    struct cudaDeviceProp cuda_devprop;
+#endif
+
 #ifdef HAVE_PADLOCK
 
 pthread_mutex_t padlock_sigmutex;
@@ -339,7 +345,16 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
 }
 
 #ifdef HAVE_CUDA
+    //Will be linked as object file
     PyObject *cpyrit_cuda(PyObject *self, PyObject *args);
+    
+    PyObject *cpyrit_devprops(PyObject *self, PyObject *args)
+    {
+        if (!PyArg_ParseTuple(args, "")) return NULL;
+    
+        return Py_BuildValue("iisiiii", cudadevcount, cudadev, &cuda_devprop.name, cuda_devprop.totalGlobalMem,
+                                        cuda_devprop.regsPerBlock, cuda_devprop.clockRate, cuda_devprop.multiProcessorCount);
+    }
 #endif
 
 static PyMethodDef SpamMethods[] = {
@@ -354,6 +369,7 @@ static PyMethodDef SpamMethods[] = {
     
     #ifdef HAVE_CUDA
         {"calc_cuda", cpyrit_cuda, METH_VARARGS, "Calculate PMKs from ESSID and list of strings"},
+        {"cudaprops", cpyrit_devprops, METH_VARARGS, "Returns a tuple with some properties about main device"},
     #endif
     {NULL, NULL, 0, NULL}
 };
@@ -362,25 +378,41 @@ PyMODINIT_FUNC
 init_cpyrit(void)
 {
     (void) Py_InitModule("_cpyrit", SpamMethods);
-}
 
-int
-main(int argc, char *argv[])
-{
-    /* Initialize the Python interpreter.  Required. */
-    Py_Initialize();
-
-    init_cpyrit();
 
     #ifdef HAVE_CUDA
+    
+        // This is a somewhat awkward way to initialize the GPU as a CUDA-context
+        // is thread specific. There is no guarantee that the cuda functions above will be called
+        // by the same thread which called this code. However we will not force that as at
+        // some point in the future we need multi-gpu functionality anyway.
         char* buffer;
-        cudaMallocHost( (void**) &buffer, 4 );
-        cudaFreeHost( buffer );
+        cudaMallocHost((void**) &buffer, 4);
+        cudaFreeHost(buffer);
+        
+        cudaGetDeviceCount(&cudadevcount);
+        cudaGetDevice(&cudadev);
+        cudaGetDeviceProperties(&cuda_devprop, cudadev);
+        int ret = cudaGetLastError();
+        if (ret != cudaSuccess)
+        {
+            PyErr_SetString(PyExc_SystemError, cudaGetErrorString(ret));
+            return;
+        }
+
     #endif
 
     #ifdef HAVE_PADLOCK
         pthread_mutex_init(&padlock_sigmutex, NULL);
     #endif
+}
+
+int
+main(int argc, char *argv[])
+{
+    Py_Initialize();
+
+    init_cpyrit();
 
     return -1;
 }

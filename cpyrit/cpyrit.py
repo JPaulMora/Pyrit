@@ -24,11 +24,14 @@ import threading, time, hashlib, os
 
 class CUDACore(object):
     name = "Nvidia CUDA"
-    description = "Yeah"
+    ctype = "GPU"
     def __init__(self):
         assert 'calc_cuda' in dir(_cpyrit)
-        self.gpu_perf = (0, 0)
-        self.cpu_perf = (0, 0)
+        self.buffersize = 1024
+        props = _cpyrit.cudaprops()
+        self.devicename = props[2]
+        self.devicemem = int(props[3] / 1024.0 / 1024.0)
+        self.deviceclock = int(props[5] / 1024.0)
         
     def solve(self, essid, password):
         assert isinstance(essid, str)
@@ -36,20 +39,38 @@ class CUDACore(object):
             return _cpyrit.calc_pmk(essid, password)
         assert isinstance(password, list)
         
-        return _cpyrit.calc_cuda(essid, password)
+        # The kernel allows a max. execution time of 5 seconds per call (usually) so we have to
+        # limit the input-buffer to some degree. However the size of the input-buffer is crucial
+        # to overall performance. Therefor buffersize is to be calibrated somewhere near
+        # it's maximum value allowed. Target is 3.0 seconds execution time.
+        res = []
+        i = 0
+        while i < len(password):
+            t = time.time()
+            res.extend(_cpyrit.calc_cuda(essid, password[i:i+self.buffersize]))
+            i += self.buffersize
+            if len(password[i:i+self.buffersize]) > self.buffersize:
+                self.buffersize = int(max(1024, min(10240, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
+        return res
+
 
 class CPUCore(object):
     name = "Standard CPU"
-    description = "Yeah!"
+    ctype = "CPU"
     def __init__(self):
         assert 'calc_pmklist' in dir(_cpyrit)
         
     def solve(self, essid, password):
         assert isinstance(essid, str)
         if isinstance(password, list):
-            return _cpyrit.calc_pmklist(essid, password)
+            # slicing gives better interactivity to signals as _cpyrit's functions won't listen to them
+            res = []
+            for pwslice in xrange(0, len(password), 1000):
+                res.extend(_cpyrit.calc_pmklist(essid, password[pwslice:pwslice+1000]))
+            return res
         elif isinstance(password, str):
             return _cpyrit.calc_pmk(essid, password)
+
         else:
             raise TypeError, "Password parameter must be string or list"
     
