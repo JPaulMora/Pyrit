@@ -38,7 +38,7 @@ class Pyrit_CLI(object):
                         "core_name": None,
                         "essid": None,
                         "file": None,
-                        "ncpus": 1}
+                        "ncpus": None}
         self.pyrit_obj = None
         
     def progressbar(self, idx, max_idx):
@@ -208,10 +208,15 @@ class Pyrit_CLI(object):
         cp = cpyrit.CPyrit(ncpus = self.options["ncpus"])
         if self.options["core_name"] is not None:
             core = cp.getCore(self.options["core_name"])
-            print "Selected core '%s' (%i CPUs)" % (core.name, cp.ncpus)
+            print "Selected core '%s'" % core.name,
         else:
             core = cp.getCore()
-            print "Using default core '%s' (%i CPUs)" % (core.name, cp.ncpus)
+            print "Using default core '%s'" % core.name,
+        if core.ctype == 'GPU':
+            print "(Device '%s')" % core.devicename
+        else:
+            print "(%i CPUs)" % cp.ncpus
+
         comptime = 0
         rescount = 0    
         essids = self.pyrit_obj.list_essids()
@@ -240,8 +245,6 @@ class Pyrit_CLI(object):
                     print "%i PMKs to do." % len(passwords)
 
                     if len(passwords) > 0:
-                        #We slice the workunit to smaller parts since calc_pmklist won't return on KeyboardInterrupt
-                        #the overhead of slicing is minimal
                         for pwslice in xrange(0,len(passwords), 15000):
                             pwset = passwords[pwslice:pwslice+15000]
                             t = time.time()
@@ -276,19 +279,19 @@ class Pyrit_CLI(object):
         print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
         md = md5.new()
         map(md.update, [x[1] for x in res])
-        print "Result hash: %s" % md.hexdigest(), {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
+        print "Result hash:", {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
         print ""
         
         if 'Nvidia CUDA' in [x[0] for x in c.listCores()]:
             core = c.getCore('Nvidia CUDA')
-            print "Testing GPU core '%s'..." % core.name
+            print "Testing GPU core '%s' (Device '%s')" % (core.name, core.devicename)
             t = time.time()
             res = sorted(core.solve('foo', pws))
             t = time.time() - t
             print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
             md = md5.new()
             map(md.update, [x[1] for x in res])
-            print "Result hash: %s" % md.hexdigest(), {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
+            print "Result hash:", {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
             print ""
             
 if __name__ == "__main__":
