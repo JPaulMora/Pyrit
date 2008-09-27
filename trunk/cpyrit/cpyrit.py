@@ -27,7 +27,7 @@ class CUDACore(object):
     ctype = "GPU"
     def __init__(self):
         assert 'calc_cuda' in dir(_cpyrit)
-        self.buffersize = 1024
+        self.buffersize = 2048
         props = _cpyrit.cudaprops()
         self.devicename = props[2]
         self.devicemem = int(props[3] / 1024.0 / 1024.0)
@@ -47,10 +47,11 @@ class CUDACore(object):
         i = 0
         while i < len(password):
             t = time.time()
-            res.extend(_cpyrit.calc_cuda(essid, password[i:i+self.buffersize]))
+            pwslice = password[i:i+self.buffersize]
+            res.extend(_cpyrit.calc_cuda(essid, pwslice))
             i += self.buffersize
-            if len(password[i:i+self.buffersize]) > self.buffersize:
-                self.buffersize = int(max(1024, min(10240, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
+            if len(pwslice) >= 2048:
+                self.buffersize = int(max(2048, min(20480, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
         return res
 
 

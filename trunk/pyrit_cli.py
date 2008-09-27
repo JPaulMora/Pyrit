@@ -89,7 +89,7 @@ class Pyrit_CLI(object):
             "\n    -c    : name of the core to use. 'Standard CPU' is default", \
             "\n    -e    : ESSID for the command", \
             "\n    -f    : filename for the command ('-' is stdin/stdout)", \
-            "\n    -n    : number of CPUs/cores to use", \
+            "\n    -n    : number of CPUs to use", \
             "\n\nRecognized commands:", \
             "\n    benchmark          : Benchmark a core (-c and -n are optional)", \
             "\n    batch              : Start batchprocessing (-c, -u, -v, -n and -e are optional)", \
@@ -266,33 +266,44 @@ class Pyrit_CLI(object):
 
 
     def benchmark(self):
-        c = cpyrit.CPyrit(ncpus = self.options["ncpus"])
-        print "Available cores:", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
-
-        pws = ["bar_%i" % i for i in xrange(10000)]
-        
-        core = c.getCore('Standard CPU')
-        print "Testing CPU-only core '%s' (%i CPUs)..." % (core.name, c.ncpus)
-        t = time.time()
-        res = sorted(core.solve('foo', pws))
-        t = time.time() - t
-        print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
-        md = md5.new()
-        map(md.update, [x[1] for x in res])
-        print "Result hash:", {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
-        print ""
-        
-        if 'Nvidia CUDA' in [x[0] for x in c.listCores()]:
-            core = c.getCore('Nvidia CUDA')
-            print "Testing GPU core '%s' (Device '%s')" % (core.name, core.devicename)
+        def runbench(core):
+            pws = ["bar_%i" % i for i in xrange(10000)]
             t = time.time()
             res = sorted(core.solve('foo', pws))
             t = time.time() - t
-            print "%i PMKs in %.2f seconds: %.2f PMKs/s" % (len(pws), t, len(pws) / t)
             md = md5.new()
             map(md.update, [x[1] for x in res])
-            print "Result hash:", {True: "OK", False: "FAILED"}[md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac"]
-            print ""
+            return (len(pws) / t, md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac")
+            
+        c = cpyrit.CPyrit(ncpus = self.options["ncpus"])
+        print "Available cores:", ", ".join(["'%s'" % core[0] for core in c.listCores()]), "\n"
+
+        core = c.getCore('Standard CPU')
+        print "Testing CPU-only core '%s' (%i CPUs)..." % (core.name, c.ncpus),
+        sys.stdout.flush()
+        perf, chk = runbench(core)
+        if chk:
+            print "%.2f PMKs/s" % perf
+        else:
+            print "FAILED"
+        print
+                
+        if 'Nvidia CUDA' in [x[0] for x in c.listCores()]:
+            core = c.getCore('Nvidia CUDA')
+            print "Testing GPU core '%s' (Device '%s')..." % (core.name, core.devicename),
+            sys.stdout.flush()
+            # For GPUs the benchmark runs twice as the core needs to be
+            # calibrated before giving correct performance-data
+            perf, chk = runbench(core)
+            if chk:
+                perf, chk = runbench(core)
+                if chk:
+                    print "%.2f PMKs/s" % perf
+                else:
+                    print "FAILED"
+            else:
+                print "FAILED"
+            print
             
 if __name__ == "__main__":
     p = Pyrit_CLI()
