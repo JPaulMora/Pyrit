@@ -20,7 +20,7 @@
 
 
 from cpyrit import CPyrit
-import zlib, hashlib, fcntl, StringIO, os, re, struct, random, threading
+import zlib, hashlib, fcntl, StringIO, os, re, struct, random, threading, sys
 
 class Pyrit(object):
     """
@@ -124,6 +124,12 @@ class Pyrit(object):
         def export_hashdb(self, essid, hashdbfile):
             con = self.sqlite.connect(hashdbfile)
             cur = con.cursor()
+            
+            cur.execute('SELECT * FROM sqlite_master')
+            tbls = [x[1] for x in cur.fetchall() if x[0] == u'table']
+            if u'pmk' not in tbls or u'essid' not in tbls or u'passwd' not in tbls:
+                raise AssertionError, "The database '%s' seems to be uninitialized. Pyrit won't do that for you. Use the proper tools to create a new database." % hashdbfile
+            
             try:
                 cur.execute('INSERT OR IGNORE INTO essid (essid) VALUES (?)', (essid,))
                 essid_id = cur.execute('SELECT essid_id FROM essid WHERE essid = ?', (essid,)).fetchone()[0]
@@ -140,7 +146,7 @@ class Pyrit(object):
                 con.rollback()
                 cur.close()
                 con.close()
-                print "There was an error while exporting. The database has not been modified..."
+                print >>sys.stderr, "There was an error while exporting. The database has not been modified..."
                 raise
             cur.close()
             con.close()
@@ -190,14 +196,14 @@ class PyrFile(object):
                 if infile_digest.digest() == digest:
                     results = zip(inp,pmkbuffer)
                     pick = random.choice(results)
-                    assert CPyrit().getCore().solve(essid, pick[0]) == pick[1]
+                    assert CPyrit().getCore('Standard CPU').solve(essid, pick[0]) == pick[1]
                     self.essid = essid
                     self.results = dict(results)
                     self.f = f
                 else:
                     raise Exception, "Digest check failed."
         except:
-            print "Exception while opening PyrFile '%s', file not loaded." % infile
+            print >>sys.stderr, "Exception while opening PyrFile '%s', file not loaded." % infile
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             f.close()
             raise
@@ -282,7 +288,7 @@ class EssidStore(object):
                 essids.add(essid)
             else:
                 #pass
-                print "ESSID %s seems to be corrupted." % essid_hash
+                print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
         return frozenset(essids)
 
     def create_essid(self,essid):
@@ -331,12 +337,12 @@ class PasswordFile(object):
                         raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
                     self.bucket = frozenset(inp)
                 else:
-                    print "Digest check failed for %s" % filename
+                    print >>sys.stderr, "Digest check failed for %s" % filename
                     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     f.close()
                     self.f = None
         except:
-            print "Exception while opening PasswordFile '%s', file not loaded." % filename
+            print >>sys.stderr, "Exception while opening PasswordFile '%s', file not loaded." % filename
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             f.close()
             self.f = None

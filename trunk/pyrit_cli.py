@@ -45,9 +45,6 @@ class Pyrit_CLI(object):
         return "[" + '#' * int((max_idx - idx) * 30.0 / max_idx) + "-" * (30 - int((max_idx - idx) * 30.0 / max_idx)) + "]"
         
     def init(self, argv):
-        print "The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com", \
-            "\nThis code is distributed under the GNU General Public License v3\n"
-
         options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:n:")
         for option, value in dict(options).items():
             if option == '-u':
@@ -64,6 +61,11 @@ class Pyrit_CLI(object):
                 self.options["ncpus"] = int(value)
             else:
                 print "Option '%s' not known. Ignoring..." % option
+        
+        if self.options["file"] is not "-":        
+            print "The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com", \
+                "\nThis code is distributed under the GNU General Public License v3\n"
+
                 
         self.pyrit_obj = Pyrit(self.options["essidstore_path"], self.options["passwdstore_path"])        
         
