@@ -87,40 +87,44 @@ class CPyrit(object):
     is the same as in the input-list!
     
     """
+    
+    cores = {}
     def __init__(self, ncpus=None):
-        self.cores = {}
         avail = dir(_cpyrit)
         assert 'calc_pmk' in avail
         assert 'calc_pmklist' in avail
         
-        md = hashlib.md5()
-        md.update(_cpyrit.calc_pmklist('foo', ['bar'])[0][1])
-        if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
-            raise SystemError, "WARNING: CPyrit's CPU-core is apparently broken. We can't continue..."
-        self.cores[CPUCore.name] = CPUCore
-        self.core = CPUCore
         
-        if 'calc_cuda' in avail:
+        # Each core is tested only the first time the CPyrit-class is instantiated for performance reasons
+        if len(CPyrit.cores) == 0:
             md = hashlib.md5()
-            md.update(_cpyrit.calc_cuda('foo', ['bar'])[0][1])
+            md.update(_cpyrit.calc_pmklist('foo', ['bar'])[0][1])
             if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
-                print "WARNING: CPyrit's Nvidia-CUDA GPU-core is apparently broken and will be unavailable."
-            else:
-                self.cores[CUDACore.name] = CUDACore
-                self.core = CUDACore
+                raise SystemError, "WARNING: CPyrit's CPU-core is apparently broken. We can't continue..."
+            CPyrit.cores[CPUCore.name] = CPUCore
+            self.core = CPUCore
+            
+            if 'calc_cuda' in avail:
+                md = hashlib.md5()
+                md.update(_cpyrit.calc_cuda('foo', ['bar'])[0][1])
+                if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
+                    print "WARNING: CPyrit's Nvidia-CUDA GPU-core is apparently broken and will be unavailable."
+                else:
+                    CPyrit.cores[CUDACore.name] = CUDACore
+                    self.core = CUDACore
 
         if ncpus is None or ncpus not in range(1,33):
             ncpus = self.__detect_ncpus()
         self.ncpus = _cpyrit.set_numThreads(ncpus)
         
     def listCores(self):
-        return self.cores.items()
+        return CPyrit.cores.items()
         
     def getCore(self, core=None):
         if core is None:
             return self.core()
         else:
-            return self.cores[core]()
+            return CPyrit.cores[core]()
             
     def __detect_ncpus(self):
         """Detect the number of effective CPUs in the system"""
