@@ -20,7 +20,7 @@
 
 
 import _cpyrit
-import threading, time, hashlib, os
+import threading, time, hashlib, os, sys
 
 class CUDACore(object):
     name = "Nvidia CUDA"
@@ -94,7 +94,6 @@ class CPyrit(object):
         assert 'calc_pmk' in avail
         assert 'calc_pmklist' in avail
         
-        
         # Each core is tested only the first time the CPyrit-class is instantiated for performance reasons
         if len(CPyrit.cores) == 0:
             md = hashlib.md5()
@@ -108,7 +107,7 @@ class CPyrit(object):
                 md = hashlib.md5()
                 md.update(_cpyrit.calc_cuda('foo', ['bar'])[0][1])
                 if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
-                    print "WARNING: CPyrit's Nvidia-CUDA GPU-core is apparently broken and will be unavailable."
+                    print >>sys.stderr, "WARNING: CPyrit's Nvidia-CUDA GPU-core is apparently broken and will be unavailable."
                 else:
                     CPyrit.cores[CUDACore.name] = CUDACore
                     self.core = CUDACore
