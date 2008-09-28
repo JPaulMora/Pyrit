@@ -20,7 +20,7 @@
 
 
 import _cpyrit
-import threading, time, hashlib, os, sys
+import time, hashlib, os, sys
 
 class CUDACore(object):
     name = "Nvidia CUDA"

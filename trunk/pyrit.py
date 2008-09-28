@@ -20,7 +20,7 @@
 
 
 from cpyrit import CPyrit
-import zlib, hashlib, fcntl, StringIO, os, re, struct, random, threading, sys
+import zlib, hashlib, fcntl, os, re, struct, random, sys
 
 class Pyrit(object):
     """
