@@ -111,7 +111,7 @@ class Pyrit_CLI(object):
             "\n    -n    : number of CPUs to use" \
             "\n\nRecognized commands:" \
             "\n    benchmark          : Benchmark a core (-c and -n are optional)" \
-            "\n    batch              : Start batchprocessing (-c, -u, -v, -n and -e are optional)" \
+            "\n    batch              : Start batchprocessing (-c, -u, -v, -n, -f and -e are optional)" \
             "\n    eval               : Count the passwords available and the results already computed (-e is optional)" \
             "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)" \
             "\n    create_essid       : Create a new ESSID (-e is mandatory)" \
@@ -121,9 +121,9 @@ class Pyrit_CLI(object):
     def create_essid(self):
         essid = self.options.essid
         if essid is None:
-            self.tell("One must specify a ESSID using the -e option. See 'help'")
+            self.tell("One must specify a ESSID using the -e option. See 'help'", stream=sys.stderr)
         elif essid in self.pyrit_obj.list_essids():
-            self.tell("ESSID already created")
+            self.tell("ESSID already created", stream=sys.stderr)
         else:
             self.pyrit_obj.create_essid(essid)
             self.tell("Created ESSID '%s'" % essid)
@@ -135,7 +135,7 @@ class Pyrit_CLI(object):
             
     def import_passwords(self):
         if self.options.file is None:
-            self.tell("One must specify a filename using the -f options. See 'help'")
+            self.tell("One must specify a filename using the -f options. See 'help'", stream=sys.stderr)
         else:
             self.tell("Importing from ", end=None)
             if self.options.file == "-":
@@ -156,10 +156,10 @@ class Pyrit_CLI(object):
             self.tell("")
     
     def export_passwords(self):
-        if self.options["file"] is None:
+        if self.options.file is None:
             self.tell("One must specify a filename using the -f option. See 'help'")
             return
-        if self.options["file"] == "-":
+        if self.options.file == "-":
             for idx, rowset in self.pyrit_obj.export_passwords():
                 for row in rowset:
                     sys.stdout.write(row+"\n")
@@ -182,10 +182,10 @@ class Pyrit_CLI(object):
         
     def export_cowpatty(self):
         if self.options.file is None:
-            self.tell("One must specify a filename using the -f option. See 'help'")
+            self.tell("One must specify a filename using the -f option. See 'help'", stream=sys.stderr)
             return
         if self.options.essid is None:
-            self.tell("The cowpatty-format only supports one ESSID per file. Please specify one using the -e option.")
+            self.tell("The cowpatty-format only supports one ESSID per file. Please specify one using the -e option.", stream=sys.stderr)
             return
         if self.options.file == "-":
             for idx, row in self.pyrit_obj.export_cowpatty(self.options.essid):
@@ -208,10 +208,10 @@ class Pyrit_CLI(object):
 
     def export_hashdb(self):
         if 'export_hashdb' not in dir(self.pyrit_obj):
-            self.tell("Support for SQLite seems to be missing. Please check if the pysqlite2 module is available to python.")
+            self.tell("Support for SQLite seems to be missing. Please check if the pysqlite2 module is available to python.", stream=sys.stderr)
             return
         if self.options.file is None:
-            self.tell("You must specify the database filename using the -f option. See 'help'")
+            self.tell("You must specify the database filename using the -f option. See 'help'", stream=sys.stderr)
             return
         if self.options.essid is None:
             essids = self.pyrit_obj.list_essids()
