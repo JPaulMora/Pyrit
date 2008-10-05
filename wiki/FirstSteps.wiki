@@ -16,10 +16,10 @@ _Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managi
 
 Before you use the tool, you should make sure that the code actually works on your platform. There have been reports about some GPU-setups not returning correct results; this is a bug still to be investigated.
 
-Run the _'benchmark'_ command with _pyrit_cli.py_ like the following. Notice that both result hashes are _'OK'_...
+Run the _'benchmark'_ command with _pyrit.py_ like the following. Notice that both result hashes are _'OK'_...
 
 
- _./pyrit_cli.py benchmark
+ _./pyrit.py benchmark
  
  Benchmarking cores 'Standard CPU', 'Nvidia CUDA' 
  
@@ -30,18 +30,18 @@ Run the _'benchmark'_ command with _pyrit_cli.py_ like the following. Notice tha
 
 _Pyrit_'s uses two subdirectories for storage: One for the ESSIDs and the PMKs and one for password files. The default for _Pyrit_ is set to 'blobspace/essid' and 'blobspace/password' which will probably be ok for everyone.
 
-  * Create some ESSID using _'pyrit_cli.py -e FOOBAR create_essid'_
-  * Import some list of passwords using _'pyrit_cli.py -f foobar.txt import_passwords'_
-  * Start batchprocessing using _'pyrit_cli.py batchprocess'_
-  * Use the results with cowpatty after doing _'pyrit_cli.py -e FOOBAR -f output.cow export_cowpatty'_
-  * See more commands with _'pyrit_cli.py help'_
+  * Create some ESSID using _'pyrit.py -e FOOBAR create_essid'_
+  * Import some list of passwords using _'pyrit.py -f foobar.txt import_passwords'_
+  * Start batchprocessing using _'pyrit.py batchprocess'_
+  * Export to cowpatty with _'pyrit.py -e FOOBAR -f output.cow export_cowpatty'_
+  * See more commands with _'pyrit.py help'_
 
 =Example=
   * Get the code using subversion: _"svn checkout http://pyrit.googlecode.com/svn/trunk/ pyrit"_
-  * Make the CLI executable: _"chmod +x pyrit_cli.py"_
+  * Make the CLI executable: _"chmod +x pyrit.py"_
   * Compile and install the CPyrit module: _"cd cpyrit && ./setup.py install HAVE_CUDA && cd .."_
-  * Create a new ESSID: _"./pyrit_cli.py -e foobar create_essid"_
-  * Import a list of passwords: _"./pyrit_cli.py -f list.txt import_passwords"_
-  * Run the batch-processing: _"./pyrit_cli.py -e foobar batchprocess"_
-  * Export to cowpatty: _"./pyrit_cli.py -e foobar -f output.cow export_cowpatty"_
-  * Export to airolib-ng: _"./pyrit_cli.py -e foobar -f hashdb.db export_hashdb"_
+  * Create a new ESSID: _"./pyrit.py -e foobar create_essid"_
+  * Import a list of passwords: _"./pyrit.py -f list.txt import_passwords"_
+  * Run the batch-processing: _"./pyrit.py -e foobar batchprocess"_
+  * Export to cowpatty: _"./pyrit.py -e foobar -f output.cow export_cowpatty"_
+  * Export to airolib-ng: _"./pyrit.py -e foobar -f hashdb.db export_hashdb"_
