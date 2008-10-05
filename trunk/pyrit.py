@@ -314,13 +314,14 @@ class Pyrit_CLI(object):
                         t = time.time()
                         self.tell("")
                         for pwslice in xrange(0, len(passwords), 20480):
-                            self.tell("\r Computing %i PMKs in %i workunits -> %.2f%% done." % (len(passwords), len(pwbuffer), pwslice * 100.0 / len(passwords)), end=None)
+                            self.tell("\r Computing %i PMKs in %i workunits -> %.2f%% done." % (len(passwords), sum([1 if len(pwbuffer[p]) > 0 else 0 for p in pwbuffer]) , pwslice * 100.0 / len(passwords)), end=None)
                             results.update(core.solve(essid_object.essid, passwords[pwslice:pwslice+20480]))
                         self.tell("\r All done, computed %i PMKs in %.2f seconds, %.2f PMKs/s)" % (len(passwords), time.time() - t, len(passwords) / (time.time() - t)))
                     for pwfile_inst in pwbuffer:
                         res = essid_obj[pwfile_inst]
-                        res.update(((pw, results[pw]) for pw in pwbuffer[pwfile_inst]))
-                        essid_obj[pwfile_inst] = res
+                        if len(pwbuffer[pwfile_inst]) > 0:
+                            res.update(((pw, results[pw]) for pw in pwbuffer[pwfile_inst]))
+                            essid_obj[pwfile_inst] = res
                         if self.options.file == "-":
                             try:
                                 for r in res.items():
@@ -478,7 +479,7 @@ class FileReadStreamer(threading.Thread):
     def run(self):
         for key in self.generator:
             self.cv.acquire()
-            if len(self.buffer) > 5:
+            if len(self.buffer) > 3:
                 self.cv.wait()
             self.buffer.append(self.readItem(key))
             if len(self.buffer) > 0:
@@ -527,7 +528,8 @@ class FileWriteStreamer(threading.Thread):
                 if self.closed:
                     break
                 else:
-                    self.cv.wait(1.0)
+                    self.cv.notifyAll()
+                    self.cv.wait()
         self.cv.notifyAll()
         self.cv.release()
         
@@ -535,27 +537,25 @@ class FileWriteStreamer(threading.Thread):
         if self.closed:
             raise AssertionError, "FileWriteStreamer '%s' was already closed when called. Instance will not be saved." % self
         self.cv.acquire()
+        while len(self.buffer) > 3:
+            self.cv.notifyAll()
+            self.cv.wait()
         self.buffer.append(inst)
         self.cv.notifyAll()
         self.cv.release()
 
     def sync(self):
         self.cv.acquire()
-        while True:
-            if len(self.buffer) == 0:
-                break
-            else:
-                self.cv.wait()
+        while len(self.buffer) > 0:
+            self.notifyAll()
+            self.wait()
         self.cv.release()
 
     def close(self):
         if self.closed:
             return
         self.closed = True
-        self.cv.acquire()
-        self.cv.notifyAll()
-        self.cv.wait()
-        self.cv.release()
+        self.sync()
         if len(self.buffer) > 0:
             print >>sys.stderr, "WARNING: FileWriteStreamer '%s' closed with instances still in buffer. This should not happen." % self        
 
