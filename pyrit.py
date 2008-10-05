@@ -27,13 +27,6 @@ try:
 except:
     pass
 
-def tform(i):
-    y = ["%.2f %s" % (i / x[1], x[0]) for x in [('secs',1),('mins',60.0**1),('hrs',60**2),('days',24*(60**2))] if i / x[1] >= 1.00]
-    if len(y) > 0:
-        return y[-1]
-    else:
-        return "NaN"
-
 class Pyrit_CLI(object):
     class options(object):
         def __init__(self):
@@ -57,7 +50,7 @@ class Pyrit_CLI(object):
             else:
                 if sep is not None:
                     stream.write(sep)
-            if flush:
+            if flush or end is None:
                 stream.flush()
         
     def init(self):
@@ -156,9 +149,9 @@ class Pyrit_CLI(object):
                 if i % 10000 == 0:
                     self.tell("\r%i lines read." % i, end=None, flush=True)
             self.passwdstore.flush_buffer()
+            self.tell("\r%i lines read. All done." % i)
             if f != sys.stdin:
                 f.close()
-            self.tell("\nDone")
 
     def eval_results(self):
         if self.options.essid is None:
@@ -170,11 +163,10 @@ class Pyrit_CLI(object):
             essid_obj = self.essidstore[essid]
             pwcount = 0
             rescount = 0
-            for pwfile in self.pwstore:
+            for pwfile in self.passwdstore:
                 pws = set(pwfile)
                 pwcount += len(pws)
                 rescount += len(pws.intersection(set(essid_obj[pwfile.key].keys())))
-            yield (e_idx, essid_name, pwcount, rescount)
             self.tell("Passwords available:\t %i" % pwcount)
             self.tell("Passwords done so far:\t %i (%.2f%%)" % (rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
             self.tell("")
@@ -216,9 +208,12 @@ class Pyrit_CLI(object):
             self.tell("The cowpatty-format only supports one ESSID per file. Please specify one using the -e option.", stream=sys.stderr)
             return
         if self.options.file == "-":
-            for row in self._genCowpatty(self.essidstore[self.options.essid]):
-                sys.stdout.write(row)
-            sys.stdout.flush()
+            try:
+                for row in self._genCowpatty(self.essidstore[self.options.essid]):
+                    sys.stdout.write(row)
+                sys.stdout.flush()
+            except IOError:
+                self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
         else:
             f = open(self.options.file, "w")
             self.tell("Exporting to '%s'..." % self.options.file)
@@ -227,9 +222,9 @@ class Pyrit_CLI(object):
                 f.write(row)
                 lines += 1
                 if lines % 1000 == 0:
-                    self.tell("%i entries written \r" % lines, end=None, flush=True)
+                    self.tell("\r%i entries written..." % lines, end=None, flush=True)
+            self.tell("\r%i entries written. All done." % lines)
             f.close()
-            self.tell("\nAll done.")
 
     def export_hashdb(self):
         if 'sqlite' in locals():
@@ -291,8 +286,6 @@ class Pyrit_CLI(object):
         else:
             self.tell("(%i CPUs)" % cp.ncpus)
 
-        comptime = 0
-        rescount = 0    
         if self.options.essid is not None:
             if self.options.essid not in self.essidstore:
                 self.tell("The ESSID '%s' is not found in the repository" % self.options.essid, stream=sys.stderr)
@@ -301,55 +294,61 @@ class Pyrit_CLI(object):
                 essids = [self.options.essid]
         else:
             essids = self.essidstore
- 
-        for essid in essids:
-            essid_object = self.essidstore[essid]
-            self.tell("Working on ESSID '%s'" % essid_object.essid)
-            if self.options.file == "-":
-                import struct
-                sys.stdout.write(struct.pack("<i", 0x43575041))
-                sys.stdout.write(chr(0)*3)
-                sys.stdout.write(struct.pack("<b32s", len(essid_object.essid), essid_object.essid))
-                sys.stdout.flush()
 
-            for idx, pwfile in enumerate(self.passwdstore):
-                self.tell(" Working on unit '%s' (%i)," % (pwfile.key, idx), end=None)
-                try:
-                    results = essid_object[pwfile]
-                    passwords = list(set(pwfile).difference(set(results.keys())))
-                    self.tell("%i PMKs to do." % len(passwords), end=None, sep=None)
+        try: 
+            for essid in essids:
+                essid_object = self.essidstore[essid]
+                self.tell("Working on ESSID '%s'" % essid_object.essid)
+                if self.options.file == "-":
+                    import struct
+                    sys.stdout.write(struct.pack("<i3s", 0x43575041, '\00'*3))
+                    sys.stdout.write(struct.pack("<b32s", len(essid_object.essid), essid_object.essid))
+                    sys.stdout.flush()
 
+                def _compute(pwbuffer, core, essid_obj):
+                    passwords = []
+                    for p in pwbuffer.values():
+                        passwords.extend(p)
                     if len(passwords) > 0:
+                        results = {}
+                        t = time.time()
                         self.tell("")
-                        for pwslice in xrange(0, len(passwords), 15000):
-                            pwset = passwords[pwslice:pwslice+15000]
-                            t = time.time()
-                            results.update(core.solve(essid_object.essid, pwset))
-                            comptime += time.time() - t
-                            rescount += len(pwset)
-                            self.tell("\r  -> %.2f%% done " % (pwslice * 100.0 / len(passwords)), end=None)
-                            if (comptime > 5):
-                                self.tell("(%.2f PMK/sec, %.2f SHA1/sec, %s left)." % (rescount / comptime, rescount * 8192*2 / comptime, tform((len(passwords) - pwslice) / (rescount / comptime))), end=None, flush=True)
-                        self.tell("\r  -> All done. (%s, %.2f PMK/sec, %.2f SHA1/sec)" % (tform(comptime), rescount / comptime, rescount * 8192*2 / comptime))
-                        essid_object[pwfile] = results
-                    else:
-                        self.tell("\r", end=None)
-                    if self.options.file == "-":
-                        try:
-                            for r in results.items():
-                                sys.stdout.write(struct.pack("<b%ss32s" % len(r[0]), len(r[0]) + 32 + 1, r[0], r[1]))
-                        except IOError:
-                            self.tell("IOError while writing to stdout; batchprocessing will continue silentley...", stream=sys.stderr)
-                            self.options.file = ""
-                        sys.stdout.flush()    
+                        for pwslice in xrange(0, len(passwords), 20480):
+                            self.tell("\r Computing %i PMKs in %i workunits -> %.2f%% done." % (len(passwords), len(pwbuffer), pwslice * 100.0 / len(passwords)), end=None)
+                            results.update(core.solve(essid_object.essid, passwords[pwslice:pwslice+20480]))
+                        self.tell("\r All done, computed %i PMKs in %.2f seconds, %.2f PMKs/s)" % (len(passwords), time.time() - t, len(passwords) / (time.time() - t)))
+                    for pwfile_inst in pwbuffer:
+                        res = essid_obj[pwfile_inst]
+                        res.update(((pw, results[pw]) for pw in pwbuffer[pwfile_inst]))
+                        essid_obj[pwfile_inst] = res
+                        if self.options.file == "-":
+                            try:
+                                for r in res.items():
+                                    sys.stdout.write(struct.pack("<b%ss32s" % len(r[0]), len(r[0]) + 32 + 1, r[0], r[1]))
+                            except IOError:
+                                self.tell("IOError while writing to stdout; batchprocessing will continue silently...", stream=sys.stderr)
+                                self.options.file = ""
+                            sys.stdout.flush()    
 
-                except (KeyboardInterrupt, SystemExit):
-                    break
-                except:
-                    self.tell("Unhandled exception while working on workunit '%s'" % pwfile, stream=sys.stderr)
-                    raise
+                pwbuffer = {}
+                for pwfile in self.passwdstore:
+                    unsolved = list(set(pwfile).difference(set(essid_object[pwfile].keys())))
+                    pwbuffer[pwfile] = unsolved
+                    buffersize = sum((len(x) for x in pwbuffer.values()))
+                    self.tell(" \rReading unit '%s' (%i passwords buffered)" % (pwfile.key, buffersize), end=None)
+                    if buffersize >= 20480*2:
+                        _compute(pwbuffer, core, essid_object)
+                        pwbuffer.clear()
+                _compute(pwbuffer, core, essid_object)
+                
+                self.tell("")
 
-            self.tell("")
+        except (KeyboardInterrupt, SystemExit):
+            self.tell("Exiting...")
+        except:
+            self.tell("Unhandled exception while batchprocessing '%s'" % pwfile, stream=sys.stderr)
+            raise        
+        self.tell("Batchprocessing done.")
 
     def benchmark(self):
         def runbench(core):
@@ -528,18 +527,17 @@ class FileWriteStreamer(threading.Thread):
                 if self.closed:
                     break
                 else:
-                    self.cv.wait()
+                    self.cv.wait(1.0)
         self.cv.notifyAll()
         self.cv.release()
         
     def savefile(self, inst):
-        self.cv.acquire()
         if self.closed:
             raise AssertionError, "FileWriteStreamer '%s' was already closed when called. Instance will not be saved." % self
-        else:
-            self.buffer.append(inst)
-            self.cv.notifyAll()
-            self.cv.release()
+        self.cv.acquire()
+        self.buffer.append(inst)
+        self.cv.notifyAll()
+        self.cv.release()
 
     def sync(self):
         self.cv.acquire()
@@ -553,8 +551,8 @@ class FileWriteStreamer(threading.Thread):
     def close(self):
         if self.closed:
             return
-        self.cv.acquire()
         self.closed = True
+        self.cv.acquire()
         self.cv.notifyAll()
         self.cv.wait()
         self.cv.release()
@@ -687,7 +685,7 @@ class PasswordFile(object):
             if len(head) > 0:
                 assert head == "PAWD"
                 digest = f.read(md.digest_size)
-                inp = f.read().split("\00")
+                inp = sorted(f.read().split("\00"))
                 map(md.update, inp)
                 if digest == md.digest():
                     if filename[-3-len(md.hexdigest()):-3] != md.hexdigest():
@@ -729,7 +727,7 @@ class PasswordFile(object):
             raise Exception, "No file opened."
         fcntl.flock(self.f.fileno(), fcntl.LOCK_EX)
         md = hashlib.md5()
-        b = list(self.bucket)
+        b = sorted(list(self.bucket))
         map(md.update, b)
         self.f.truncate(0)
         self.f.write("PAWD")
@@ -786,29 +784,27 @@ class PasswordStore(object):
         md = hashlib.md5()
         map(md.update, pwlist)
         pw_h1 = "%02.2X" % (hash(pwlist[0]) & 0xFF)
+        assert all(("%02.2X" % (hash(pw) & 0xFF) == pw_h1 for pw in pwlist))
 
-        pwset = set(bucket)
         for pwfile in self._getfiles().values():
             if pwfile.split(os.path.sep)[-2] == pw_h1:
-                f = PasswordFile(pwfile)
-                pwset -= f.bucket
-        if len(pwset) == 0:
+                bucket -= PasswordFile(pwfile).bucket
+        if len(bucket) == 0:
             return
 
         destpath = os.path.join(self.passwdpath, pw_h1)
         self._makedir(destpath)
-
         f = PasswordFile(os.path.join(destpath, md.hexdigest() + ".pw"))
-        f.bucket = pwlist
+        f.bucket.update(bucket)
         f.savefile()
+        bucket = set()
 
     def flush_buffer(self):
         for pw_h1 in self.pwbuffer.keys():
             pwbucket = list(self.pwbuffer[pw_h1])
             map(self._flush_bucket, [set(pwbucket[x:x+10000]) for x in xrange(0,len(pwbucket), 10000)])
-        self.pwbuffer = {}
 
-    def store_password(self,passwd):
+    def store_password(self, passwd):
         pwstrip = str(passwd).lower().strip()
         pwgroups = self.pwpattern.search(pwstrip)
         if pwgroups is None:
@@ -820,15 +816,12 @@ class PasswordStore(object):
             #print "Password '%s'('%s') has invalid length." % (pwstrip,passwd)
             return
 
-        pw_h1 = "%02.2X" % (hash(passwd) & 0xFF)
+        pw_h1 = "%02.2X" % (hash(pwstrip) & 0xFF)
         pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
-
         if pwstrip not in pw_bucket:
             pw_bucket.add(pwstrip)
             if len(pw_bucket) >= 10000:
                 self._flush_bucket(pw_bucket)
-                self.pwbuffer[pw_h1] = set()
-
 
 if __name__ == "__main__":
     p = Pyrit_CLI()
