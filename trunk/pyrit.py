@@ -157,7 +157,7 @@ class Pyrit_CLI(object):
         if self.options.essid is None:
             essids = self.essidstore
         else:
-            essids = (self.essid[essid])
+            essids = [self.options.essid]
         for essid in essids:
             self.tell("ESSID:\t '%s'" % essid)
             essid_obj = self.essidstore[essid]
@@ -578,8 +578,11 @@ class ESSID(object):
 
     def __init__(self, path):
         self.path = path
-        self.f = open(os.path.join(path, "essid"), "rb")
-        fcntl.flock(self.f.fileno(), fcntl.LOCK_SH)
+        try:
+            self.f = open(os.path.join(path, "essid"), "rb")
+            fcntl.flock(self.f.fileno(), fcntl.LOCK_SH)
+        except IOError:
+            raise IOError, "ESSID not found or not accessible."
         self.essid = self.f.read()
         self.resultwriter = self.ResultWriteStreamer()
 
@@ -780,18 +783,17 @@ class PasswordStore(object):
     def _flush_bucket(self, bucket):
         if len(bucket) == 0:
             return
-        pwlist = sorted(list(bucket))
-        md = hashlib.md5()
-        map(md.update, pwlist)
-        pw_h1 = "%02.2X" % (hash(pwlist[0]) & 0xFF)
-        assert all(("%02.2X" % (hash(pw) & 0xFF) == pw_h1 for pw in pwlist))
+        pw_h1 = "%02.2X" % (hash(list(bucket)[0]) & 0xFF)
+        assert all(("%02.2X" % (hash(pw) & 0xFF) == pw_h1 for pw in bucket))
 
         for pwfile in self._getfiles().values():
             if pwfile.split(os.path.sep)[-2] == pw_h1:
                 bucket -= PasswordFile(pwfile).bucket
         if len(bucket) == 0:
             return
-
+            
+        md = hashlib.md5()
+        map(md.update, sorted(list(bucket)))
         destpath = os.path.join(self.passwdpath, pw_h1)
         self._makedir(destpath)
         f = PasswordFile(os.path.join(destpath, md.hexdigest() + ".pw"))
