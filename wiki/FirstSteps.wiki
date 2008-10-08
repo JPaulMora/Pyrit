@@ -6,7 +6,7 @@ First of all, you have to get yourself  a copy of _Pyrit_'s sourcecode. There is
 
 _Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managing the blobspace, the commandline-client and such. And the _CPyrit_-extension-module, which features the computational cores written in C.
 
-  * Get yourself a copy of the latest code. You can checkout the latest subversion-tree from [http://code.google.com/p/pyrit/source/checkout] or try the current tagged-version 0.2 [http://pyrit.googlecode.com/svn/tags/0.2/pyrit_0_2.tar.gz here].
+  * Get yourself a copy of the latest code. You can checkout the latest subversion-tree from [http://code.google.com/p/pyrit/source/checkout].
   * Get yourself a copy of the OpenSSL library and headers. On binary Linux distributions you probably have to install "openssl-dev" or similar named packages.
   * If you have a Nvidia GPU that supports CUDA, you can use _Pyrit_'s CUDA-core for a massive performance gain. Get yourself a copy of the CUDA-compatible drivers and the Toolkit from [http://www.nvidia.com/object/cuda_get.html].
   * Modify setup.py to your needs
@@ -14,18 +14,13 @@ _Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managi
 
 = Using the tools =
 
-Before you use the tool, you should make sure that the code actually works on your platform. There have been reports about some GPU-setups not returning correct results; this is a bug still to be investigated.
-
-Run the _'benchmark'_ command with _pyrit.py_ like the following. Notice that both result hashes are _'OK'_...
-
 
  _./pyrit.py benchmark
  
  Benchmarking cores 'Standard CPU', 'Nvidia CUDA' 
  
- Testing CPU-only core 'Standard CPU'... 10000 PMKs in 24.87 seconds: 402.16 PMKs/s Result hash: ef747d123821851a9bd1d1e94ba048ac OK
- 
- Testing GPU core 'Nvidia CUDA'... 10000 PMKs in 6.63 seconds: 1509.22 PMKs/s GPU performance: 1133.28 PMKs/s CPU performance: 381.97 PMKs/s Result hash: ef747d123821851a9bd1d1e94ba048ac OK'_
+ Testing CPU-only core 'Standard CPU'... 10000 PMKs in 24.87 seconds: 402.16 PMKs/s  
+ Testing GPU core 'Nvidia CUDA'... 10000 PMKs in 6.63 seconds: 1509.22 PMKs/s
 
 
 _Pyrit_'s uses two subdirectories for storage: One for the ESSIDs and the PMKs and one for password files. The default for _Pyrit_ is set to 'blobspace/essid' and 'blobspace/password' which will probably be ok for everyone.
@@ -34,14 +29,5 @@ _Pyrit_'s uses two subdirectories for storage: One for the ESSIDs and the PMKs a
   * Import some list of passwords using _'pyrit.py -f foobar.txt import_passwords'_
   * Start batchprocessing using _'pyrit.py batchprocess'_
   * Export to cowpatty with _'pyrit.py -e FOOBAR -f output.cow export_cowpatty'_
-  * See more commands with _'pyrit.py help'_
-
-=Example=
-  * Get the code using subversion: _"svn checkout http://pyrit.googlecode.com/svn/trunk/ pyrit"_
-  * Make the CLI executable: _"chmod +x pyrit.py"_
-  * Compile and install the CPyrit module: _"cd cpyrit && ./setup.py install HAVE_CUDA && cd .."_
-  * Create a new ESSID: _"./pyrit.py -e foobar create_essid"_
-  * Import a list of passwords: _"./pyrit.py -f list.txt import_passwords"_
-  * Run the batch-processing: _"./pyrit.py -e foobar batchprocess"_
-  * Export to cowpatty: _"./pyrit.py -e foobar -f output.cow export_cowpatty"_
   * Export to airolib-ng: _"./pyrit.py -e foobar -f hashdb.db export_hashdb"_
+  * See more commands with _'pyrit.py help'_
