@@ -21,7 +21,7 @@
 
 
 import cpyrit
-import time, zlib, getopt, hashlib, fcntl, os, re, struct, random, sys, threading
+import time, zlib, getopt, hashlib, fcntl, os, re, struct, random, sys, threading, struct
 try:
     from pysqlite2 import dbapi2 as sqlite
 except:
@@ -83,19 +83,18 @@ class Pyrit_CLI(object):
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
             self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...", stream=sys.stderr)
 
-        func = {'export_cowpatty': self.export_cowpatty,
-                'export_hashdb': self.export_hashdb,
-                'export_passwords': self.export_passwords,
-                'import_passwords': self.import_passwords,
-                'list_essids': self.list_essids,
-                'create_essid': self.create_essid,
-                'eval': self.eval_results,
-                'batch': self.batchprocess,
-                'batchprocess': self.batchprocess,
-                'benchmark': self.benchmark,
-                'help': self.print_help
-                }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)
-        func()
+        {'export_cowpatty': self.export_cowpatty,
+        'export_hashdb': self.export_hashdb,
+        'export_passwords': self.export_passwords,
+        'import_passwords': self.import_passwords,
+        'list_essids': self.list_essids,
+        'create_essid': self.create_essid,
+        'eval': self.eval_results,
+        'batch': self.batchprocess,
+        'batchprocess': self.batchprocess,
+        'benchmark': self.benchmark,
+        'help': self.print_help
+        }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)()
 
     def print_help(self):
         self.tell("usage: pyrit_cli [options] command " \
@@ -300,10 +299,8 @@ class Pyrit_CLI(object):
                 essid_object = self.essidstore[essid]
                 self.tell("Working on ESSID '%s'" % essid_object.essid)
                 if self.options.file == "-":
-                    import struct
                     sys.stdout.write(struct.pack("<i3s", 0x43575041, '\00'*3))
                     sys.stdout.write(struct.pack("<b32s", len(essid_object.essid), essid_object.essid))
-                    sys.stdout.flush()
 
                 def _compute(pwbuffer, core, essid_obj):
                     passwords = []
@@ -318,28 +315,33 @@ class Pyrit_CLI(object):
                             results.update(core.solve(essid_object.essid, passwords[pwslice:pwslice+20480]))
                         self.tell("\r All done, computed %i PMKs in %.2f seconds, %.2f PMKs/s)" % (len(passwords), time.time() - t, len(passwords) / (time.time() - t)))
                     for pwfile_inst in pwbuffer:
-                        res = essid_obj[pwfile_inst]
-                        if len(pwbuffer[pwfile_inst]) > 0:
-                            res.update(((pw, results[pw]) for pw in pwbuffer[pwfile_inst]))
-                            essid_obj[pwfile_inst] = res
-                        if self.options.file == "-":
-                            try:
-                                for r in res.items():
-                                    sys.stdout.write(struct.pack("<b%ss32s" % len(r[0]), len(r[0]) + 32 + 1, r[0], r[1]))
-                            except IOError:
-                                self.tell("IOError while writing to stdout; batchprocessing will continue silently...", stream=sys.stderr)
-                                self.options.file = ""
-                            sys.stdout.flush()    
+                        if self.options.file == "-" or len(pwbuffer[pwfile_inst]) > 0: 
+                            res = essid_obj[pwfile_inst]
+                            if len(pwbuffer[pwfile_inst]) > 0:
+                                res.update(((pw, results[pw]) for pw in pwbuffer[pwfile_inst]))
+                                essid_obj[pwfile_inst] = res
+                            if self.options.file == "-":
+                                try:
+                                    for r in res.items():
+                                        sys.stdout.write(struct.pack("<b%ss32s" % len(r[0]), len(r[0]) + 32 + 1, r[0], r[1]))
+                                    sys.stdout.flush()   
+                                except IOError:
+                                    self.tell("IOError while writing to stdout; batchprocessing will continue silently...", stream=sys.stderr)
+                                    self.options.file = ""
 
                 pwbuffer = {}
                 for pwfile in self.passwdstore:
-                    unsolved = list(set(pwfile).difference(set(essid_object[pwfile].keys())))
-                    pwbuffer[pwfile] = unsolved
-                    buffersize = sum((len(x) for x in pwbuffer.values()))
-                    self.tell(" \rReading unit '%s' (%i passwords buffered)" % (pwfile.key, buffersize), end=None)
-                    if buffersize >= 20480*2:
-                        _compute(pwbuffer, core, essid_object)
-                        pwbuffer.clear()
+                    try:
+                        unsolved = list(set(pwfile).difference(set(essid_object[pwfile].keys())))
+                    except:
+                        self.tell("\nError computing set-difference for unit '%s'." % pwfile.key, stream=sys.stderr)
+                    else:
+                        pwbuffer[pwfile] = unsolved
+                        buffersize = sum((len(x) for x in pwbuffer.values()))
+                        self.tell(" \rReading unit '%s' (%i passwords buffered)" % (pwfile.key, buffersize), end=None)
+                        if buffersize >= 20480*2:
+                            _compute(pwbuffer, core, essid_object)
+                            pwbuffer.clear()
                 _compute(pwbuffer, core, essid_object)
                 
                 self.tell("")
@@ -481,11 +483,13 @@ class FileReadStreamer(threading.Thread):
             self.cv.acquire()
             if len(self.buffer) > 3:
                 self.cv.wait()
-            self.buffer.append(self.readItem(key))
+            try:
+                self.buffer.append(self.readItem(key))
+            except:
+                print >>sys.stderr, "Error reading key '%s' in reader '%s'. Item skipped." % (key, self)
             if len(self.buffer) > 0:
                 self.cv.notifyAll()
             self.cv.release()
-        
         self.cv.acquire()
         self.cv.notifyAll()
         self.cv.release()
@@ -520,18 +524,20 @@ class FileWriteStreamer(threading.Thread):
     
     def run(self):
         self.cv.acquire()
-        while True:
-            if len(self.buffer) > 0:
-                inst = self.buffer.pop()
-                inst.savefile()
-            else:
-                if self.closed:
-                    break
+        try:
+            while True:
+                if len(self.buffer) > 0:
+                    inst = self.buffer.pop()
+                    inst.savefile()
                 else:
-                    self.cv.notifyAll()
-                    self.cv.wait()
-        self.cv.notifyAll()
-        self.cv.release()
+                    if self.closed:
+                        break
+                    else:
+                        self.cv.notifyAll()
+                        self.cv.wait()
+        finally:
+            self.cv.notifyAll()
+            self.cv.release()
         
     def savefile(self, inst):
         if self.closed:
@@ -569,7 +575,7 @@ class ESSID(object):
             self.start()
             
         def readItem(self, key):
-            return self.obj._getPyrFile(key)
+            return (key, dict(self.obj._getPyrFile(key).results))
 
     class ResultWriteStreamer(FileWriteStreamer):
         def __init__(self):
@@ -598,8 +604,8 @@ class ESSID(object):
     def __iter__(self):
         if self.f is None:
             raise Exception, "ESSID not locked."
-        for resultfile in self.ResultReadStreamer(self):
-            yield (resultfile.key, resultfile.results)
+        for key, results in self.ResultReadStreamer(self):
+            yield (key, results)
 
     def __getitem__(self, key):
         return self._getPyrFile(key).results
@@ -627,7 +633,7 @@ class ESSID(object):
         elif isinstance(key, PasswordFile):
             fname = key.key
         else:
-            raise AssertionError, "Don't know how to handle parameter of class '%s'." % key.__class__
+            raise AssertionError, "Don't know how to get results based on parameter of class '%s'." % key.__class__
         return PyrFile(self.essid, os.path.join(self.path, fname+".pyr"))
 
 class EssidStore(object):
@@ -635,7 +641,7 @@ class EssidStore(object):
         self.essidpath = basepath
         self._makedir(self.essidpath)
 
-    def _makedir(self,pathname):
+    def _makedir(self, pathname):
         try:
             os.makedirs(pathname)
         except OSError, (errno, sterrno):
@@ -676,6 +682,7 @@ class EssidStore(object):
 class PasswordFile(object):
     def __init__(self, filename):
         self.bucket = set()
+        self.f = None
 
         f = open(filename, "a+b")
         fcntl.flock(f.fileno(), fcntl.LOCK_SH)
@@ -724,6 +731,12 @@ class PasswordFile(object):
                     ret.add(f(pw+s)[:63])
         for pw in ret:
             yield pw
+            
+    def __len__(self):
+        i = 0
+        for x in self:
+            i += 1
+        return i
 
     def savefile(self):
         if self.f is None:
@@ -804,7 +817,7 @@ class PasswordStore(object):
     def flush_buffer(self):
         for pw_h1 in self.pwbuffer.keys():
             pwbucket = list(self.pwbuffer[pw_h1])
-            map(self._flush_bucket, [set(pwbucket[x:x+10000]) for x in xrange(0,len(pwbucket), 10000)])
+            map(self._flush_bucket, [set(pwbucket[x:x+10000]) for x in xrange(0, len(pwbucket), 10000)])
 
     def store_password(self, passwd):
         pwstrip = str(passwd).lower().strip()
