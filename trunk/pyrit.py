@@ -90,6 +90,7 @@ class Pyrit_CLI(object):
         'list_essids': self.list_essids,
         'create_essid': self.create_essid,
         'eval': self.eval_results,
+        'count_results': self.count_results,
         'batch': self.batchprocess,
         'batchprocess': self.batchprocess,
         'benchmark': self.benchmark,
@@ -125,10 +126,15 @@ class Pyrit_CLI(object):
             self.essidstore.create_essid(essid)
             self.tell("Created ESSID '%s'" % essid)
 
+    def count_results(self):
+        self.tell("Listing ESSIDs and their results...")
+        for i, essid in enumerate(self.essidstore):
+            self.tell("#%i:  '%s' (%i PMKs)" % (i, essid, sum((len(results) for key,results in self.essidstore[essid]))))
+
     def list_essids(self):
         self.tell("Listing ESSIDs...")
-        for i,e in enumerate(self.essidstore):
-            self.tell("#%i:  '%s'" % (i, e))
+        for i, essid in enumerate(self.essidstore):
+            self.tell("#%i:  '%s'" % (i, essid))
             
     def import_passwords(self):
         if self.options.file is None:
@@ -399,7 +405,6 @@ class PyrFile(object):
         self.essid = essid
         self.f = None
         self.key = None
-        self.ccore = cpyrit.CPyrit()
 
         f = open(infile, "a+b")
         fcntl.flock(f.fileno(), fcntl.LOCK_SH)
@@ -418,24 +423,25 @@ class PyrFile(object):
                 assert essid == self.essid
                 infile_digest.update(essid)
 
-                pmkbuffer = []
-                for p in xrange(inplength):
-                    pmkbuffer.append(f.read(32))
-                inp = zlib.decompress(f.read()).split("\00")
+                pmkbuffer = f.read(inplength * 32)
+                assert len(pmkbuffer) == inplength * 32
+                pmkbuffer = [pmkbuffer[i*32:i*32+32] for i in xrange(inplength)]
+                inp = zlib.decompress(f.read()).split('\00')
+                
+                for i in pmkbuffer:
+                    infile_digest.update(i)
+                for i in inp:
+                    infile_digest.update(i)
+                if infile_digest.digest() != digest:
+                    raise Exception, "Digest check failed on PyrFile '%s'." % self
 
-                map(infile_digest.update, pmkbuffer)
-                map(infile_digest.update, inp)
-                if infile_digest.digest() == digest:
-                    results = zip(inp, pmkbuffer)
-                    pick = random.choice(results)
-                    assert cpyrit.CPyrit().getCore('Standard CPU').solve(essid, pick[0]) == pick[1]
-                    self.essid = essid
-                    self.results = dict(results)
-                    self.f = f
-                    self.key = infile.split(os.path.sep)[-1][:-4]
-                    
-                else:
-                    raise Exception, "Digest check failed."
+                results = dict(zip(inp, pmkbuffer))
+                pick = random.choice(results.keys())
+                assert cpyrit.CPyrit().getCore('Standard CPU').solve(essid, pick) == results[pick]
+                self.essid = essid
+                self.results = results
+                self.f = f
+                self.key = infile.split(os.path.sep)[-1][:-4]
         except:
             print >>sys.stderr, "Exception while opening PyrFile '%s', file not loaded." % infile
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
@@ -486,7 +492,7 @@ class FileReadStreamer(threading.Thread):
             try:
                 self.buffer.append(self.readItem(key))
             except:
-                print >>sys.stderr, "Error reading key '%s' in reader '%s'. Item skipped." % (key, self)
+                print >>sys.stderr, "Error reading key '%s' in reader '%s': '%s'. Item skipped...." % (key, self, sys.exc_info()[0])
             if len(self.buffer) > 0:
                 self.cv.notifyAll()
             self.cv.release()
