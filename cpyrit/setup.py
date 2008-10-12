@@ -4,6 +4,7 @@ import sys
 import subprocess
 
 libraries = ['ssl']
+library_dirs = ['/usr/lib']
 include_dirs = ['/usr/include']
 extra_objects = []
 extra_compile_args = ['-O2']
@@ -15,6 +16,7 @@ if 'HAVE_CUDA' in sys.argv:
     libraries.extend(['cuda', 'cudart'])
     extra_compile_args.append('-DHAVE_CUDA')
     include_dirs.append('/usr/local/cuda/include')
+    library_dirs.append('/usr/local/cuda/lib')
     extra_objects.append('cpyrit_cuda.o')
 if 'HAVE_PADLOCK' in sys.argv:
     sys.argv.remove('HAVE_PADLOCK')
@@ -26,6 +28,7 @@ cmodule = Extension('_cpyrit',
                     sources = ['cpyrit.c'],
                     extra_compile_args = extra_compile_args,
                     include_dirs = include_dirs,
+                    library_dirs = library_dirs,
                     extra_objects = extra_objects
                     )
 
