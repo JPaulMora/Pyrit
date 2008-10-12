@@ -74,7 +74,17 @@ class CPUCore(object):
 
         else:
             raise TypeError, "Password parameter must be string or list"
-    
+
+class NullCore(object):
+    name = "The dummy-core"
+    ctype = "CPU"
+    def __init__(self):
+        print >>sys.stderr, "WARNING: The NullCore has been initialized. Be aware!"
+        
+    def solve(self, essid, password):
+        assert isinstance(password, list)
+        return [(pw, '\00'*32) for pw in password]
+
 
 class CPyrit(object):
     """

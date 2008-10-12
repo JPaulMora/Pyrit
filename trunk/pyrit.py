@@ -110,6 +110,7 @@ class Pyrit_CLI(object):
             "\n    benchmark          : Benchmark a core (-c and -n are optional)" \
             "\n    batch              : Start batchprocessing (-c, -u, -v, -n, -f and -e are optional)" \
             "\n    list_essids        : List all ESSIDs in the ESSID-blobspace" \
+            "\n    count_results      : List all ESSIDs and count the PMKs in the ESSID-blobspace" \
             "\n    eval               : Count the passwords available and the results already computed (-e is optional)" \
             "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)" \
             "\n    create_essid       : Create a new ESSID (-e is mandatory)" \
@@ -286,10 +287,7 @@ class Pyrit_CLI(object):
         else:
             core = cp.getCore()
             self.tell("Using default core '%s'" % core.name, end=None)
-        if core.ctype == 'GPU':
-            self.tell("(Device '%s')" % core.devicename)
-        else:
-            self.tell("(%i CPUs)" % cp.ncpus)
+        self.tell("(Device '%s')" % core.devicename if core.ctype == 'GPU' else "(%i CPUs)" % cp.ncpus)
 
         if self.options.essid is not None:
             if self.options.essid not in self.essidstore:
