@@ -45,7 +45,7 @@ static inline int bswap(int x)
 static int
 padlock_xsha1_lowlevel(char *input, unsigned int *output, int done, int count)
 {
-    int d = done;
+    int volatile d = done;
     asm volatile ("xsha1"
               : "+S"(input), "+D"(output), "+a"(d)
               : "c"(count));
