@@ -54,6 +54,28 @@ class CUDACore(object):
                 self.buffersize = int(max(2048, min(20480, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
         return res
 
+class StreamCore(object):
+    name = "AMD Stream"
+    ctype = "GPU"
+    def __init__(self):
+        assert 'calc_stream' in dir(_cpyrit)
+        self.buffersize = 8192
+	self.devicename = "AMD Stream"
+	
+    def solve(self, essid, password):
+        assert isinstance(essid, str)
+        if isinstance(password, str):
+            return _cpyrit.calc_pmk(essid, password)
+        assert isinstance(password, list)
+        
+        res = []
+        i = 0
+        while i < len(password):
+            t = time.time()
+            pwslice = password[i:i+self.buffersize]
+            res.extend(_cpyrit.calc_stream(essid, pwslice))
+            i += self.buffersize
+        return res
 
 class CPUCore(object):
     name = "Standard CPU"
@@ -121,6 +143,15 @@ class CPyrit(object):
                 else:
                     CPyrit.cores[CUDACore.name] = CUDACore
                     self.core = CUDACore
+
+            if 'calc_stream' in avail:
+                md = hashlib.md5()
+                md.update(_cpyrit.calc_stream('foo', ['bar'])[0][1])
+                if md.hexdigest() != 'a99415725d7003510eb37382126338f3':
+                    print >>sys.stderr, "WARNING: CPyrit's AMD-Stream GPU-core is apparently broken and will be unavailable."
+                else:
+                    CPyrit.cores[StreamCore.name] = StreamCore
+                    self.core = StreamCore
 
         if ncpus is None or ncpus not in range(1,33):
             ncpus = self.__detect_ncpus()

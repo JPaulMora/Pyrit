@@ -396,6 +396,22 @@ class Pyrit_CLI(object):
                 self.tell("FAILED")
             self.tell("")
 
+        if 'AMD Stream' in [x[0] for x in c.listCores()]:
+            core = c.getCore('AMD Stream')
+            self.tell("Testing GPU core '%s' (Device '%s')... " % (core.name, core.devicename), end=None)
+            sys.stdout.flush()
+            # For GPUs the benchmark runs twice as the core needs to be
+            # calibrated before giving correct performance-data
+            perf, chk = runbench(core)
+            if chk:
+                perf, chk = runbench(core)
+                if chk:
+                    self.tell("%.2f PMKs/s" % perf)
+                else:
+                    self.tell("FAILED")
+            else:
+                self.tell("FAILED")
+            self.tell("")
 
 class PyrFile(object):
     def __init__(self, essid, infile):

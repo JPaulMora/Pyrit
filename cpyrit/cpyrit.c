@@ -357,6 +357,12 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     }
 #endif
 
+#ifdef HAVE_STREAM
+    //Will be linked as object file
+    PyObject *cpyrit_stream(PyObject *self, PyObject *args);
+    
+#endif
+
 static PyMethodDef SpamMethods[] = {
     {"set_numThreads", cpyrit_set_numThreads, METH_VARARGS, "Set number of threads for CPU-bound calculations"},
     
@@ -370,6 +376,9 @@ static PyMethodDef SpamMethods[] = {
     #ifdef HAVE_CUDA
         {"calc_cuda", cpyrit_cuda, METH_VARARGS, "Calculate PMKs from ESSID and list of strings"},
         {"cudaprops", cpyrit_devprops, METH_VARARGS, "Returns a tuple with some properties about main device"},
+    #endif
+    #ifdef HAVE_STREAM
+        {"calc_stream", cpyrit_stream, METH_VARARGS, "Calculate PMKs from ESSID and list of strings"},
     #endif
     {NULL, NULL, 0, NULL}
 };
