@@ -3,6 +3,10 @@
 from distutils.core import setup, Extension
 import sys
 import subprocess
+import re
+
+def replace_eval(match):
+    return "W_" + str(eval(match.group(1)))
 
 libraries = ['ssl']
 library_dirs = ['/usr/lib']
@@ -23,7 +27,28 @@ if 'HAVE_PADLOCK' in sys.argv:
     sys.argv.remove('HAVE_PADLOCK')
     print "Compiling with Via padlock support"
     extra_compile_args.append('-DHAVE_PADLOCK')
-
+if 'HAVE_STREAM' in sys.argv:
+    sys.argv.remove('HAVE_STREAM');
+    print "Compiling Stream kernel..."
+    subprocess.check_call('cpp -P -o cpyrit_stream_pp.br cpyrit_stream.br', shell=True);
+    f = file('cpyrit_stream_pp.br', 'r+')
+    s = f.read()
+    f.truncate(0)
+    f.seek(0)
+    f.write(re.sub("W\[(.+?)\]", replace_eval, s))
+    f.close()
+    subprocess.check_call('mkdir -p brook',shell=True);
+    subprocess.check_call('/usr/local/amdbrook/sdk/bin/brcc -p cal -r -o brook/cpyrit cpyrit_stream_pp.br', shell=True);
+    print "... done."
+    subprocess.check_call('g++ -O2 -I/usr/local/amdbrook/sdk/include/ -Ibrook -o brook/cpyrit.o -c brook/cpyrit.cpp',shell=True);
+    subprocess.check_call('g++ -O2 -I/usr/local/amdbrook/sdk/include/ -Ibrook -c cpyrit_stream.cpp',shell=True);
+    libraries.extend(['brook'])
+    extra_compile_args.append('-DHAVE_STREAM')
+    include_dirs.append('/usr/local/amdbrook/sdk/include')
+    library_dirs.append('/usr/local/amdbrook/sdk/lib')
+    extra_objects.append('cpyrit_stream.o')
+    extra_objects.append('brook/cpyrit.o')    
+    
 cmodule = Extension('_cpyrit',
                     libraries = libraries,
                     sources = ['cpyrit.c'],
