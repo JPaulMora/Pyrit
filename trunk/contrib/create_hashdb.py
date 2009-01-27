@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 from pysqlite2 import dbapi2 as sqlite
 from sys import argv
 
