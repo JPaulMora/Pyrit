@@ -71,7 +71,7 @@ class Pyrit_CLI(object):
             else:
                 self.tell("Option '%s' not known. Ignoring..." % option)
         
-        if self.options.file == "-":
+        if self.options.file == "-" or 'passthrough' in commands:
             self.options.verbose = False
 
         self.essidstore = EssidStore(self.options.essidstore_path)
@@ -87,35 +87,40 @@ class Pyrit_CLI(object):
         'export_hashdb': self.export_hashdb,
         'export_passwords': self.export_passwords,
         'import_passwords': self.import_passwords,
+        'list_cores': self.list_cores,
         'list_essids': self.list_essids,
         'create_essid': self.create_essid,
         'eval': self.eval_results,
         'count_results': self.count_results,
         'batch': self.batchprocess,
         'batchprocess': self.batchprocess,
+        'passthrough': self.passthrough,
         'benchmark': self.benchmark,
         'help': self.print_help
         }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)()
 
     def print_help(self):
-        self.tell("usage: pyrit_cli [options] command " \
+        self.tell("usage: pyrit.py [options] command " \
             "\n\nRecognized options:" \
-            "\n    -u    : path to the ESSID-blobspace" \
-            "\n    -v    : path to the Password-blobspace" \
-            "\n    -c    : name of the core to use. 'Standard CPU' is default" \
-            "\n    -e    : ESSID for the command" \
-            "\n    -f    : filename for the command ('-' is stdin/stdout)" \
-            "\n    -n    : number of CPUs to use" \
-            "\n\nRecognized commands:" \
-            "\n    benchmark          : Benchmark a core (-c and -n are optional)" \
-            "\n    batch              : Start batchprocessing (-c, -u, -v, -n, -f and -e are optional)" \
-            "\n    list_essids        : List all ESSIDs in the ESSID-blobspace" \
-            "\n    count_results      : List all ESSIDs and count the PMKs in the ESSID-blobspace" \
-            "\n    eval               : Count the passwords available and the results already computed (-e is optional)" \
-            "\n    import_passwords   : Import passwords into the Password-blobspace (-f is mandatory)" \
-            "\n    create_essid       : Create a new ESSID (-e is mandatory)" \
-            "\n    export_cowpatty    : Export into a new cowpatty file (-e and -f are mandatory)" \
-            "\n    export_hashdb      : Export into an existing airolib database (-e is optional, -f is mandatory)")
+            "\n  -c    : name of the core to use. 'Standard CPU' is default" \
+            "\n  -e    : ESSID for the command" \
+            "\n  -f    : filename for the command ('-' is stdin/stdout)" \
+            "\n  -n    : number of CPUs to use" \
+            "\n  -u    : path to the ESSID-blobspace" \
+            "\n  -v    : path to the Password-blobspace" \
+            "\n\nRecognized commands (Possible options: M=must, C=can):" \
+            "\n  batch            : Start batchprocessing (C: cefnuv)" \
+            "\n  benchmark        : Benchmark a core (C: cn)" \
+            "\n  count_results    : List all ESSIDs and count the PMKs in the ESSID-blobspace" \
+            "\n  create_essid     : Create a new ESSID (M: e)" \
+            "\n  eval             : Count the passwords available and matching results (C: e)" \
+            "\n  export_cowpatty  : Export into a new cowpatty file (M: ef)" \
+            "\n  export_hashdb    : Export into an existing airolib database (C: e; M: f)" \
+            "\n  import_passwords : Import passwords into the Password-blobspace (M: f)" \
+            "\n  list_cores       : List available cores" \
+            "\n  list_essids      : List all ESSIDs in the ESSID-blobspace" \
+            "\n  passthrough      : Compute PMKs on the fly and write to stdout (M: cefn)" \
+            "\n")
 
     def create_essid(self):
         essid = self.options.essid
@@ -132,6 +137,11 @@ class Pyrit_CLI(object):
         for i, essid in enumerate(self.essidstore):
             self.tell("#%i:  '%s' (%i PMKs)" % (i, essid, sum((len(results) for key,results in self.essidstore[essid]))))
 
+    def list_cores(self):
+        self.tell("Listing available cores...")
+        for i, (corename, core) in enumerate(cpyrit.CPyrit()):
+            self.tell("#%i:  '%s' (%s)" % (i, corename, core.ctype))
+
     def list_essids(self):
         self.tell("Listing ESSIDs...")
         for i, essid in enumerate(self.essidstore):
@@ -139,7 +149,7 @@ class Pyrit_CLI(object):
             
     def import_passwords(self):
         if self.options.file is None:
-            self.tell("One must specify a filename using the -f options. See 'help'", stream=sys.stderr)
+            self.tell("One must specify a filename using the -f option. See 'help'", stream=sys.stderr)
         else:
             self.tell("Importing from ", end=None)
             if self.options.file == "-":
@@ -187,7 +197,7 @@ class Pyrit_CLI(object):
                     sys.stdout.write(row+"\n")
             sys.stdout.flush()
         else:
-            f = open(self.options.file,"w")
+            f = open(self.options.file,"wb")
             self.tell("Exporting to '%s'..." % self.options.file)
             max_idx = 0
             lines = 0
@@ -221,7 +231,7 @@ class Pyrit_CLI(object):
             except IOError:
                 self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
         else:
-            f = open(self.options.file, "w")
+            f = open(self.options.file, "wb")
             self.tell("Exporting to '%s'..." % self.options.file)
             lines = 0
             for row in self._genCowpatty(self.essidstore[self.options.essid]):
@@ -230,6 +240,43 @@ class Pyrit_CLI(object):
                 if lines % 1000 == 0:
                     self.tell("\r%i entries written..." % lines, end=None, flush=True)
             self.tell("\r%i entries written. All done." % lines)
+            f.close()
+
+    def passthrough(self):
+        cp = cpyrit.CPyrit(ncpus = self.options.ncpus)
+        if self.options.core_name is not None:
+            core = cp[self.options.core_name]
+        else:
+            core = cp[None]
+        if self.options.essid is None:
+            self.tell("Specifiy a ESSID using the -e option. See 'help'", stream=sys.stderr)
+            return
+        if self.options.file is None:
+            self.tell("Specify a filename using the -f option to read passwords from. See 'help'", stream=sys.stderr)
+            return
+        if self.options.file == "-":
+            f = sys.stdin
+        else:
+            f = open(self.options.file, "r")
+        pwbuffer = []
+        try:
+            sys.stdout.write(struct.pack("<i3s", 0x43575041, '\00'*3))
+            sys.stdout.write(struct.pack("<b32s", len(self.options.essid), self.options.essid))
+            while True:
+                pw = f.readline().strip()
+                if not pw:
+                    break
+                if len(pw) >= 8:
+                    pwbuffer.append(pw[:63])
+                if len(pwbuffer) > 20000:
+                    for pw, pmk in core.solve(self.options.essid, pwbuffer):
+                        sys.stdout.write(struct.pack("<b%ss32s" % len(pw), len(pw) + 32 + 1, pw, pmk))
+                    pwbuffer = []
+            for pw, pmk in core.solve(self.options.essid, pwbuffer):
+                sys.stdout.write(struct.pack("<b%ss32s" % len(pw), len(pw) + 32 + 1, pw, pmk))                
+        except IOError:
+            self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
+        finally:
             f.close()
 
     def export_hashdb(self):
@@ -282,10 +329,10 @@ class Pyrit_CLI(object):
             
         cp = cpyrit.CPyrit(ncpus = self.options.ncpus)
         if self.options.core_name is not None:
-            core = cp.getCore(self.options.core_name)
+            core = cp[self.options.core_name]
             self.tell("Selected core '%s'" % core.name, end=None)
         else:
-            core = cp.getCore()
+            core = cp[None]
             self.tell("Using default core '%s'" % core.name, end=None)
         self.tell("(Device '%s')" % core.devicename if core.ctype == 'GPU' else "(%i CPUs)" % cp.ncpus)
 
@@ -368,9 +415,9 @@ class Pyrit_CLI(object):
             return (len(pws) / t, md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac")
             
         c = cpyrit.CPyrit(ncpus = self.options.ncpus)
-        self.tell("Available cores: " + ", ".join(["'%s'" % core[0] for core in c.listCores()]))
+        self.tell("Available cores: " + ", ".join(("'%s'" % core[0] for core in c)))
 
-        core = c.getCore('Standard CPU')
+        core = c['Standard CPU']
         self.tell("Testing CPU-only core '%s' (%i CPUs)... " % (core.name, c.ncpus), end=None, flush=True)
         perf, chk = runbench(core)
         if chk:
@@ -379,8 +426,8 @@ class Pyrit_CLI(object):
             self.tell("FAILED")
         self.tell("")
                 
-        if 'Nvidia CUDA' in [x[0] for x in c.listCores()]:
-            core = c.getCore('Nvidia CUDA')
+        if 'Nvidia CUDA' in (x[0] for x in c):
+            core = c['Nvidia CUDA']
             self.tell("Testing GPU core '%s' (Device '%s')... " % (core.name, core.devicename), end=None)
             sys.stdout.flush()
             # For GPUs the benchmark runs twice as the core needs to be
@@ -396,8 +443,8 @@ class Pyrit_CLI(object):
                 self.tell("FAILED")
             self.tell("")
 
-        if 'AMD Stream' in [x[0] for x in c.listCores()]:
-            core = c.getCore('AMD Stream')
+        if 'AMD Stream' in (x[0] for x in c):
+            core = c['AMD Stream']
             self.tell("Testing GPU core '%s' (Device '%s')... " % (core.name, core.devicename), end=None)
             sys.stdout.flush()
             # For GPUs the benchmark runs twice as the core needs to be
@@ -451,7 +498,7 @@ class PyrFile(object):
 
                 results = dict(zip(inp, pmkbuffer))
                 pick = random.choice(results.keys())
-                assert cpyrit.CPyrit().getCore('Standard CPU').solve(essid, pick) == results[pick]
+                assert cpyrit.CPyrit()['Standard CPU'].solve(essid, pick) == results[pick]
                 self.essid = essid
                 self.results = results
                 self.f = f
