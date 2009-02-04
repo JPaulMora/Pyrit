@@ -16,7 +16,7 @@ extra_compile_args = ['-O2']
 if 'HAVE_CUDA' in sys.argv:
     sys.argv.remove('HAVE_CUDA')
     print "Compiling CUDA kernel..."
-    subprocess.check_call('nvcc --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC -DHAVE_CUDA" -c cpyrit_cuda.cu', shell=True)
+    subprocess.check_call('nvcc -Xptxas "-v" --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC -DHAVE_CUDA" -c cpyrit_cuda.cu', shell=True)
     print "... done."
     libraries.extend(['cuda', 'cudart'])
     extra_compile_args.append('-DHAVE_CUDA')

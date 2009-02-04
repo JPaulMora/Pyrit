@@ -157,14 +157,16 @@ class CPyrit(object):
             ncpus = self.__detect_ncpus()
         self.ncpus = _cpyrit.set_numThreads(ncpus)
         
-    def listCores(self):
-        return CPyrit.cores.items()
+    def __iter__(self):
+        for i in CPyrit.cores.items():
+            yield i
         
-    def getCore(self, core=None):
-        if core is None:
-            return self.core()
-        else:
-            return CPyrit.cores[core]()
+    def __getitem__(self, key):
+        if key is None:
+            return CPyrit.core()
+        if key not in CPyrit.cores:
+            raise KeyError, "Core not available/unknown"
+        return CPyrit.cores[key]()
             
     def __detect_ncpus(self):
         """Detect the number of effective CPUs in the system"""
