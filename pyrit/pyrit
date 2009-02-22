@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-
 #
 #    Copyright 2008, Lukas Lueg, knabberknusperhaus@yahoo.de
 #
@@ -20,22 +19,22 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import cpyrit
 import time, zlib, getopt, hashlib, fcntl, os, re, struct, random, sys, threading, struct
 try:
     from pysqlite2 import dbapi2 as sqlite
 except:
     pass
 
+import cpyrit
+
+
 class Pyrit_CLI(object):
     class options(object):
         def __init__(self):
             self.essidstore_path = 'blobspace/essid'
             self.passwdstore_path = 'blobspace/password'
-            self.core_name = None
             self.essid = None
             self.file = None
-            self.ncpus = None
             self.verbose = True
     
     def __init__(self):
@@ -54,20 +53,16 @@ class Pyrit_CLI(object):
                 stream.flush()
         
     def init(self):
-        options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:n:")
+        options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:")
         for option, value in dict(options).items():
             if option == '-u':
                 self.options.essidstore_path = value
             elif option == '-v':
                 self.options.passwdstore_path = value
-            elif option == '-c':
-                self.options.core_name = value
             elif option == '-e':
                 self.options.essid = value
             elif option == '-f':
                 self.options.file = value
-            elif option == '-n':
-                self.options.ncpus = int(value)
             else:
                 self.tell("Option '%s' not known. Ignoring..." % option)
         
@@ -77,11 +72,14 @@ class Pyrit_CLI(object):
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
 
+
+        self.cp = cpyrit.CPyrit()
+
         self.tell("The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com" \
                 "\nThis code is distributed under the GNU General Public License v3\n")
 
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
-            self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...", stream=sys.stderr)
+            self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
 
         {'export_cowpatty': self.export_cowpatty,
         'export_hashdb': self.export_hashdb,
@@ -91,7 +89,6 @@ class Pyrit_CLI(object):
         'list_essids': self.list_essids,
         'create_essid': self.create_essid,
         'eval': self.eval_results,
-        'count_results': self.count_results,
         'batch': self.batchprocess,
         'batchprocess': self.batchprocess,
         'passthrough': self.passthrough,
@@ -100,26 +97,23 @@ class Pyrit_CLI(object):
         }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)()
 
     def print_help(self):
-        self.tell("usage: pyrit.py [options] command " \
+        self.tell("Usage: pyrit [options] command " \
             "\n\nRecognized options:" \
-            "\n  -c    : name of the core to use. 'Standard CPU' is default" \
             "\n  -e    : ESSID for the command" \
             "\n  -f    : filename for the command ('-' is stdin/stdout)" \
-            "\n  -n    : number of CPUs to use" \
             "\n  -u    : path to the ESSID-blobspace" \
             "\n  -v    : path to the Password-blobspace" \
-            "\n\nRecognized commands (Possible options: M=must, C=can):" \
-            "\n  batch            : Start batchprocessing (C: cefnuv)" \
-            "\n  benchmark        : Benchmark a core (C: cn)" \
-            "\n  count_results    : List all ESSIDs and count the PMKs in the ESSID-blobspace" \
-            "\n  create_essid     : Create a new ESSID (M: e)" \
-            "\n  eval             : Count the passwords available and matching results (C: e)" \
-            "\n  export_cowpatty  : Export into a new cowpatty file (M: ef)" \
-            "\n  export_hashdb    : Export into an existing airolib database (C: e; M: f)" \
-            "\n  import_passwords : Import passwords into the Password-blobspace (M: f)" \
+            "\n\nRecognized commands:" \
+            "\n  batch            : Batchprocess" \
+            "\n  benchmark        : Determine performance of cores" \
+            "\n  create_essid     : Create a new ESSID" \
+            "\n  eval             : Count the passwords available and matching results" \
+            "\n  export_cowpatty  : Export into a new cowpatty file" \
+            "\n  export_hashdb    : Export into an existing airolib database" \
+            "\n  import_passwords : Import passwords into the Password-blobspace" \
             "\n  list_cores       : List available cores" \
             "\n  list_essids      : List all ESSIDs in the ESSID-blobspace" \
-            "\n  passthrough      : Compute PMKs on the fly and write to stdout (M: cefn)" \
+            "\n  passthrough      : Compute PMKs on the fly and write to stdout" \
             "\n")
 
     def create_essid(self):
@@ -132,15 +126,10 @@ class Pyrit_CLI(object):
             self.essidstore.create_essid(essid)
             self.tell("Created ESSID '%s'" % essid)
 
-    def count_results(self):
-        self.tell("Listing ESSIDs and their results...")
-        for i, essid in enumerate(self.essidstore):
-            self.tell("#%i:  '%s' (%i PMKs)" % (i, essid, sum((len(results) for key,results in self.essidstore[essid]))))
-
     def list_cores(self):
-        self.tell("Listing available cores...")
-        for i, (corename, core) in enumerate(cpyrit.CPyrit()):
-            self.tell("#%i:  '%s' (%s)" % (i, corename, core.ctype))
+        self.tell("The following cores seem available...")
+        for i, corename in enumerate(self.cp.availableCores()):
+            self.tell("#%i:  '%s'" % (i, corename))
 
     def list_essids(self):
         self.tell("Listing ESSIDs...")
@@ -182,7 +171,7 @@ class Pyrit_CLI(object):
             for pwfile in self.passwdstore:
                 pws = set(pwfile)
                 pwcount += len(pws)
-                rescount += len(pws.intersection(set(essid_obj[pwfile.key].keys())))
+                rescount += len(pws.intersection(set(essid_obj[pwfile].results.keys())))
             self.tell("Passwords available:\t %i" % pwcount)
             self.tell("Passwords done so far:\t %i (%.2f%%)" % (rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
             self.tell("")
@@ -194,7 +183,8 @@ class Pyrit_CLI(object):
         if self.options.file == "-":
             for pwfile in self.passwdstore:
                 for row in pwfile:
-                    sys.stdout.write(row+"\n")
+                    sys.stdout.write(row)
+                    sys.stdout.write("\n")
             sys.stdout.flush()
         else:
             f = open(self.options.file,"wb")
@@ -209,12 +199,17 @@ class Pyrit_CLI(object):
             f.close()
             self.tell("\nAll done")
     
+    def _genCowpHeader(self, essid):
+        return struct.pack("<i3sb32s", 0x43575041, '\00'*3, len(essid), essid)
+    
+    def _genCowpEntry(self, passwd, pmk):
+        return struct.pack("<b%ss32s" % len(passwd), len(passwd) + 32 + 1, passwd, pmk)
+    
     def _genCowpatty(self, essid_obj):
-        yield struct.pack("<i3s", 0x43575041, '\00'*3)
-        yield struct.pack("<b32s", len(essid_obj.essid), essid_obj.essid)
+        yield self._genCowpHeader(essid_obj.essid)
         for key, result in essid_obj:
-            for r in result.items():
-                yield struct.pack("<b%ss32s" % len(r[0]), len(r[0]) + 32 + 1, r[0], r[1])
+            for passwd, pmk in result.items():
+                yield self._genCowpEntry(passwd, pmk)
     
     def export_cowpatty(self):
         if self.options.file is None:
@@ -243,11 +238,6 @@ class Pyrit_CLI(object):
             f.close()
 
     def passthrough(self):
-        cp = cpyrit.CPyrit(ncpus = self.options.ncpus)
-        if self.options.core_name is not None:
-            core = cp[self.options.core_name]
-        else:
-            core = cp[None]
         if self.options.essid is None:
             self.tell("Specifiy a ESSID using the -e option. See 'help'", stream=sys.stderr)
             return
@@ -258,29 +248,35 @@ class Pyrit_CLI(object):
             f = sys.stdin
         else:
             f = open(self.options.file, "r")
-        pwbuffer = []
         try:
-            sys.stdout.write(struct.pack("<i3s", 0x43575041, '\00'*3))
-            sys.stdout.write(struct.pack("<b32s", len(self.options.essid), self.options.essid))
+            sys.stdout.write(self._genCowpHeader(self.options.essid))
+            workunits = []
+            pwbuffer = set()
             while True:
-                pw = f.readline().strip()
-                if not pw:
+                l = f.readline()
+                if not l:
                     break
+                pw = l.strip()[:63]
                 if len(pw) >= 8:
-                    pwbuffer.append(pw[:63])
-                if len(pwbuffer) > 20000:
-                    for pw, pmk in core.solve(self.options.essid, pwbuffer):
-                        sys.stdout.write(struct.pack("<b%ss32s" % len(pw), len(pw) + 32 + 1, pw, pmk))
-                    pwbuffer = []
-            for pw, pmk in core.solve(self.options.essid, pwbuffer):
-                sys.stdout.write(struct.pack("<b%ss32s" % len(pw), len(pw) + 32 + 1, pw, pmk))                
+                    pwbuffer.add(pw)
+                if len(pwbuffer) > 10000:
+                    workunits.append(list(pwbuffer))
+                    self.cp.enqueue(self.options.essid, workunits[-1], 10)
+                    pwbuffer = set()
+                r = self.cp.dequeue(block=False)
+                if r is not None:
+                    for pw, pmk in zip(workunits.pop(0), r):
+                        sys.stdout.write(self._genCowpEntry(pw, pmk))
+            for r in self.cp:
+                for pw, pmk in zip(workunits.pop(0), r):
+                    sys.stdout.write(self._genCowpEntry(pw, pmk))
         except IOError:
             self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
         finally:
             f.close()
 
     def export_hashdb(self):
-        if 'sqlite' in locals():
+        if 'sqlite' not in locals():
             self.tell("Support for SQLite seems to be missing. Please check if the pysqlite2 module is available to python.", stream=sys.stderr)
             return
         if self.options.file is None:
@@ -323,19 +319,19 @@ class Pyrit_CLI(object):
         con.close()
 
     def batchprocess(self):
+        def _writeCowpatty(resFile):
+            if self.options.file == '-':
+                try:
+                    for passwd, pmk in resFile.results.items():
+                        sys.stdout.write(self._genCowpEntry(passwd, pmk))
+                except IOError:
+                    self.tell("IOError while writing to stdout. Batchprocessing continues silelently...", stream=sys.stderr)
+                    self.options.file = ''                        
+        
         if self.options.file == "-" and self.options.essid is None:
             self.tell("Results will be written to stdout while batchprocessing. This requires to specify a ESSID.", stream=sys.stderr) 
             return
             
-        cp = cpyrit.CPyrit(ncpus = self.options.ncpus)
-        if self.options.core_name is not None:
-            core = cp[self.options.core_name]
-            self.tell("Selected core '%s'" % core.name, end=None)
-        else:
-            core = cp[None]
-            self.tell("Using default core '%s'" % core.name, end=None)
-        self.tell("(Device '%s')" % core.devicename if core.ctype == 'GPU' else "(%i CPUs)" % cp.ncpus)
-
         if self.options.essid is not None:
             if self.options.essid not in self.essidstore:
                 self.tell("The ESSID '%s' is not found in the repository" % self.options.essid, stream=sys.stderr)
@@ -345,120 +341,75 @@ class Pyrit_CLI(object):
         else:
             essids = self.essidstore
 
+        pwfile = None
         try: 
+            totalResCount = 0
+            startTime = time.time()
+            workunits = []
             for essid in essids:
                 essid_object = self.essidstore[essid]
                 self.tell("Working on ESSID '%s'" % essid_object.essid)
                 if self.options.file == "-":
-                    sys.stdout.write(struct.pack("<i3s", 0x43575041, '\00'*3))
-                    sys.stdout.write(struct.pack("<b32s", len(essid_object.essid), essid_object.essid))
+                    sys.stdout.write(self._genCowpHeader(essid_object.essid))
 
-                def _compute(pwbuffer, core, essid_obj):
-                    passwords = []
-                    for p in pwbuffer.values():
-                        passwords.extend(p)
-                    if len(passwords) > 0:
-                        results = {}
-                        t = time.time()
-                        self.tell("")
-                        for pwslice in xrange(0, len(passwords), 20480):
-                            self.tell("\r Computing %i PMKs in %i workunits -> %.2f%% done." % (len(passwords), sum([1 if len(pwbuffer[p]) > 0 else 0 for p in pwbuffer]) , pwslice * 100.0 / len(passwords)), end=None)
-                            results.update(core.solve(essid_object.essid, passwords[pwslice:pwslice+20480]))
-                        self.tell("\r All done, computed %i PMKs in %.2f seconds, %.2f PMKs/s)" % (len(passwords), time.time() - t, len(passwords) / (time.time() - t)))
-                    for pwfile_inst in pwbuffer:
-                        if self.options.file == "-" or len(pwbuffer[pwfile_inst]) > 0: 
-                            res = essid_obj[pwfile_inst]
-                            if len(pwbuffer[pwfile_inst]) > 0:
-                                res.update(((pw, results[pw]) for pw in pwbuffer[pwfile_inst]))
-                                essid_obj[pwfile_inst] = res
-                            if self.options.file == "-":
-                                try:
-                                    for r in res.items():
-                                        sys.stdout.write(struct.pack("<b%ss32s" % len(r[0]), len(r[0]) + 32 + 1, r[0], r[1]))
-                                    sys.stdout.flush()   
-                                except IOError:
-                                    self.tell("IOError while writing to stdout; batchprocessing will continue silently...", stream=sys.stderr)
-                                    self.options.file = ""
-
-                pwbuffer = {}
                 for pwfile in self.passwdstore:
-                    try:
-                        unsolved = list(set(pwfile).difference(set(essid_object[pwfile].keys())))
-                    except:
-                        self.tell("\nError computing set-difference for unit '%s'." % pwfile.key, stream=sys.stderr)
+                    resFile = essid_object[pwfile]
+                    unsolvedPasswds = list(set(pwfile).difference(set(resFile.results.keys())))
+                    if len(unsolvedPasswds) > 0:
+                        workunits.append((resFile, unsolvedPasswds))
+                        self.cp.enqueue(essid_object.essid, unsolvedPasswds, True)
                     else:
-                        pwbuffer[pwfile] = unsolved
-                        buffersize = sum((len(x) for x in pwbuffer.values()))
-                        self.tell(" \rReading unit '%s' (%i passwords buffered)" % (pwfile.key, buffersize), end=None)
-                        if buffersize >= 20480*2:
-                            _compute(pwbuffer, core, essid_object)
-                            pwbuffer.clear()
-                _compute(pwbuffer, core, essid_object)
-                
-                self.tell("")
+                        _writeCowpatty(resFile)
+                    newResults = self.cp.dequeue(block=False)
+                    if newResults is not None:
+                        newResFile, solvedPasswds = workunits.pop(0)
+                        newResFile.results.update(zip(solvedPasswds, newResults))
+                        newResFile.savefile()
+                        _writeCowpatty(newResFile)
+                        totalResCount += len(newResults)
+                    tdiff = time.time() - startTime
+                    self.tell("Computed %i PMKs in %.2f seconds; %.1f PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None)
+            self.tell("Stopped reading workunits...")
+            for newResults in self.cp:
+                newResFile, solvedPasswds = workunits.pop(0)
+                newResFile.results.update(zip(solvedPasswds, newResults))
+                newResFile.savefile()
+                _writeCowpatty(newResFile)
+                totalResCount += len(newResults)
 
         except (KeyboardInterrupt, SystemExit):
             self.tell("Exiting...")
         except:
             self.tell("Unhandled exception while batchprocessing '%s'" % pwfile, stream=sys.stderr)
-            raise        
+            raise
+        finally:
+            try:
+                if totalResCount > 0:   
+                    self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))
+                    tdiff = time.time() - startTime
+                    for core in self.cp.cores:
+                        resCount, compTime = core.getStats()
+                        self.tell("%s: %.2f PMKs/s, %.2f%% occupancy" % (core.name, resCount / compTime , compTime * 100.0 / tdiff))
+            except:
+                raise
         self.tell("Batchprocessing done.")
 
     def benchmark(self):
-        def runbench(core):
-            pws = ["bar_%i" % i for i in xrange(10000)]
-            t = time.time()
-            res = sorted(core.solve('foo', pws))
-            t = time.time() - t
-            md = hashlib.md5()
-            map(md.update, [x[1] for x in res])
-            return (len(pws) / t, md.hexdigest() == "ef747d123821851a9bd1d1e94ba048ac")
-            
-        c = cpyrit.CPyrit(ncpus = self.options.ncpus)
-        self.tell("Available cores: " + ", ".join(("'%s'" % core[0] for core in c)))
+        print "Running benchmark. This may take a while..."
+        for i in xrange(60):
+            self.cp.enqueue('foo', ['barbarbar']*1500)
+        t = time.time()
+        for r in self.cp:
+            pass
+        tdiff = time.time() - t
+        print "Benchmark done after %.2f seconds. Reporting on cores:" % tdiff
+        resCountTotal = 0
+        for core in self.cp.cores:
+            resCount, compTime = core.getStats()
+            print "%s: %.2f PMKs/s, %.2f%% occupancy" % (core.name, resCount / compTime , compTime * 100.0 / tdiff)
+            resCountTotal += resCount
+        print "\nAll done. %.2f PMKs/s total." % (resCountTotal / tdiff)
 
-        core = c['Standard CPU']
-        self.tell("Testing CPU-only core '%s' (%i CPUs)... " % (core.name, c.ncpus), end=None, flush=True)
-        perf, chk = runbench(core)
-        if chk:
-            self.tell("%.2f PMKs/s" % perf)
-        else:
-            self.tell("FAILED")
-        self.tell("")
-                
-        if 'Nvidia CUDA' in (x[0] for x in c):
-            core = c['Nvidia CUDA']
-            self.tell("Testing GPU core '%s' (Device '%s')... " % (core.name, core.devicename), end=None)
-            sys.stdout.flush()
-            # For GPUs the benchmark runs twice as the core needs to be
-            # calibrated before giving correct performance-data
-            perf, chk = runbench(core)
-            if chk:
-                perf, chk = runbench(core)
-                if chk:
-                    self.tell("%.2f PMKs/s" % perf)
-                else:
-                    self.tell("FAILED")
-            else:
-                self.tell("FAILED")
-            self.tell("")
-
-        if 'AMD Stream' in (x[0] for x in c):
-            core = c['AMD Stream']
-            self.tell("Testing GPU core '%s' (Device '%s')... " % (core.name, core.devicename), end=None)
-            sys.stdout.flush()
-            # For GPUs the benchmark runs twice as the core needs to be
-            # calibrated before giving correct performance-data
-            perf, chk = runbench(core)
-            if chk:
-                perf, chk = runbench(core)
-                if chk:
-                    self.tell("%.2f PMKs/s" % perf)
-                else:
-                    self.tell("FAILED")
-            else:
-                self.tell("FAILED")
-            self.tell("")
 
 class PyrFile(object):
     def __init__(self, essid, infile):
@@ -469,6 +420,7 @@ class PyrFile(object):
 
         f = open(infile, "a+b")
         fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+        self.key = infile.split(os.path.sep)[-1][:-4]
         f.seek(0)
         try:
             preheadfmt = "<4sH"
@@ -497,12 +449,9 @@ class PyrFile(object):
                     raise Exception, "Digest check failed on PyrFile '%s'." % self
 
                 results = dict(zip(inp, pmkbuffer))
-                pick = random.choice(results.keys())
-                assert cpyrit.CPyrit()['Standard CPU'].solve(essid, pick) == results[pick]
                 self.essid = essid
                 self.results = results
                 self.f = f
-                self.key = infile.split(os.path.sep)[-1][:-4]
         except:
             print >>sys.stderr, "Exception while opening PyrFile '%s', file not loaded." % infile
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
@@ -535,120 +484,7 @@ class PyrFile(object):
         fcntl.flock(self.f.fileno(), fcntl.LOCK_SH)
 
 
-class FileReadStreamer(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.cv = threading.Condition()
-        self.buffer = []
-        self.setDaemon(True)
-        
-    def readItem(self, key):
-        return None
-        
-    def run(self):
-        for key in self.generator:
-            self.cv.acquire()
-            if len(self.buffer) > 3:
-                self.cv.wait()
-            try:
-                self.buffer.append(self.readItem(key))
-            except:
-                print >>sys.stderr, "Error reading key '%s' in reader '%s': '%s'. Item skipped...." % (key, self, sys.exc_info()[0])
-            if len(self.buffer) > 0:
-                self.cv.notifyAll()
-            self.cv.release()
-        self.cv.acquire()
-        self.cv.notifyAll()
-        self.cv.release()
-
-    def __iter__(self):
-        while True:
-            self.cv.acquire()
-            if len(self.buffer) == 0:
-                if not self.isAlive():
-                    break
-                else:
-                    self.cv.notifyAll()
-                    self.cv.wait()
-                    if len(self.buffer) == 0:
-                        break
-            ret = self.buffer.pop()
-            self.cv.notifyAll()
-            self.cv.release()
-            yield ret
-
-
-class FileWriteStreamer(threading.Thread):
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.cv = threading.Condition()
-        self.buffer = []
-        self.setDaemon(True)
-        self.closed = False        
-   
-    def __del__(self):
-        self.close()
-    
-    def run(self):
-        self.cv.acquire()
-        try:
-            while True:
-                if len(self.buffer) > 0:
-                    inst = self.buffer.pop()
-                    inst.savefile()
-                else:
-                    if self.closed:
-                        break
-                    else:
-                        self.cv.notifyAll()
-                        self.cv.wait()
-        finally:
-            self.cv.notifyAll()
-            self.cv.release()
-        
-    def savefile(self, inst):
-        if self.closed:
-            raise AssertionError, "FileWriteStreamer '%s' was already closed when called. Instance will not be saved." % self
-        self.cv.acquire()
-        while len(self.buffer) > 3:
-            self.cv.notifyAll()
-            self.cv.wait()
-        self.buffer.append(inst)
-        self.cv.notifyAll()
-        self.cv.release()
-
-    def sync(self):
-        self.cv.acquire()
-        while len(self.buffer) > 0:
-            self.notifyAll()
-            self.wait()
-        self.cv.release()
-
-    def close(self):
-        if self.closed:
-            return
-        self.closed = True
-        self.sync()
-        if len(self.buffer) > 0:
-            print >>sys.stderr, "WARNING: FileWriteStreamer '%s' closed with instances still in buffer. This should not happen." % self        
-
-
 class ESSID(object):
-    class ResultReadStreamer(FileReadStreamer):
-        def __init__(self, essid_obj):
-            FileReadStreamer.__init__(self)
-            self.obj = essid_obj
-            self.generator = (x[:-4] for x in os.listdir(self.obj.path) if x[-4:] == '.pyr')
-            self.start()
-            
-        def readItem(self, key):
-            return (key, dict(self.obj._getPyrFile(key).results))
-
-    class ResultWriteStreamer(FileWriteStreamer):
-        def __init__(self):
-            FileWriteStreamer.__init__(self)
-            self.start()
-
     def __init__(self, path):
         self.path = path
         try:
@@ -657,25 +493,18 @@ class ESSID(object):
         except IOError:
             raise IOError, "ESSID not found or not accessible."
         self.essid = self.f.read()
-        self.resultwriter = self.ResultWriteStreamer()
 
-    def __del__(self):
-        try:
-            self.close()
-        except:
-            pass
-            
     def __len__(self):
         return len([x[:-4] for x in os.listdir(self.path) if x[-4:] == '.pyr'])
 
     def __iter__(self):
         if self.f is None:
             raise Exception, "ESSID not locked."
-        for key, results in self.ResultReadStreamer(self):
+        for key, results in ((k, dict(self._getPyrFile(k).results)) for k in (x[:-4] for x in os.listdir(self.path) if x[-4:] == '.pyr')):
             yield (key, results)
 
     def __getitem__(self, key):
-        return self._getPyrFile(key).results
+        return self._getPyrFile(key)
         
     def __setitem__(self, key, value):
         assert isinstance(value, dict)
@@ -684,7 +513,6 @@ class ESSID(object):
         self.resultwriter.savefile(pyrfile)
 
     def close(self):
-        self.resultwriter.close()
         if self.f is not None:
             fcntl.flock(self.f.fileno(), fcntl.LOCK_UN)
             self.f.close()
@@ -703,6 +531,7 @@ class ESSID(object):
             raise AssertionError, "Don't know how to get results based on parameter of class '%s'." % key.__class__
         return PyrFile(self.essid, os.path.join(self.path, fname+".pyr"))
 
+
 class EssidStore(object):
     def __init__(self,basepath):
         self.essidpath = basepath
@@ -717,7 +546,7 @@ class EssidStore(object):
             else:
                 raise
 
-    def _getessidroot(self,essid):
+    def _getessidroot(self, essid):
         return os.path.join(self.essidpath, hashlib.md5(essid).hexdigest()[:8])
 
     def __getitem__(self, essid):
@@ -728,7 +557,7 @@ class EssidStore(object):
 
     def __iter__(self):
         for essid_hash in os.listdir(self.essidpath):
-            f = open(os.path.join(self.essidpath, essid_hash,'essid'),"rb")
+            f = open(os.path.join(self.essidpath, essid_hash,'essid'), "rb")
             essid = f.read()
             f.close()
             if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
@@ -750,7 +579,6 @@ class PasswordFile(object):
     def __init__(self, filename):
         self.bucket = set()
         self.f = None
-
         f = open(filename, "a+b")
         fcntl.flock(f.fileno(), fcntl.LOCK_SH)
         f.seek(0)
@@ -790,20 +618,11 @@ class PasswordFile(object):
             self.f.close()
 
     def __iter__(self):
-        ret = set()
         for pw in self.bucket:
-            for f in [str.lower, str.upper, str.capitalize]:
-                ret.add(f(pw)[:63])
-                for s in ["1","2","123"]:
-                    ret.add(f(pw+s)[:63])
-        for pw in ret:
             yield pw
             
     def __len__(self):
-        i = 0
-        for x in self:
-            i += 1
-        return i
+        return len(self.bucket)
 
     def savefile(self):
         if self.f is None:
@@ -819,25 +638,12 @@ class PasswordFile(object):
         self.f.flush()
         fcntl.flock(self.f.fileno(), fcntl.LOCK_SH)
 
-class PasswordStore(object):
-    class PWFileReadStreamer(FileReadStreamer):
-        def __init__(self, pwstore):
-            FileReadStreamer.__init__(self)
-            self.obj = pwstore
-            self.generator = (x for x in self.obj._getfiles().keys())
-            self.start()
-            
-        def readItem(self, key):
-            return self.obj[key]
 
-    def __init__(self,basepath):
+class PasswordStore(object):
+    def __init__(self, basepath):
         self.passwdpath = basepath
         self._makedir(self.passwdpath)
         self.pwbuffer = {}
-        self.pwpattern = re.compile("([a-zöäüß ]+)")
-
-    def __del__(self):
-        self.flush_buffer()
 
     def _makedir(self,pathname):
         try:
@@ -845,6 +651,9 @@ class PasswordStore(object):
         except OSError, (errno, sterrno):
             if errno == 17:
                 pass
+
+    def __del__(self):
+        self.flush_buffer()
 
     def _getfiles(self):
         pwfiles = {}
@@ -854,8 +663,8 @@ class PasswordStore(object):
         return pwfiles
 
     def __iter__(self):
-        for pwf in self.PWFileReadStreamer(self):
-            yield pwf
+        for pwf in self._getfiles().values():
+            yield PasswordFile(pwf)
 
     def __getitem__(self, key):
         return PasswordFile(self._getfiles()[key])
@@ -887,23 +696,16 @@ class PasswordStore(object):
             map(self._flush_bucket, [set(pwbucket[x:x+10000]) for x in xrange(0, len(pwbucket), 10000)])
 
     def store_password(self, passwd):
-        pwstrip = str(passwd).lower().strip()
-        pwgroups = self.pwpattern.search(pwstrip)
-        if pwgroups is None:
-            #print "Password '%s'('%s') ignored." % (pwstrip,passwd)
-            return
-        pwstrip = pwgroups.groups()[0]
-
-        if len(pwstrip) < 8 or len(pwstrip) > 63:
+        passwd = passwd.strip()
+        if len(passwd) < 8 or len(passwd) > 63:
             #print "Password '%s'('%s') has invalid length." % (pwstrip,passwd)
             return
-
-        pw_h1 = "%02.2X" % (hash(pwstrip) & 0xFF)
+        pw_h1 = "%02.2X" % (hash(passwd) & 0xFF)
         pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
-        if pwstrip not in pw_bucket:
-            pw_bucket.add(pwstrip)
-            if len(pw_bucket) >= 10000:
-                self._flush_bucket(pw_bucket)
+        pw_bucket.add(passwd)
+        if len(pw_bucket) >= 10000:
+            self._flush_bucket(pw_bucket)
+
 
 if __name__ == "__main__":
     p = Pyrit_CLI()

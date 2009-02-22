@@ -18,17 +18,20 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef CPYRIT
-#define CPYRIT
-
 #include <python2.5/Python.h>
 #include <stdint.h>
-#include <pthread.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
-#ifdef HAVE_CUDA
-    #include <cuda_runtime.h>
-#endif
+#include <cuda_runtime.h>
+
+#ifndef CPYRIT_CUDA
+#define CPYRIT_CUDA
+
+typedef struct
+{
+    int device;
+    struct cudaDeviceProp properties;
+} cudaDevContext;
 
 #define GET_BE(n,b,i)                            \
 {                                                       \
@@ -46,53 +49,27 @@
     (b)[(i) + 3] = (unsigned char) ( (n)       );       \
 }
 
-#ifdef HAVE_PADLOCK
-    #include <sys/ucontext.h>
-    #include <signal.h>
-    #include <errno.h>
-    #include <sys/mman.h>
+typedef struct {
+    uint32_t h0,h1,h2,h3,h4;
+} SHA_DEV_CTX;
 
-    struct xsha1_ctx {
-        unsigned int state[32];
-        char inputbuffer[20+64];
-    } __attribute__((aligned(16)));
-#endif
+#define CPY_DEVCTX(src, dst) \
+{ \
+    dst.h0 = src.h0; dst.h1 = src.h1; \
+    dst.h2 = src.h2; dst.h3 = src.h3; \
+    dst.h4 = src.h4; \
+}
 
-struct thread_ctr {
-    pthread_t thread_id;
-    void* keyptr;
-    unsigned int keycount;
-    unsigned int keyoffset;
-    unsigned int keystep;
-    void* bufferptr;
-    char* essid;
-};
+typedef struct {
+    SHA_DEV_CTX ctx_ipad;
+    SHA_DEV_CTX ctx_opad;
+    SHA_DEV_CTX e1;
+    SHA_DEV_CTX e2;
+} gpu_inbuffer;
 
-#ifdef HAVE_CUDA
-
-    typedef struct {
-        uint32_t h0,h1,h2,h3,h4;
-    } SHA_DEV_CTX;
-
-    #define CPY_DEVCTX(src, dst) \
-    { \
-        dst.h0 = src.h0; dst.h1 = src.h1; \
-        dst.h2 = src.h2; dst.h3 = src.h3; \
-        dst.h4 = src.h4; \
-    }
-
-    typedef struct {
-        SHA_DEV_CTX ctx_ipad;
-        SHA_DEV_CTX ctx_opad;
-        SHA_DEV_CTX e1;
-        SHA_DEV_CTX e2;
-    } gpu_inbuffer;
-
-    typedef struct {
-        SHA_DEV_CTX pmk1;
-        SHA_DEV_CTX pmk2;
-    } gpu_outbuffer;
-
-#endif
+typedef struct {
+    SHA_DEV_CTX pmk1;
+    SHA_DEV_CTX pmk2;
+} gpu_outbuffer;
 
 #endif
