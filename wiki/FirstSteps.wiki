@@ -1,30 +1,39 @@
 #summary Getting started
 
-= Getting the code =
+=Getting started=
 
-First of all, you have to get yourself  a copy of _Pyrit_'s sourcecode. There is no binary distribution, you have to compile it yourself. Get the latest code directly from [http://code.google.com/p/pyrit/source/checkout].
+_Pyrit_ consists of basically two parts:
 
-_Pyrit_ consists of two parts: The python-implemented _Pyrit_-classes for managing the blobspace, the commandline-client and such. And the _CPyrit_-extension-module, which features the computational cores written in C.
+  * The python-implemented _Pyrit_-classes for managing the blobspace, the commandline-client and such.
+  * Multiple extension modules working on x86, VIA-Padlock, Nvidia-CUDA and AMD-Stream. 
 
-  * Get yourself a copy of the latest code. You can checkout the latest subversion-tree from [http://code.google.com/p/pyrit/source/checkout].
-  * Get yourself a copy of the OpenSSL library and headers. On binary Linux distributions you probably have to install "openssl-dev" or similar named packages.
-  * If you have a Nvidia GPU that supports CUDA, you can use _Pyrit_'s CUDA-core for a massive performance gain. Get yourself a copy of the CUDA-compatible drivers and the Toolkit from [http://www.nvidia.com/object/cuda_get.html].
-  * If you have a AMD/ATI card 4xxx and up, you can use _Pyrit_'s Stream-core for a similar effect as with CUDA. Get more info from [http://znuh.blogspot.com/2009/01/wpa-cracking-with-amd-stream-and-radeon.html]
-  * Modify setup.py to your needs
-  * Run setup.py to build and install the cpyrit module to your python site-packages. 'HAVE_CUDA' as parameter will include Nvidia CUDA support. 'HAVE_STREAM' will include AMD Stream support. 'HAVE_PADLOCK' will include support for VIA's padlock engine.
+The commandline-client _pyrit_ and the basic CPU-cores are required for everyone. The extension modules for CUDA and Stream may be installed optionally and are used if available and supported by local hardware. 
+
+  * Get yourself a copy of the latest code. You can checkout the latest subversion-tree from [http://code.google.com/p/pyrit/source/checkout]. After checkout of _trunk_, you should have directories named "pyrit", "cpyrit_stream" and "cpyrit_cuda".
+  * You need the development files for Python and OpenSSL. On binary Linux distributions you probably have to install "Python-dev", "openssl-devel", "libssl-dev" or similar named packages.
+  * Head for the "pyrit" directory and use "setup.py build" to compile the CPU-cores. Execute "setup.py install" as root to install the _pyrit_ script and the extension module.
+  * Pyrit is now installed and may be used from the commandline. Execute "pyrit help" for more information.
+
+
+=== Nvidia-CUDA ==
+
+  * Get yourself a copy of the CUDA-compatible drivers and the Toolkit from [http://www.nvidia.com/object/cuda_get.html].
+  * Make sure Nvidia's compiler _nvcc_ is available from $PATH.
+  * Change to the directory "cpyrit_cuda" and edit setup.py with your paths to the CUDA headers and libraries.
+  * Run "setup.py build" to compile the CUDA-core. Run "setup.py install" as root to add it to your _Pyrit_ installation.
+  * The core is used automatically if local hardware supports it.
+
+
+=== AMD-Stream ===
+
+  * If you have a AMD/ATI card 4xxx and up, you can use _Pyrit_'s Stream-core for a similar effect as with CUDA.
+  * Install the AMD-Stream SDK. _brcc_ should be available from $PATH.
+  * Change to the directory "cpyrit_stream" and modify setup.py to your needs
+  * Run "setup.py build" to compile the Stream-core. Run "setup.py install" as root.
+
+
 
 = Using the tools =
-
-
- _./pyrit.py benchmark
- 
- Benchmarking cores 'Standard CPU', 'Nvidia CUDA' 
- 
- Testing CPU-only core 'Standard CPU'... 10000 PMKs in 24.87 seconds: 402.16 PMKs/s  
- Testing GPU core 'Nvidia CUDA'... 10000 PMKs in 6.63 seconds: 1509.22 PMKs/s
-
-
-_Pyrit_'s uses two subdirectories for storage: One for the ESSIDs and the PMKs and one for password files. The default for _Pyrit_ is set to 'blobspace/essid' and 'blobspace/password' which will probably be ok for everyone.
 
   * Create some ESSID using _'pyrit.py -e FOOBAR create_essid'_
   * Import some list of passwords using _'pyrit.py -f foobar.txt import_passwords'_
