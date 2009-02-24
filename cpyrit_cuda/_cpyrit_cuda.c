@@ -87,7 +87,7 @@ PyObject *cpyrit_pmklist(PyObject *self, PyObject *args)
     
     numLines = PyList_Size(passwdList);
     if (numLines <= 0)
-        return NULL;
+        return PyTuple_New(0);
 
     c_inbuffer = (gpu_inbuffer *)malloc(numLines*sizeof(gpu_inbuffer));
     if (c_inbuffer == NULL)

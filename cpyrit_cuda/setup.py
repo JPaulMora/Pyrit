@@ -61,8 +61,8 @@ class GPUBuilder(build_ext):
             if nvcc_o is not None:
                 nvcc_version = nvcc_o.split()[-1]
             else:
-                raise SystemError, "Nvidia's CUDA-compiler 'nvcc' can't be found! " \
-                                    "NVCC is part of the CUDA Toolkit (not the SDK). Make sure it's available to $PATH or disable HAVE_CUDA in setup.py"
+                raise SystemError, "Nvidia's CUDA-compiler 'nvcc' can't be found, make sure it's available to $PATH. " \
+                                    "It is part of the CUDA Toolkit (not the SDK)."
             print "Compiling CUDA module using nvcc %s..." % nvcc_version
             nvcc = 'nvcc %s --host-compilation C -Xptxas "-v" --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC" -c ./_cpyrit_cudakernel.cu' % ' '.join('-I%s' % x for x in INCLUDE_DIRS)
             subprocess.check_call(nvcc, shell=True)
@@ -72,7 +72,7 @@ class GPUBuilder(build_ext):
         build_ext.run(self)
 
 
-# Custom clean phase to remove nvcc/brcc cruft. Only remove files that we know!
+# Custom clean phase to remove nvcc cruft. Only remove files that we know!
 class GPUCleaner(clean):
     def _unlink(self, node):
         try:

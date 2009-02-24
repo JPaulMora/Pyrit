@@ -31,8 +31,8 @@ import cpyrit
 class Pyrit_CLI(object):
     class options(object):
         def __init__(self):
-            self.essidstore_path = 'blobspace/essid'
-            self.passwdstore_path = 'blobspace/password'
+            self.essidstore_path = os.path.expanduser(os.path.sep.join(('~','.pyrit','blobspace','essid')))
+            self.passwdstore_path = os.path.expanduser(os.path.sep.join(('~','.pyrit','blobspace','password')))
             self.essid = None
             self.file = None
             self.verbose = True
@@ -72,12 +72,10 @@ class Pyrit_CLI(object):
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
 
-
         self.cp = cpyrit.CPyrit()
 
         self.tell("The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com" \
                 "\nThis code is distributed under the GNU General Public License v3\n")
-
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
             self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
 
@@ -397,7 +395,7 @@ class Pyrit_CLI(object):
     def benchmark(self):
         print "Running benchmark. This may take a while..."
         for i in xrange(60):
-            self.cp.enqueue('foo', ['barbarbar']*1500)
+            self.cp.enqueue('foo', ['barbarbar']*2500)
         t = time.time()
         for r in self.cp:
             pass
