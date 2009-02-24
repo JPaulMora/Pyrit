@@ -38,8 +38,13 @@ PyObject* cpyrit_calcpmklist (PyObject * self, PyObject * args)
 
     if (!PyArg_ParseTuple (args, "sO!", &essid_pre, &PyList_Type, &listObj))
         return NULL;
+
     numLines = PyList_Size (listObj);
-    if ((numLines < 0) || (numLines > 8192))
+    if (numLines <= 0)
+    {
+        return PyTuple_New(0);
+    }
+    else if (numLines > 8192)
     {
         PyErr_SetString(PyExc_IOError, "Password buffer size out of bounds.");
         return NULL;

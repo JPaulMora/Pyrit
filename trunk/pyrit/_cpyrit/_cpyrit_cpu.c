@@ -21,10 +21,22 @@
 #include <python2.5/Python.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
-#include <sys/ucontext.h>
-#include <signal.h>
-#include <errno.h>
-#include <sys/mman.h>
+
+#ifdef __i386__
+    #define COMPILE_PADLOCK
+    #if defined(linux)
+        #define MCTX_EIP(context) ((context)->uc_mcontext.gregs[REG_EIP])
+    #elif defined(__APPLE__)
+        #ifdef __DARWIN_UNIX03
+            #define MCTX_EIP(context) (*((unsigned long*)&(context)->uc_mcontext->__ss.__eip))
+        #else
+            #define MCTX_EIP(context) (*((unsigned long*)&(context)->uc_mcontext->ss.eip))
+        #endif
+        #define MAP_ANONYMOUS MAP_ANON
+    #else
+        #undef COMPILE_PADLOCK
+    #endif
+#endif
 
 struct pmk_ctr
 {
@@ -38,7 +50,12 @@ struct pmk_ctr
 void (*prepare_pmk)(const char*, const char*, struct pmk_ctr*) = NULL;
 void (*finalize_pmk)(struct pmk_ctr*) = NULL;
 
-#ifndef __x86_64__
+
+#ifdef COMPILE_PADLOCK
+    #include <sys/ucontext.h>
+    #include <signal.h>
+    #include <errno.h>
+    #include <sys/mman.h>
 
     struct xsha1_ctx {
         unsigned int state[32];
@@ -105,7 +122,8 @@ void (*finalize_pmk)(struct pmk_ctr*) = NULL;
     segv_action(int sig, siginfo_t *info, void *uctxp)
     {
         ucontext_t *uctx = uctxp;
-        uctx->uc_mcontext.gregs[14] += 4;
+        MCTX_EIP(uctx) += 4;
+        //uctx->uc_mcontext.gregs[REG_EIP] += 4;
         return;
     }
 
@@ -225,15 +243,7 @@ void (*finalize_pmk)(struct pmk_ctr*) = NULL;
         }
     }
 
-#else //__x86_64__
-
-    static unsigned char
-    padlock_available(void)
-    {
-        return 0;
-    }
-
-#endif //__x86_64__
+#endif // COMPILE_PADLOCK
 
 static void
 prepare_pmk_openssl(const char *essid_pre, const char *password, struct pmk_ctr *ctr)
@@ -309,15 +319,17 @@ cpyrit_getPlatform(PyObject *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, ""))
 		return NULL;
 			
-	#ifdef __x86_64__
-	    return Py_BuildValue("s", "x86_64");
-    #else
+    #ifdef COMPILE_PADLOCK
         if (padlock_available())
         {
             return Py_BuildValue("s", "VIA Padlock");
         } else {
             return Py_BuildValue("s", "x86");
         }
+	#elif defined(__x86_64__)
+		return Py_BuildValue("s", "x86_64");
+	#else
+		return Py_BuildValue("s", "unknown");
     #endif
 }
 
@@ -334,7 +346,7 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     
     if (numLines <= 0)
     {
-        return NULL;
+        return PyTuple_New(0);
     }
     else if (numLines == 1)
     {
@@ -372,7 +384,7 @@ static PyMethodDef CPyritCPUMethods[] = {
 PyMODINIT_FUNC
 init_cpyrit_cpu(void)
 {
-    #ifndef __x86_64__
+    #ifdef COMPILE_PADLOCK
         if (padlock_available())
         {
             prepare_pmk = prepare_pmk_padlock;
