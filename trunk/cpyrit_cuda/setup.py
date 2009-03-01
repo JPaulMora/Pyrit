@@ -27,11 +27,25 @@ import sys, subprocess, re, os
 # Options to use for all modules
 EXTRA_COMPILE_ARGS = ['-O2', '-Werror']
 LIBRARY_DIRS = ['/usr/lib']
-INCLUDE_DIRS = ['/usr/include','/usr/local/include']
+INCLUDE_DIRS = ['/usr/include']
 
-# CUDA-specific
-NVIDIA_LIB_DIRS = ['/usr/local/cuda/lib']
-NVIDIA_INC_DIRS = ['/usr/local/cuda/include']
+# Try to find the CUDA headers and libraries
+NVIDIA_LIB_DIRS = []
+NVIDIA_INC_DIRS = []
+NVCC = 'nvcc'
+for path in ('/usr/local','/opt'):
+    try:
+        d = os.listdir(path)
+    except:
+        pass
+    else:
+        if 'cuda' in d:
+            NVIDIA_LIB_DIRS.append(os.path.sep.join((path, 'cuda', 'lib')))
+            NVIDIA_INC_DIRS.append(os.path.sep.join((path, 'cuda', 'include')))
+            NVCC = os.path.sep.join((path, 'cuda', 'bin', 'nvcc'))
+            break
+else:
+    print >>sys.stderr, "The CUDA compiler, library, headers required to build the kernel were not found. Trying to continue anyway..."
 
 
 # Custom build_ext phase to create the GPU code with special compilers before building the whole thing
@@ -57,14 +71,14 @@ class GPUBuilder(build_ext):
         if '_cpyrit_cudakernel.o' in os.listdir('./'):
             print "Skipping rebuild of Nvidia CUDA kernel ..."
         else:
-            nvcc_o = self._call('nvcc -V')
+            nvcc_o = self._call(NVCC + ' -V')
             if nvcc_o is not None:
                 nvcc_version = nvcc_o.split()[-1]
             else:
-                raise SystemError, "Nvidia's CUDA-compiler 'nvcc' can't be found, make sure it's available to $PATH. " \
+                raise SystemError, "Nvidia's CUDA-compiler 'nvcc' can't be found. Make sure it's available to $PATH. " \
                                     "It is part of the CUDA Toolkit (not the SDK)."
             print "Compiling CUDA module using nvcc %s..." % nvcc_version
-            nvcc = 'nvcc %s --host-compilation C -Xptxas "-v" --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC" -c ./_cpyrit_cudakernel.cu' % ' '.join('-I%s' % x for x in INCLUDE_DIRS)
+            nvcc = NVCC + ' %s --host-compilation C -Xptxas "-v" --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC" -c ./_cpyrit_cudakernel.cu' % ' '.join('-I%s' % x for x in INCLUDE_DIRS)
             subprocess.check_call(nvcc, shell=True)
             
         # Now build the rest
@@ -83,6 +97,8 @@ class GPUCleaner(clean):
         except OSError, (errno, sterrno):
             if errno == 2:
                 pass
+            else:
+                raise
     
     def run(self):
         print "Removing temporary files and pre-built GPU-kernels..."
