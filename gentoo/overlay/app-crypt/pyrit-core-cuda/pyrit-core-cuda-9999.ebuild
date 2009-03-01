@@ -10,5 +10,4 @@ DEPEND="x11-drivers/nvidia-drivers
 	dev-util/nvidia-cuda-toolkit
 	dev-lang/python
 	dev-libs/openssl"
-RDEPEND="${DEPEND}
-	app-crypt/pyrit"
+RDEPEND="${DEPEND}"

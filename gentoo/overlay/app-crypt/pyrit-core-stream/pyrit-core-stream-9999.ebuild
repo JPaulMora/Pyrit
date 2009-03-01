@@ -10,5 +10,4 @@ DEPEND=">=dev-util/amd-stream-brook-1.3.0_beta
 	dev-lang/python
 	dev-libs/openssl
 	<=x11-drivers/ati-drivers-9"
-RDEPEND="${DEPEND}
-	app-crypt/pyrit"
+RDEPEND="${DEPEND}"
