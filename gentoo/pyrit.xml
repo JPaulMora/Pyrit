@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<layman>
+<overlays>
+        <overlay contact="knabberknusperhaus@yahoo.de" name="pyrit" src="http://pyrit.googlecode.com/svn/gentoo/overlay" type="svn">
+                <link>https://code.google.com/p/pyrit</link>
+                <description>Portage overlay for Pyrit</description>
+        </overlay>
+</overlays>
+</layman>
+
