@@ -27,11 +27,25 @@ import sys, subprocess, re, os
 # Options to use for all modules
 EXTRA_COMPILE_ARGS = ['-O2', '-Werror']
 LIBRARY_DIRS = ['/usr/lib']
-INCLUDE_DIRS = ['/usr/include','/usr/local/include']
+INCLUDE_DIRS = ['/usr/include']
 
-# Stream-specific
-STREAM_INC_DIRS = ['/usr/local/amdbrook/sdk/include','/usr/local/amdcal/include']
-STREAM_LIB_DIRS = ['/usr/local/amdbrook/sdk/lib']
+# Try to find the Brook+ library and headers
+STREAM_LIB_DIRS = []
+STREAM_INC_DIRS = []
+BRCC = 'brcc'
+for path in ('/usr/local','/opt'):
+    try:
+        d = os.listdir(path)
+    except:
+        pass
+    else:
+        if 'amdbrook' in d:
+            STREAM_LIB_DIRS.append(os.path.sep.join((path, 'amdbrook', 'sdk', 'lib')))
+            STREAM_INC_DIRS.append(os.path.sep.join((path, 'amdbrook', 'sdk', 'include')))
+            BRCC = os.path.sep.join((path, 'amdbrook', 'sdk', 'bin', 'brcc'))
+            break
+else:
+    print >>sys.stderr, "The AMD-Stream compiler, library, headers required to build the kernel were not found. Trying to continue anyway..."
 
 
 # Custom build_ext phase to create the GPU code with special compilers before building the whole thing
@@ -51,6 +65,8 @@ class GPUBuilder(build_ext):
         except OSError, (errno, sterrno):
             if errno == 17:
                 pass
+            else:
+                raise
 
     def run(self):
         # Prepare AMD-Stream kernel code within _brook_tmp directory.
@@ -66,7 +82,7 @@ class GPUBuilder(build_ext):
             f.write(re.sub("W\[(.+?)\]", lambda x: "W_" + str(eval(x.group(1))), cpp_o)) # hack to convert W[21-3] to W_18
             f.close()
             print "Compiling AMD-Stream kernel..."
-            subprocess.check_call('brcc -r -o ./_brook_tmp/_stream ./_brook_tmp/cpyrit_stream_pp.br', shell=True)            
+            subprocess.check_call(BRCC + ' -r -o ./_brook_tmp/_stream ./_brook_tmp/cpyrit_stream_pp.br', shell=True)
             
         # Now build the rest
         print "Building modules..."

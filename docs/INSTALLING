@@ -1,27 +1,23 @@
 === Requirements ===
 
  * For CUDA support the Nvidia CUDA SDK must be installed and properly linked.
- * For Stream support you need Catalyst >= 8.12 and Brook and CAL installed to /usr/local
+ * For Stream support you need Catalyst >= 8.12 and the AMD-Stream SDK >= 1.3
  * The OpenSSL library and headers.
 
 === Compilating ===
 
  * Compilation:
-    The CPyrit extension module must be compiled and installed. Modify setup.py according to your needs.
-    Currently there two optional features:
-      HAVE_CUDA will enable support for Nvidia CUDA capable devices
-      HAVE_STREAM will enable support for AMD Stream capable devices
-      HAVE_PADLOCK will enable support for VIA padlock hardware crypto
+    Pyrit comes with one core and currently two extension modules. Compile and install the core module 'pyrit' by running
+    
+      ./setup.py build
+      ./setup.py install    [as root]
       
-    Example:
-      ./setup.py HAVE_CUDA build
-      ./setup.py install
+    You can build and install the Stream/CUDA modules the same way if you want (and have the SDKs). Hardware support for those modules is auto-detected.
 
  * Installing:
-    Python's distutils will install the CPyrit module to the site-packages directory itself.
+    Python's distutils will install everything itself.
 
 === AMD Stream notes ===
 
  * installing AMD CAL + Brook on .deb systems is explained here: http://znuh.blogspot.com/2008/12/amd-stream-with-ubuntu-810-intrepid.html
- * you can get some more speed with overclocking: LD_PRELOAD=libXinerama.so.1 aticonfig --odsc x,y (see aticonfig --help)
 

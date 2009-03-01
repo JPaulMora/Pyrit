@@ -250,7 +250,6 @@ class CPyrit(object):
             else:
                 if self.out_idx not in self.outbuffer and not block:
                     return None
-                t = time.time()
                 while self.out_idx not in self.outbuffer:
                     self.cv.wait(1)
                     self._check_cores()
