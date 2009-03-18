@@ -19,14 +19,9 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import time, zlib, getopt, hashlib, fcntl, os, re, struct, random, sys, threading, struct
-try:
-    from pysqlite2 import dbapi2 as sqlite
-except:
-    pass
+import time, zlib, getopt, hashlib, fcntl, os, re, struct, random, sys, threading, struct, sqlite3
 
 import cpyrit
-
 
 class Pyrit_CLI(object):
     class options(object):
@@ -230,7 +225,7 @@ class Pyrit_CLI(object):
             for row in self._genCowpatty(self.essidstore[self.options.essid]):
                 f.write(row)
                 lines += 1
-                if lines % 1000 == 0:
+                if lines % 10000 == 0:
                     self.tell("\r%i entries written..." % lines, end=None, flush=True)
             self.tell("\r%i entries written. All done." % lines)
             f.close()
@@ -274,9 +269,6 @@ class Pyrit_CLI(object):
             f.close()
 
     def export_hashdb(self):
-        if 'sqlite' not in locals():
-            self.tell("Support for SQLite seems to be missing. Please check if the pysqlite2 module is available to python.", stream=sys.stderr)
-            return
         if self.options.file is None:
             self.tell("You must specify the database filename using the -f option. See 'help'", stream=sys.stderr)
             return
@@ -285,7 +277,7 @@ class Pyrit_CLI(object):
         else:
             essids = [self.options.essid]
 
-        con = sqlite.connect(self.options.file)
+        con = sqlite3.connect(self.options.file)
         cur = con.cursor()
         cur.execute('SELECT * FROM sqlite_master')
         tbls = [x[1] for x in cur.fetchall() if x[0] == u'table']
@@ -393,20 +385,23 @@ class Pyrit_CLI(object):
         self.tell("Batchprocessing done.")
 
     def benchmark(self):
-        print "Running benchmark. This may take a while..."
-        for i in xrange(60):
-            self.cp.enqueue('foo', ['barbarbar']*2500)
+        print "Running benchmark for at least 60 seconds...\n"
         t = time.time()
+        while time.time() - t < 60:
+            self.cp.enqueue('foo', ['barbarbar']*2500, block=True)
+            while True:
+                r = self.cp.dequeue(block=False)
+                if r is None:
+                    break
         for r in self.cp:
             pass
+        total = 0
         tdiff = time.time() - t
-        print "Benchmark done after %.2f seconds. Reporting on cores:" % tdiff
-        resCountTotal = 0
         for core in self.cp.cores:
             resCount, compTime = core.getStats()
             print "%s: %.2f PMKs/s, %.2f%% occupancy" % (core.name, resCount / compTime , compTime * 100.0 / tdiff)
-            resCountTotal += resCount
-        print "\nAll done. %.2f PMKs/s total." % (resCountTotal / tdiff)
+            total += resCount / compTime
+        print "\nBenchmark done. %.2f PMKs/s total." % total
 
 
 class PyrFile(object):

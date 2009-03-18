@@ -25,9 +25,9 @@ from distutils.command.clean import clean
 import sys, subprocess, re, os
 
 # Options to use for all modules
-EXTRA_COMPILE_ARGS = ['-O2', '-Werror']
+EXTRA_COMPILE_ARGS = ['-O2']
 LIBRARY_DIRS = ['/usr/lib']
-INCLUDE_DIRS = ['/usr/include','/usr/local/include']
+INCLUDE_DIRS = ['/usr/include/python2.5','/usr/include']
 
 # The default module; always built
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
