@@ -388,7 +388,7 @@ class Pyrit_CLI(object):
         print "Running benchmark for at least 60 seconds...\n"
         t = time.time()
         while time.time() - t < 60:
-            self.cp.enqueue('foo', ['barbarbar']*2500, block=True)
+            self.cp.enqueue('foo', ['barbarbar']*3500, block=True)
             while True:
                 r = self.cp.dequeue(block=False)
                 if r is None:
