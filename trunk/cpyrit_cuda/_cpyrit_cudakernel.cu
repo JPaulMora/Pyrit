@@ -19,11 +19,6 @@
 */
 
 #include "_cpyrit_cuda.h"
-#include <cuda/cuda.h>
-
-// Cover my mistakes of better memory access patterns by creatings blocks as small as possible
-#define THREADS_PER_BLOCK 64
-
 
 /* This is a 'special-version' of the SHA1 round function. *ctx is the current state,
    that gets updated by *data. Notice the lack of endianess-changes here.
@@ -186,7 +181,7 @@ void sha1_process( const SHA_DEV_CTX *ctx, SHA_DEV_CTX *data) {
 }
 
 /* This is the kernel called by the cpu. */
-__global__
+extern "C" __global__
 void cuda_pmk_kernel( gpu_inbuffer *inbuffer, gpu_outbuffer *outbuffer) {
     int i;
     SHA_DEV_CTX temp_ctx, pmk_ctx;
@@ -216,59 +211,5 @@ void cuda_pmk_kernel( gpu_inbuffer *inbuffer, gpu_outbuffer *outbuffer) {
         pmk_ctx.h4 ^= temp_ctx.h4;
     }
     CPY_DEVCTX(pmk_ctx, outbuffer[idx].pmk2);
-    
-}
-
-extern "C"
-int calc_pmklist(gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
-{
-    void *g_inbuffer, *g_outbuffer;
-    cudaEvent_t evt;
-    cudaError_t ret;
-    int buffersize;
-
-    // Align size of memory allocation and operations to full threadblocks. Threadblocks should be aligned to warp-size.
-    buffersize = (size / THREADS_PER_BLOCK + (size % THREADS_PER_BLOCK == 0 ? 0 : 1)) * THREADS_PER_BLOCK;
-
-    if (cudaMalloc(&g_inbuffer, buffersize*sizeof(gpu_inbuffer)) != cudaSuccess)
-        return cudaGetLastError();
-    
-    if (cudaMalloc(&g_outbuffer, buffersize*sizeof(gpu_outbuffer)) != cudaSuccess)
-    {
-        cudaFree(g_inbuffer);
-        return cudaGetLastError();
-    }
-    
-    if (cudaMemcpy(g_inbuffer, inbuffer, size*sizeof(gpu_inbuffer), cudaMemcpyHostToDevice) != cudaSuccess)
-    {
-        cudaFree(g_outbuffer);
-        cudaFree(g_inbuffer);
-        return cudaGetLastError();
-    }
-
-    cudaEventCreate(&evt);
-    cuda_pmk_kernel<<<buffersize / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>((gpu_inbuffer*)g_inbuffer, (gpu_outbuffer*)g_outbuffer);
-    if (cudaEventRecord(evt, NULL) == cudaSuccess)
-        while (cudaEventQuery(evt) == cudaErrorNotReady) { usleep(500); }
-    cudaEventDestroy(evt);
-
-    cudaFree(g_inbuffer);
-
-    ret = cudaGetLastError();    
-    if (ret != cudaSuccess)
-    {
-        cudaFree(g_outbuffer);
-        return ret;
-    }
-
-    if (cudaMemcpy(outbuffer, g_outbuffer, size*sizeof(gpu_outbuffer), cudaMemcpyDeviceToHost) != cudaSuccess)
-    {
-        cudaFree(g_outbuffer);
-        return cudaGetLastError();
-    }
-    
-    cudaFree(g_outbuffer);
-
-    return cudaSuccess;
 }
 

@@ -25,9 +25,9 @@ from distutils.command.clean import clean
 import sys, subprocess, re, os
 
 # Options to use for all modules
-EXTRA_COMPILE_ARGS = ['-O2', '-Werror']
+EXTRA_COMPILE_ARGS = ['-O2']
 LIBRARY_DIRS = ['/usr/lib']
-INCLUDE_DIRS = ['/usr/include']
+INCLUDE_DIRS = ['/usr/include/python2.5','/usr/include']
 
 # Try to find the CUDA headers and libraries
 NVIDIA_LIB_DIRS = []
@@ -65,10 +65,12 @@ class GPUBuilder(build_ext):
         except OSError, (errno, sterrno):
             if errno == 17:
                 pass
+            else:
+                raise
 
     def run(self):
         # The code which includes the CUDA-kernel gets passed through nvcc...
-        if '_cpyrit_cudakernel.o' in os.listdir('./'):
+        if '_cpyrit_cudakernel.cubin.h' in os.listdir('./'):
             print "Skipping rebuild of Nvidia CUDA kernel ..."
         else:
             nvcc_o = self._call(NVCC + ' -V')
@@ -78,9 +80,18 @@ class GPUBuilder(build_ext):
                 raise SystemError, "Nvidia's CUDA-compiler 'nvcc' can't be found. Make sure it's available to $PATH. " \
                                     "It is part of the CUDA Toolkit (not the SDK)."
             print "Compiling CUDA module using nvcc %s..." % nvcc_version
-            nvcc = NVCC + ' %s --host-compilation C -Xptxas "-v" --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC" -c ./_cpyrit_cudakernel.cu' % ' '.join('-I%s' % x for x in INCLUDE_DIRS)
+            nvcc = NVCC + ' --host-compilation C -Xptxas "-v" --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC" --cubin ./_cpyrit_cudakernel.cu'
             subprocess.check_call(nvcc, shell=True)
-            
+            f = open("_cpyrit_cudakernel.cubin", "rb")
+            cubin_img = f.read()
+            f.close()
+            cubin_inc = ",".join(("0x%02X%s" % (ord(c), "\n" if i % 16 == 0 else "") for i, c in enumerate(cubin_img)))
+            f = open("_cpyrit_cudakernel.cubin.h", "wb")
+            f.write("const char __cudakernel_module[] = {")
+            f.write(cubin_inc)
+            f.write("};\n\n")
+            f.close()
+
         # Now build the rest
         print "Building modules..."
         build_ext.run(self)
@@ -103,7 +114,7 @@ class GPUCleaner(clean):
     def run(self):
         print "Removing temporary files and pre-built GPU-kernels..."
         try:
-            for f in ('_cpyrit_cudakernel.linkinfo', '_cpyrit_cudakernel.o'):
+            for f in ('_cpyrit_cudakernel.linkinfo', '_cpyrit_cudakernel.cubin', '_cpyrit_cudakernel.cubin.h'):
                 self._unlink(f)
         except Exception, (errno, sterrno):
             print >>sys.stderr, "Exception while cleaning temporary files ('%s')" % sterrno
@@ -111,12 +122,11 @@ class GPUCleaner(clean):
         clean.run(self)
 
 cuda_extension = Extension('_cpyrit._cpyrit_cuda',
-                    libraries = ['ssl', 'cuda', 'cudart'],
+                    libraries = ['ssl', 'cuda'],
                     sources = ['_cpyrit_cuda.c'],
                     extra_compile_args = EXTRA_COMPILE_ARGS,
                     include_dirs = INCLUDE_DIRS + NVIDIA_INC_DIRS,
-                    library_dirs = LIBRARY_DIRS + NVIDIA_LIB_DIRS,
-                    extra_objects = ['_cpyrit_cudakernel.o'])
+                    library_dirs = LIBRARY_DIRS + NVIDIA_LIB_DIRS)
 
 setup_args = dict(
         name = 'CPyrit-CUDA',

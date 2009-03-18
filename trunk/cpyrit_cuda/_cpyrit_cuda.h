@@ -18,20 +18,14 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <python2.5/Python.h>
 #include <stdint.h>
-#include <openssl/hmac.h>
-#include <openssl/sha.h>
-#include <cuda_runtime.h>
+#include <cuda/cuda.h>
 
 #ifndef CPYRIT_CUDA
 #define CPYRIT_CUDA
 
-typedef struct
-{
-    int device;
-    struct cudaDeviceProp properties;
-} cudaDevContext;
+// Cover my mistakes of better memory access patterns by creatings blocks as small as possible
+#define THREADS_PER_BLOCK 64
 
 #define GET_BE(n,b,i)                            \
 {                                                       \
@@ -73,3 +67,4 @@ typedef struct {
 } gpu_outbuffer;
 
 #endif
+
