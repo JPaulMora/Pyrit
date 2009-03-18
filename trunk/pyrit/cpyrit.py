@@ -113,6 +113,7 @@ else:
             Core.__init__(self, inqueue, callback, name)
             self.CUDADev = _cpyrit_cuda.CUDADevice(dev)
             self.minBufferSize = 20480
+            self.buffersize = 2048
             self.start()
             
         def solve(self, essid, passwordlist):
