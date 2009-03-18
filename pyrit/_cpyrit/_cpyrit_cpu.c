@@ -18,7 +18,7 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <python2.5/Python.h>
+#include <Python.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 
@@ -49,7 +49,6 @@ struct pmk_ctr
 // Execution path depends on having Padlock vs. pure x86
 void (*prepare_pmk)(const char*, const char*, struct pmk_ctr*) = NULL;
 void (*finalize_pmk)(struct pmk_ctr*) = NULL;
-
 
 #ifdef COMPILE_PADLOCK
     #include <sys/ucontext.h>

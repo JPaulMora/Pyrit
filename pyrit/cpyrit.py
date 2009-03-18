@@ -98,7 +98,9 @@ _avail_cores.append(('CPU', CPUCore, "CPU-Core (%s)" % _cpyrit_cpu.getPlatform()
 ## Try creating the CUDA-Core. Failure is acceptable.
 try:
     from _cpyrit import _cpyrit_cuda
-    _testComputeFunction(_cpyrit_cuda.calc_pmklist, 101)
+    for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
+        d = _cpyrit_cuda.CUDADevice(dev_idx)
+        _testComputeFunction(d.calc_pmklist, 101)
 except ImportError:
     pass
 except Exception, e:
@@ -109,15 +111,9 @@ else:
             if dev not in range(len(_cpyrit_cuda.listDevices())):
                 raise IndexError, "Invalid device number."
             Core.__init__(self, inqueue, callback, name)
-            self.dev = dev
-            self.buffersize = 2048
+            self.CUDADev = _cpyrit_cuda.CUDADevice(dev)
+            self.minBufferSize = 20480
             self.start()
-        
-        def run(self):
-            newDev = _cpyrit_cuda.setDevice(self.dev)
-            if newDev != self.dev:
-                raise SystemError, "Failed to select new device"
-            Core.run(self)
             
         def solve(self, essid, passwordlist):
             # The kernel allows a max. execution time of 5 seconds per call (when X11 is loaded) so we have to
@@ -129,14 +125,14 @@ else:
             while i < len(passwordlist):
                 t = time.time()
                 pwslice = passwordlist[i:i+self.buffersize]
-                res.extend(_cpyrit_cuda.calc_pmklist(essid, pwslice))
+                res.extend(self.CUDADev.calc_pmklist(essid, pwslice))
                 i += self.buffersize
                 if len(pwslice) >= 2048:
                     self.buffersize = int(max(2048, min(20480, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
             return tuple(res)
     
     for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
-        _avail_cores.append(('GPU', CUDACore, "CUDA-Device '%s'" % device[0], {'dev':dev_idx}))
+        _avail_cores.append(('GPU', CUDACore, "CUDA-Device #%i '%s'" % (dev_idx+1,device[0]), {'dev':dev_idx}))
 
 
 ## Try creating the Stream-Core. Failure is acceptable.
@@ -151,14 +147,14 @@ else:
     class StreamCore(Core):
         def __init__(self, inqueue, callback, name):
             Core.__init__(self, inqueue, callback, name)
+            self.minBufferSize = 20480
             self.start()
-            
+
         def solve(self, essid, passwordlist):
             res = []
             i = 0
             while i < len(passwordlist):
-                pwslice = passwordlist[i:i+8192]
-                res.extend(_cpyrit_stream.calc_pmklist(essid, pwslice))
+                res.extend(_cpyrit_stream.calc_pmklist(essid, passwordlist[i:i+8192]))
                 i += 8192
             return tuple(res)
         
@@ -229,7 +225,7 @@ class CPyrit(object):
         if not isinstance(essid, str):
             raise TypeError, "ESSID must be a string"
         if not isinstance(passwordlist, list):
-            raise TypeError, "passwordlist must be a string"
+            raise TypeError, "passwordlist must be a list"
         self.cv.acquire()
         try:
             if block:
