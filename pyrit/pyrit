@@ -190,10 +190,10 @@ class Pyrit_CLI(object):
             self.tell("\nAll done")
     
     def _genCowpHeader(self, essid):
-        return struct.pack("<i3sb32s", 0x43575041, '\00'*3, len(essid), essid)
+        return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
     
     def _genCowpEntry(self, passwd, pmk):
-        return struct.pack("<b%ss32s" % len(passwd), len(passwd) + 32 + 1, passwd, pmk)
+        return chr(len(passwd) + 32 + 1) + passwd + pmk
     
     def _genCowpatty(self, essid_obj):
         yield self._genCowpHeader(essid_obj.essid)
@@ -381,6 +381,7 @@ class Pyrit_CLI(object):
                         totalResCount += len(newResults)
                     tdiff = time.time() - startTime
                     self.tell("Computed %i PMKs in %.2f seconds; %.1f PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None)
+                self.tell("")
             self.tell("Stopped reading workunits...")
             for newResults in cp:
                 newResFile, solvedPasswds = workunits.pop(0)
