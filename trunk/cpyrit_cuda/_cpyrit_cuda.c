@@ -23,6 +23,12 @@
 #include <openssl/sha.h>
 #include "_cpyrit_cuda.h"
 
+#ifdef __APPLE__
+    #define CTX_SCHED CU_CTX_SCHED_AUTO
+#else
+    #define CTX_SCHED CU_CTX_SCHED_YIELD
+#endif
+
 // Created by NVCC and setup.py
 #include "_cpyrit_cudakernel.cubin.h"
 
@@ -61,7 +67,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
         return -1;
     }
     
-    if (cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_YIELD, self->dev_idx) != CUDA_SUCCESS)
+    if (cuCtxCreate(&self->dev_ctx, CTX_SCHED, self->dev_idx) != CUDA_SUCCESS)
     {
         PyErr_SetString(PyExc_SystemError, "Failed to create device-context.");
         return -1;
@@ -69,18 +75,23 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     
     if (cuModuleLoadData(&self->mod, &__cudakernel_module) != CUDA_SUCCESS)
     {
+        cuCtxDestroy(self->dev_ctx);
         PyErr_SetString(PyExc_SystemError, "Failed to load CUBIN-module.");
         return -1;
     }
 
     if (cuModuleGetFunction(&self->kernel, self->mod, "cuda_pmk_kernel") != CUDA_SUCCESS)
     {
+        cuCtxDestroy(self->dev_ctx);
+        cuModuleUnload(self->mod);
         PyErr_SetString(PyExc_SystemError, "Failed to load kernel-function");
         return -1;    
     }
     
     if (cuFuncSetBlockShape(self->kernel, THREADS_PER_BLOCK, 1, 1) != CUDA_SUCCESS)
     {
+        cuCtxDestroy(self->dev_ctx);
+        cuModuleUnload(self->mod);
         PyErr_SetString(PyExc_SystemError, "Failed to set block-shape");
         return -1;    
     }
@@ -88,6 +99,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     if (cuCtxPopCurrent(NULL) != CUDA_SUCCESS)
     {
         cuCtxDestroy(self->dev_ctx);
+        cuModuleUnload(self->mod);
         PyErr_SetString(PyExc_SystemError, "Failed to detach from device-context after creation.");        
         return -1;
     }
@@ -283,47 +295,47 @@ static PyMethodDef CUDADevice_methods[] =
 };
 
 static PyTypeObject CUDADevice_type = {
-	PyObject_HEAD_INIT(NULL)
-	0,			/*ob_size*/
-	"_cpyrit_cuda.CUDADevice",	/*tp_name*/
-	sizeof(CUDADevice), /*tp_basicsize*/
-	0,			/*tp_itemsize*/
-	(destructor)cudadev_dealloc, /*tp_dealloc*/
-	0,			/*tp_print*/
-	0,			/*tp_getattr*/
-	0,			/*tp_setattr*/
-	0,			/*tp_compare*/
-	0,			/*tp_repr*/
-	0,			/*tp_as_number*/
-	0,			/*tp_as_sequence*/
-	0,			/*tp_as_mapping*/
-	0,			/*tp_hash*/
-    0,                      /*tp_call*/
-    0,                      /*tp_str*/
-    PyObject_GenericGetAttr,/*tp_getattro*/
-    PyObject_GenericSetAttr,/*tp_setattro*/
-    0,                      /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT,      /*tp_flags*/
-    0,       /*tp_doc*/
-    0,                      /*tp_traverse*/
-    0,                      /*tp_clear*/
-    0,                      /*tp_richcompare*/
-    0,                      /*tp_weaklistoffset*/
-    0,                      /*tp_iter*/
-    0,                      /*tp_iternext*/
-    CUDADevice_methods,      /*tp_methods*/
-    0,      /*tp_members*/
-    0,                      /*tp_getset*/
-    0,                      /*tp_base*/
-    0,                      /*tp_dict*/
-    0,                      /*tp_descr_get*/
-    0,                      /*tp_descr_set*/
-    0,                      /*tp_dictoffset*/
-    (initproc)cudadev_init, /*tp_init*/
-    PyType_GenericAlloc,    /*tp_alloc*/
-    PyType_GenericNew,      /*tp_new*/
-  	_PyObject_Del,          /*tp_free*/
-    0,                      /*tp_is_gc*/
+    PyObject_HEAD_INIT(NULL)
+    0,                          /*ob_size*/
+    "_cpyrit_cuda.CUDADevice",  /*tp_name*/
+    sizeof(CUDADevice),         /*tp_basicsize*/
+    0,                          /*tp_itemsize*/
+    (destructor)cudadev_dealloc,/*tp_dealloc*/
+    0,                          /*tp_print*/
+    0,                          /*tp_getattr*/
+    0,                          /*tp_setattr*/
+    0,                          /*tp_compare*/
+    0,                          /*tp_repr*/
+    0,                          /*tp_as_number*/
+    0,                          /*tp_as_sequence*/
+    0,                          /*tp_as_mapping*/
+    0,                          /*tp_hash*/
+    0,                          /*tp_call*/
+    0,                          /*tp_str*/
+    PyObject_GenericGetAttr,    /*tp_getattro*/
+    PyObject_GenericSetAttr,    /*tp_setattro*/
+    0,                          /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT,         /*tp_flags*/
+    0,                          /*tp_doc*/
+    0,                          /*tp_traverse*/
+    0,                          /*tp_clear*/
+    0,                          /*tp_richcompare*/
+    0,                          /*tp_weaklistoffset*/
+    0,                          /*tp_iter*/
+    0,                          /*tp_iternext*/
+    CUDADevice_methods,         /*tp_methods*/
+    0,                          /*tp_members*/
+    0,                          /*tp_getset*/
+    0,                          /*tp_base*/
+    0,                          /*tp_dict*/
+    0,                          /*tp_descr_get*/
+    0,                          /*tp_descr_set*/
+    0,                          /*tp_dictoffset*/
+    (initproc)cudadev_init,     /*tp_init*/
+    PyType_GenericAlloc,        /*tp_alloc*/
+    PyType_GenericNew,          /*tp_new*/
+    _PyObject_Del,              /*tp_free*/
+    0,                          /*tp_is_gc*/
 };
 
 
