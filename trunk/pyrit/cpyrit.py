@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
 #
 #    This file is part of Pyrit.
 #
@@ -86,7 +86,7 @@ except:
 class CPUCore(Core):
     def __init__(self, inqueue, callback, name):
         Core.__init__(self, inqueue, callback, name)
-        self.minBufferSize = 300
+        self.minBufferSize = 500
         self.start()
 
     def solve(self, essid, passwordlist):
@@ -146,10 +146,15 @@ except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
 else:
     class StreamCore(Core):
-        def __init__(self, inqueue, callback, name):
+        def __init__(self, inqueue, callback, name, dev):
             Core.__init__(self, inqueue, callback, name)
+            self.dev = dev
             self.minBufferSize = 20480
             self.start()
+
+        def run(self):
+            _cpyrit_stream.setDevice(self.dev)
+            Core.run(self)
 
         def solve(self, essid, passwordlist):
             res = []
@@ -158,8 +163,9 @@ else:
                 res.extend(_cpyrit_stream.calc_pmklist(essid, passwordlist[i:i+8192]))
                 i += 8192
             return tuple(res)
-        
-    _avail_cores.append(('GPU', StreamCore, "AMD-Stream Core", {}))
+
+    for dev_idx in range(_cpyrit_stream.getDeviceCount()):        
+        _avail_cores.append(('GPU', StreamCore, "AMD-Stream device #%i" % dev_idx, {'dev':dev_idx}))
 
 
 class CPyrit(object):

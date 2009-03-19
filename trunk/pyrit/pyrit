@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
 #
 #    This file is part of Pyrit.
 #
@@ -18,10 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-
-import time, zlib, getopt, hashlib, fcntl, os, re, struct, random, sys, threading, struct, sqlite3
-
-import cpyrit
+import time, zlib, getopt, hashlib, os, re, struct, random, sys, threading, struct, sqlite3
 
 class Pyrit_CLI(object):
     class options(object):
@@ -66,8 +63,6 @@ class Pyrit_CLI(object):
 
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
-
-        self.cp = cpyrit.CPyrit()
 
         self.tell("The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com" \
                 "\nThis code is distributed under the GNU General Public License v3\n")
@@ -120,8 +115,10 @@ class Pyrit_CLI(object):
             self.tell("Created ESSID '%s'" % essid)
 
     def list_cores(self):
+        import cpyrit
+        cp = cpyrit.CPyrit()
         self.tell("The following cores seem available...")
-        for i, corename in enumerate(self.cp.availableCores()):
+        for i, corename in enumerate(cp.availableCores()):
             self.tell("#%i:  '%s'" % (i, corename))
 
     def list_essids(self):
@@ -231,6 +228,8 @@ class Pyrit_CLI(object):
             f.close()
 
     def passthrough(self):
+        import cpyrit
+        cp = cpyrit.CPyrit()
         if self.options.essid is None:
             self.tell("Specifiy a ESSID using the -e option. See 'help'", stream=sys.stderr)
             return
@@ -247,20 +246,21 @@ class Pyrit_CLI(object):
             pwbuffer = set()
             while True:
                 l = f.readline()
-                if not l:
-                    break
-                pw = l.strip()[:63]
-                if len(pw) >= 8:
-                    pwbuffer.add(pw)
-                if len(pwbuffer) > 10000:
+                if l:
+                    pw = l.strip()[:63]
+                    if len(pw) >= 8:
+                        pwbuffer.add(pw)
+                if len(pwbuffer) > 10000 or (not l and len(pwbuffer) > 0):
                     workunits.append(list(pwbuffer))
-                    self.cp.enqueue(self.options.essid, workunits[-1], 10)
+                    cp.enqueue(self.options.essid, workunits[-1], 10)
                     pwbuffer = set()
-                r = self.cp.dequeue(block=False)
+                r = dequeue(block=False)
                 if r is not None:
                     for pw, pmk in zip(workunits.pop(0), r):
                         sys.stdout.write(self._genCowpEntry(pw, pmk))
-            for r in self.cp:
+                if not l:
+                    break
+            for r in cp:
                 for pw, pmk in zip(workunits.pop(0), r):
                     sys.stdout.write(self._genCowpEntry(pw, pmk))
         except IOError:
@@ -282,7 +282,27 @@ class Pyrit_CLI(object):
         cur.execute('SELECT * FROM sqlite_master')
         tbls = [x[1] for x in cur.fetchall() if x[0] == u'table']
         if u'pmk' not in tbls or u'essid' not in tbls or u'passwd' not in tbls:
-            raise Exception, "The database '%s' seems to be uninitialized. Pyrit won't do that for you. Use the proper tools to create a new database." % self.options.file
+            self.tell("The database '%s' seems to be uninitialized. "  % self.options.file +
+                      "Trying to create default table-layout...", end=None)
+            try:
+                cur.execute("CREATE TABLE essid (essid_id INTEGER PRIMARY KEY AUTOINCREMENT, essid TEXT, prio INTEGER DEFAULT 64)")
+                cur.execute("CREATE TABLE passwd (passwd_id INTEGER PRIMARY KEY AUTOINCREMENT, passwd TEXT)")
+                cur.execute("CREATE TABLE pmk (pmk_id INTEGER PRIMARY KEY AUTOINCREMENT, passwd_id INT, essid_id INT, pmk BLOB)")
+                cur.execute("CREATE TABLE workbench (wb_id INTEGER PRIMARY KEY AUTOINCREMENT, essid_id INT, passwd_id INT, lockid INTEGER DEFAULT 0)")
+                cur.execute("CREATE INDEX lock_lockid ON workbench (lockid);")
+                cur.execute("CREATE UNIQUE INDEX essid_u ON essid (essid)")
+                cur.execute("CREATE UNIQUE INDEX passwd_u ON passwd (passwd)")
+                cur.execute("CREATE UNIQUE INDEX ep_u ON pmk (essid_id, passwd_id)")
+                cur.execute("CREATE UNIQUE INDEX wb_u ON workbench (essid_id, passwd_id)")
+                cur.execute("CREATE TRIGGER delete_essid DELETE ON essid BEGIN DELETE FROM pmk WHERE pmk.essid_id = OLD.essid_id; DELETE FROM workbench WHERE workbench.essid_id = OLD.essid_id; END;")
+                cur.execute("CREATE TRIGGER delete_passwd DELETE ON passwd BEGIN DELETE FROM pmk WHERE pmk.passwd_id = OLD.passwd_id; DELETE FROM workbench WHERE workbench.passwd_id = OLD.passwd_id; END;")
+                self.tell("Tables created...")
+            except:
+                con.rollback()
+                cur.close()
+                con.close()
+                self.tell("Failed to initialize the database:", stream=sys.stderr)
+                raise
 
         for essid in essids:
             self.tell("Exporting ESSID '%s'" % essid)
@@ -309,6 +329,8 @@ class Pyrit_CLI(object):
         con.close()
 
     def batchprocess(self):
+        import cpyrit
+        cp = cpyrit.CPyrit()
         def _writeCowpatty(resFile):
             if self.options.file == '-':
                 try:
@@ -347,10 +369,10 @@ class Pyrit_CLI(object):
                     unsolvedPasswds = list(set(pwfile).difference(set(resFile.results.keys())))
                     if len(unsolvedPasswds) > 0:
                         workunits.append((resFile, unsolvedPasswds))
-                        self.cp.enqueue(essid_object.essid, unsolvedPasswds, True)
+                        cp.enqueue(essid_object.essid, unsolvedPasswds, True)
                     else:
                         _writeCowpatty(resFile)
-                    newResults = self.cp.dequeue(block=False)
+                    newResults = cp.dequeue(block=False)
                     if newResults is not None:
                         newResFile, solvedPasswds = workunits.pop(0)
                         newResFile.results.update(zip(solvedPasswds, newResults))
@@ -360,7 +382,7 @@ class Pyrit_CLI(object):
                     tdiff = time.time() - startTime
                     self.tell("Computed %i PMKs in %.2f seconds; %.1f PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None)
             self.tell("Stopped reading workunits...")
-            for newResults in self.cp:
+            for newResults in cp:
                 newResFile, solvedPasswds = workunits.pop(0)
                 newResFile.results.update(zip(solvedPasswds, newResults))
                 newResFile.savefile()
@@ -377,7 +399,7 @@ class Pyrit_CLI(object):
                 if totalResCount > 0:   
                     self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))
                     tdiff = time.time() - startTime
-                    for core in self.cp.cores:
+                    for core in cp.cores:
                         resCount, compTime = core.getStats()
                         self.tell("%s: %.2f PMKs/s, %.2f%% occupancy" % (core.name, resCount / compTime , compTime * 100.0 / tdiff))
             except:
@@ -385,19 +407,21 @@ class Pyrit_CLI(object):
         self.tell("Batchprocessing done.")
 
     def benchmark(self):
+        import cpyrit
+        cp = cpyrit.CPyrit()
         print "Running benchmark for at least 60 seconds...\n"
         t = time.time()
         while time.time() - t < 60:
-            self.cp.enqueue('foo', ['barbarbar']*3500, block=True)
+            cp.enqueue('foo', ['barbarbar']*3500, block=True)
             while True:
-                r = self.cp.dequeue(block=False)
+                r = cp.dequeue(block=False)
                 if r is None:
                     break
-        for r in self.cp:
+        for r in cp:
             pass
         total = 0
         tdiff = time.time() - t
-        for core in self.cp.cores:
+        for core in cp.cores:
             resCount, compTime = core.getStats()
             print "%s: %.2f PMKs/s, %.2f%% occupancy" % (core.name, resCount / compTime , compTime * 100.0 / tdiff)
             total += resCount / compTime
@@ -412,7 +436,6 @@ class PyrFile(object):
         self.key = None
 
         f = open(infile, "a+b")
-        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
         self.key = infile.split(os.path.sep)[-1][:-4]
         f.seek(0)
         try:
@@ -447,13 +470,11 @@ class PyrFile(object):
                 self.f = f
         except:
             print >>sys.stderr, "Exception while opening PyrFile '%s', file not loaded." % infile
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             f.close()
             raise
 
     def close(self):
         if self.f is not None:
-            fcntl.flock(self.f.fileno(), fcntl.LOCK_UN)
             self.f.close()
             self.f = None
 
@@ -462,7 +483,6 @@ class PyrFile(object):
             raise Exception, "No file opened."
         if self.essid is None or len(self.essid) == 0:
             raise Exception, "ESSID not set."
-        fcntl.flock(self.f.fileno(), fcntl.LOCK_EX)
         self.f.truncate(0)
         pwbuffer,pmkbuffer = zip(*self.results.iteritems())
         raw_digest = hashlib.md5()
@@ -474,7 +494,6 @@ class PyrFile(object):
         map(self.f.write, pmkbuffer)
         self.f.write(zlib.compress("\00".join(pwbuffer)))
         self.f.flush()
-        fcntl.flock(self.f.fileno(), fcntl.LOCK_SH)
 
 
 class ESSID(object):
@@ -482,7 +501,6 @@ class ESSID(object):
         self.path = path
         try:
             self.f = open(os.path.join(path, "essid"), "rb")
-            fcntl.flock(self.f.fileno(), fcntl.LOCK_SH)
         except IOError:
             raise IOError, "ESSID not found or not accessible."
         self.essid = self.f.read()
@@ -507,7 +525,6 @@ class ESSID(object):
 
     def close(self):
         if self.f is not None:
-            fcntl.flock(self.f.fileno(), fcntl.LOCK_UN)
             self.f.close()
         self.f = None
         self.path = None
@@ -573,7 +590,6 @@ class PasswordFile(object):
         self.bucket = set()
         self.f = None
         f = open(filename, "a+b")
-        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
         f.seek(0)
         self.f = f
         try:
@@ -592,12 +608,10 @@ class PasswordFile(object):
                     self.key = md.hexdigest()
                 else:
                     print >>sys.stderr, "Digest check failed for %s" % filename
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     f.close()
                     self.f = None
         except:
             print >>sys.stderr, "Exception while opening PasswordFile '%s', file not loaded." % filename
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             f.close()
             self.f = None
             raise
@@ -607,7 +621,6 @@ class PasswordFile(object):
 
     def __del__(self):
         if self.f is not None:
-            fcntl.flock(self.f.fileno(), fcntl.LOCK_UN)
             self.f.close()
 
     def __iter__(self):
@@ -620,7 +633,6 @@ class PasswordFile(object):
     def savefile(self):
         if self.f is None:
             raise Exception, "No file opened."
-        fcntl.flock(self.f.fileno(), fcntl.LOCK_EX)
         md = hashlib.md5()
         b = sorted(list(self.bucket))
         map(md.update, b)
@@ -629,7 +641,6 @@ class PasswordFile(object):
         self.f.write(md.digest())
         self.f.write("\00".join(b))
         self.f.flush()
-        fcntl.flock(self.f.fileno(), fcntl.LOCK_SH)
 
 
 class PasswordStore(object):
@@ -673,7 +684,6 @@ class PasswordStore(object):
                 bucket -= PasswordFile(pwfile).bucket
         if len(bucket) == 0:
             return
-            
         md = hashlib.md5()
         map(md.update, sorted(list(bucket)))
         destpath = os.path.join(self.passwdpath, pw_h1)

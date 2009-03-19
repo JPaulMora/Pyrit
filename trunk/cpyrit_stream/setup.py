@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
 #
 #    This file is part of Pyrit.
 #
@@ -25,9 +25,9 @@ from distutils.command.clean import clean
 import sys, subprocess, re, os
 
 # Options to use for all modules
-EXTRA_COMPILE_ARGS = ['-O2', '-Werror']
+EXTRA_COMPILE_ARGS = ['-O2']
 LIBRARY_DIRS = ['/usr/lib']
-INCLUDE_DIRS = ['/usr/include']
+INCLUDE_DIRS = ['/usr/include/python2.5', '/usr/include']
 
 # Try to find the Brook+ library and headers
 STREAM_LIB_DIRS = []
@@ -39,13 +39,13 @@ for path in ('/usr/local','/opt'):
     except:
         pass
     else:
-        if 'amdbrook' in d:
-            STREAM_LIB_DIRS.append(os.path.sep.join((path, 'amdbrook', 'sdk', 'lib')))
-            STREAM_INC_DIRS.append(os.path.sep.join((path, 'amdbrook', 'sdk', 'include')))
-            BRCC = os.path.sep.join((path, 'amdbrook', 'sdk', 'bin', 'brcc'))
+        if 'atibrook' in d:
+            STREAM_LIB_DIRS.append(os.path.sep.join((path, 'atibrook', 'sdk', 'lib')))
+            STREAM_INC_DIRS.append(os.path.sep.join((path, 'atibrook', 'sdk', 'include')))
+            BRCC = os.path.sep.join((path, 'atibrook', 'sdk', 'bin', 'brcc'))
             break
 else:
-    print >>sys.stderr, "The AMD-Stream compiler, library, headers required to build the kernel were not found. Trying to continue anyway..."
+    print >>sys.stderr, "The AMD-Stream compiler, headers and libraries required to build the kernel were not found. Trying to continue anyway..."
 
 
 # Custom build_ext phase to create the GPU code with special compilers before building the whole thing
@@ -82,7 +82,7 @@ class GPUBuilder(build_ext):
             f.write(re.sub("W\[(.+?)\]", lambda x: "W_" + str(eval(x.group(1))), cpp_o)) # hack to convert W[21-3] to W_18
             f.close()
             print "Compiling AMD-Stream kernel..."
-            subprocess.check_call(BRCC + ' -r -o ./_brook_tmp/_stream ./_brook_tmp/cpyrit_stream_pp.br', shell=True)
+            subprocess.check_call(BRCC + ' -p cal -r -o ./_brook_tmp/_stream ./_brook_tmp/cpyrit_stream_pp.br', shell=True)
             
         # Now build the rest
         print "Building modules..."
@@ -100,6 +100,8 @@ class GPUCleaner(clean):
         except OSError, (errno, sterrno):
             if errno == 2:
                 pass
+            else:
+                raise
     
     def run(self):
         print "Removing temporary files and pre-built GPU-kernels..."
