@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
 #
 #    This file is part of Pyrit.
 #
@@ -18,28 +18,31 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
-import sys, subprocess, re, os
+import distutils.util, sys, subprocess, re, os
 
-# Options to use for all modules
 EXTRA_COMPILE_ARGS = ['-O2']
-LIBRARY_DIRS = ['/usr/lib']
-INCLUDE_DIRS = ['/usr/include/python2.5','/usr/include']
+if distutils.util.get_platform() == 'win32':
+    LIBRARY_DIRS = ['C:\OpenSSL\lib']
+    INCLUDE_DIRS = ['C:\Python25\include', 'C:\OpenSSL\include']
+    LIBRARIES = ['libeay32']
+else:
+    LIBRARY_DIRS = ['/usr/lib']
+    INCLUDE_DIRS = ['/usr/include/python2.5', '/usr/include']
+    LIBRARIES = ['ssl']
 
-# The default module; always built
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
-                    libraries = ['ssl'],
                     sources = ['_cpyrit/_cpyrit_cpu.c'],
+                    libraries = LIBRARIES,
                     extra_compile_args = EXTRA_COMPILE_ARGS,
                     include_dirs = INCLUDE_DIRS,
                     library_dirs = LIBRARY_DIRS)
 
 setup_args = dict(
         name = 'Pyrit',
-        version = '0.2',
+        version = '0.2.1',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
@@ -51,6 +54,6 @@ setup_args = dict(
         ext_modules = [cpu_extension],
         options = {'install':{'optimize':1}}
         )
-        
+
 if __name__ == "__main__":
     setup(**setup_args)

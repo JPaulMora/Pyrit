@@ -64,7 +64,7 @@ class Pyrit_CLI(object):
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
 
-        self.tell("The Pyrit commandline-client (C) 2008 Lukas Lueg http://pyrit.googlecode.com" \
+        self.tell("The Pyrit commandline-client (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
                 "\nThis code is distributed under the GNU General Public License v3\n")
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
             self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
@@ -337,7 +337,7 @@ class Pyrit_CLI(object):
                     for passwd, pmk in resFile.results.items():
                         sys.stdout.write(self._genCowpEntry(passwd, pmk))
                 except IOError:
-                    self.tell("IOError while writing to stdout. Batchprocessing continues silelently...", stream=sys.stderr)
+                    self.tell("IOError while writing to stdout. Batchprocessing continues silently...", stream=sys.stderr)
                     self.options.file = ''                        
         
         if self.options.file == "-" and self.options.essid is None:
@@ -601,7 +601,8 @@ class PasswordFile(object):
                 assert head == "PAWD"
                 digest = f.read(md.digest_size)
                 inp = sorted(f.read().split("\00"))
-                map(md.update, inp)
+                for pw in inp:
+                    md.update(pw)
                 if digest == md.digest():
                     if filename[-3-len(md.hexdigest()):-3] != md.hexdigest():
                         raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
@@ -679,14 +680,14 @@ class PasswordStore(object):
             return
         pw_h1 = "%02.2X" % (hash(list(bucket)[0]) & 0xFF)
         assert all(("%02.2X" % (hash(pw) & 0xFF) == pw_h1 for pw in bucket))
-
         for pwfile in self._getfiles().values():
             if pwfile.split(os.path.sep)[-2] == pw_h1:
                 bucket -= PasswordFile(pwfile).bucket
         if len(bucket) == 0:
             return
         md = hashlib.md5()
-        map(md.update, sorted(list(bucket)))
+        for pw in sorted(list(bucket)):
+            md.update(pw)
         destpath = os.path.join(self.passwdpath, pw_h1)
         self._makedir(destpath)
         f = PasswordFile(os.path.join(destpath, md.hexdigest() + ".pw"))
@@ -697,17 +698,16 @@ class PasswordStore(object):
     def flush_buffer(self):
         for pw_h1 in self.pwbuffer.keys():
             pwbucket = list(self.pwbuffer[pw_h1])
-            map(self._flush_bucket, [set(pwbucket[x:x+10000]) for x in xrange(0, len(pwbucket), 10000)])
+            map(self._flush_bucket, [set(pwbucket[x:x+20000]) for x in xrange(0, len(pwbucket), 20000)])
 
     def store_password(self, passwd):
         passwd = passwd.strip()
         if len(passwd) < 8 or len(passwd) > 63:
-            #print "Password '%s'('%s') has invalid length." % (pwstrip,passwd)
             return
         pw_h1 = "%02.2X" % (hash(passwd) & 0xFF)
         pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
         pw_bucket.add(passwd)
-        if len(pw_bucket) >= 10000:
+        if len(pw_bucket) >= 20000:
             self._flush_bucket(pw_bucket)
 
 

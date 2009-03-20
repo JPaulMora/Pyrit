@@ -51,8 +51,8 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
 {
     int dev_idx;
 
-	if (!PyArg_ParseTuple(args, "i:CUDADevice", &dev_idx))
-		return -1;
+    if (!PyArg_ParseTuple(args, "i:CUDADevice", &dev_idx))
+        return -1;
 
     if (dev_idx < 0 || dev_idx > cudaDevCount-1)
     {
