@@ -132,7 +132,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [stream_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit'}}
+        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit,libaticalcl.so'}}
         )
         
 if __name__ == "__main__":

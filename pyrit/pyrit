@@ -64,7 +64,7 @@ class Pyrit_CLI(object):
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
 
-        self.tell("The Pyrit commandline-client (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
+        self.tell("Pyrit 0.2.1 (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
                 "\nThis code is distributed under the GNU General Public License v3\n")
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
             self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
@@ -589,41 +589,26 @@ class EssidStore(object):
 class PasswordFile(object):
     def __init__(self, filename):
         self.bucket = set()
-        self.f = None
-        f = open(filename, "a+b")
-        f.seek(0)
-        self.f = f
-        try:
-            inp = set()
+        self.f = open(filename, "a+b")
+        head = self.f.read(4)
+        if len(head) > 0:
+            if head != "PAWD":
+                raise Exception, "Not a PasswordFile."
             md = hashlib.md5()
-            head = f.read(4)
-            if len(head) > 0:
-                assert head == "PAWD"
-                digest = f.read(md.digest_size)
-                inp = sorted(f.read().split("\00"))
-                for pw in inp:
-                    md.update(pw)
-                if digest == md.digest():
-                    if filename[-3-len(md.hexdigest()):-3] != md.hexdigest():
-                        raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
-                    self.bucket = frozenset(inp)
-                    self.key = md.hexdigest()
-                else:
-                    print >>sys.stderr, "Digest check failed for %s" % filename
-                    f.close()
-                    self.f = None
-        except:
-            print >>sys.stderr, "Exception while opening PasswordFile '%s', file not loaded." % filename
-            f.close()
-            self.f = None
-            raise
+            digest = self.f.read(md.digest_size)
+            inp = sorted(self.f.read().split("\00"))
+            for pw in inp:
+                md.update(pw)
+            if digest == md.digest():
+                if filename[-3-len(md.hexdigest()):-3] != md.hexdigest():
+                    raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
+                self.bucket = frozenset(inp)
+                self.key = md.hexdigest()
+            else:
+                raise Exception, "Digest check failed for %s" % filename
             
     def __repr__(self):
         return self.f.__repr__()
-
-    def __del__(self):
-        if self.f is not None:
-            self.f.close()
 
     def __iter__(self):
         for pw in self.bucket:
@@ -633,8 +618,6 @@ class PasswordFile(object):
         return len(self.bucket)
 
     def savefile(self):
-        if self.f is None:
-            raise Exception, "No file opened."
         md = hashlib.md5()
         b = sorted(list(self.bucket))
         map(md.update, b)
@@ -657,9 +640,6 @@ class PasswordStore(object):
         except OSError, (errno, sterrno):
             if errno == 17:
                 pass
-
-    def __del__(self):
-        self.flush_buffer()
 
     def _getfiles(self):
         pwfiles = {}
