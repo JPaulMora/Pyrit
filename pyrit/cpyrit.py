@@ -175,7 +175,7 @@ class CPyrit(object):
         self.cv = threading.Condition()
         self.in_idx = 0
         self.out_idx = 0
-        self.maxSize = 3
+        self.maxSize = 5
         self.cores = []
 
     # Snippet taken from ParallelPython
