@@ -7,15 +7,36 @@ _Pyrit_ consists of basically two parts:
   * The python-implemented _Pyrit_-classes for managing the blobspace, the commandline-client and such.
   * Multiple extension modules working on x86, VIA-Padlock, Nvidia-CUDA and AMD-Stream. 
 
-The commandline-client _pyrit_ and the basic CPU-cores are required for everyone. The extension modules for CUDA and Stream may be installed optionally and are used if available and supported by local hardware. 
+The commandline-client _pyrit_ and the basic CPU-cores are required for everyone. The extension modules for CUDA and Stream may be installed optionally and are used if available and supported by local hardware.
 
-  * Get yourself a copy of the latest code. You can checkout the latest subversion-tree from [http://code.google.com/p/pyrit/source/checkout]. After checkout of _trunk_, you should have directories named "pyrit", "cpyrit_stream" and "cpyrit_cuda".
+
+== Fixed packages ==
+
+==== Compiling from source ====
+
+  * Pyrit (required): [http://pyrit.googlecode.com/svn/tags/0.2.1/Pyrit-0.2.1.tar.gz Version 0.2.1]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.1/CPyrit-CUDA-0.2.1.tar.gz Version 0.2.1]
+  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.1/CPyrit-Stream-0.2.1.tar.gz Version 0.2.1]
+
+==== Binary packages ====
+
+  * Pyrit (required): [http://pyrit.googlecode.com/svn/tags/0.2.1/Pyrit-0.2.1-1.i386.rpm Version 0.2.1]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://code.google.com/p/pyrit/source/browse/tags/0.2.1/CPyrit-CUDA-0.2.1-1.i386.rpm Version 0.2.1]
+  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.1/CPyrit-Stream-0.2.1-1.i386.rpm Version 0.2.1]
+
+---- 
+
+== Compiling from trunk ==
+
+
+==== Main module ====
+
+  * Checkout the latest subversion-tree from [http://code.google.com/p/pyrit/source/checkout trunk].
   * You need the development files for Python and OpenSSL. On binary Linux distributions you probably have to install "Python-dev", "openssl-devel", "libssl-dev" or similar named packages.
   * Head for the "pyrit" directory and use "setup.py build" to compile the CPU-cores. Execute "setup.py install" as root to install the _pyrit_ script and the extension module.
   * Pyrit is now installed and may be used from the commandline. Execute "pyrit help" for more information.
 
-
-=== Nvidia-CUDA ==
+==== Nvidia-CUDA ===
 
   * Get yourself a copy of the CUDA-compatible drivers and the Toolkit from [http://www.nvidia.com/object/cuda_get.html].
   * Make sure Nvidia's compiler _nvcc_ is available from $PATH.
@@ -23,8 +44,7 @@ The commandline-client _pyrit_ and the basic CPU-cores are required for everyone
   * Run "setup.py build" to compile the CUDA-core. Run "setup.py install" as root to add it to your _Pyrit_ installation.
   * The core is used automatically if local hardware supports it.
 
-
-=== AMD-Stream ===
+==== AMD-Stream ====
 
   * If you have a AMD/ATI card 4xxx and up, you can use _Pyrit_'s Stream-core for a similar effect as with CUDA.
   * Install the AMD-Stream SDK. _brcc_ should be available from $PATH.
@@ -32,6 +52,7 @@ The commandline-client _pyrit_ and the basic CPU-cores are required for everyone
   * Run "setup.py build" to compile the Stream-core. Run "setup.py install" as root.
 
 
+---- 
 
 = Using the tools =
 
