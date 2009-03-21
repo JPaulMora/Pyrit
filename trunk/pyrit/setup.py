@@ -29,8 +29,8 @@ if distutils.util.get_platform() == 'win32':
     INCLUDE_DIRS = ['C:\Python25\include', 'C:\OpenSSL\include']
     LIBRARIES = ['libeay32']
 else:
-    LIBRARY_DIRS = ['/usr/lib']
-    INCLUDE_DIRS = ['/usr/include/python2.5', '/usr/include']
+    LIBRARY_DIRS = []
+    INCLUDE_DIRS = []
     LIBRARIES = ['ssl']
 
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
@@ -42,7 +42,7 @@ cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
 
 setup_args = dict(
         name = 'Pyrit',
-        version = '0.2.1',
+        version = '0.2.2',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',

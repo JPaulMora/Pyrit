@@ -64,7 +64,7 @@ class Pyrit_CLI(object):
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
 
-        self.tell("Pyrit 0.2.1 (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
+        self.tell("Pyrit 0.2.2 (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
                 "\nThis code is distributed under the GNU General Public License v3\n")
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
             self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
@@ -488,11 +488,14 @@ class PyrFile(object):
         pwbuffer,pmkbuffer = zip(*self.results.iteritems())
         raw_digest = hashlib.md5()
         raw_digest.update(self.essid)
-        map(raw_digest.update, pmkbuffer)
-        map(raw_digest.update, pwbuffer)
+        for i in pmkbuffer:
+            raw_digest.update(i)
+        for i in pwbuffer:
+            raw_digest.update(i)
         headfmt = "<4sH%ssi%ss" % (len(self.essid),raw_digest.digest_size)
         self.f.write(struct.pack(headfmt, "PYRT", len(self.essid), self.essid, len(pmkbuffer), raw_digest.digest()))
-        map(self.f.write, pmkbuffer)
+        for i in pmkbuffer:
+            self.f.write(i)
         self.f.write(zlib.compress("\00".join(pwbuffer)))
         self.f.flush()
 
