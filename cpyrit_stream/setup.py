@@ -18,7 +18,6 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
@@ -26,24 +25,19 @@ import sys, subprocess, re, os
 
 # Options to use for all modules
 EXTRA_COMPILE_ARGS = ['-O2']
-LIBRARY_DIRS = ['/usr/lib']
-INCLUDE_DIRS = ['/usr/include/python2.5', '/usr/include']
+LIBRARY_DIRS = []
+INCLUDE_DIRS = []
 
 # Try to find the Brook+ library and headers
 STREAM_LIB_DIRS = []
 STREAM_INC_DIRS = []
 BRCC = 'brcc'
-for path in ('/usr/local','/opt'):
-    try:
-        d = os.listdir(path)
-    except:
-        pass
-    else:
-        if 'atibrook' in d:
-            STREAM_LIB_DIRS.append(os.path.sep.join((path, 'atibrook', 'sdk', 'lib')))
-            STREAM_INC_DIRS.append(os.path.sep.join((path, 'atibrook', 'sdk', 'include')))
-            BRCC = os.path.sep.join((path, 'atibrook', 'sdk', 'bin', 'brcc'))
-            break
+for path in ('/usr/local/atibrook/sdk','/opt/atibrook/sdk'):
+    if os.path.exists(path):
+        STREAM_LIB_DIRS.append(os.path.sep.join((path, 'lib')))
+        STREAM_INC_DIRS.append(os.path.sep.join((path, 'include')))
+        BRCC = os.path.sep.join((path, 'bin', 'brcc'))
+        break
 else:
     print >>sys.stderr, "The AMD-Stream compiler, headers and libraries required to build the kernel were not found. Trying to continue anyway..."
 
@@ -62,11 +56,8 @@ class GPUBuilder(build_ext):
     def _makedirs(self, pathname):
         try:
             os.makedirs(pathname)
-        except OSError, (errno, sterrno):
-            if errno == 17:
-                pass
-            else:
-                raise
+        except OSError:
+            pass
 
     def run(self):
         # Prepare AMD-Stream kernel code within _brook_tmp directory.
@@ -97,11 +88,8 @@ class GPUCleaner(clean):
                 os.rmdir(node)
             else:
                 os.unlink(node)
-        except OSError, (errno, sterrno):
-            if errno == 2:
-                pass
-            else:
-                raise
+        except OSError:
+            pass
     
     def run(self):
         print "Removing temporary files and pre-built GPU-kernels..."
@@ -116,15 +104,15 @@ class GPUCleaner(clean):
 
 # ... _brook_tmp/_stream.cpp is put in place by GPUBuilder
 stream_extension = Extension('_cpyrit._cpyrit_stream',
-                    libraries = ['ssl', 'brook'],
+                    libraries = ['ssl', 'dl', 'brook'],
                     sources = ['cpyrit_stream.cpp', '_brook_tmp/_stream.cpp'],
-                    extra_compile_args = EXTRA_COMPILE_ARGS + ["-w"],
+                    extra_compile_args = EXTRA_COMPILE_ARGS,
                     include_dirs = INCLUDE_DIRS + STREAM_INC_DIRS + ['_brook_tmp'],
                     library_dirs = LIBRARY_DIRS + STREAM_LIB_DIRS)
 
 setup_args = dict(
         name = 'CPyrit-Stream',
-        version = '0.2.1',
+        version = '0.2.2',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
@@ -132,7 +120,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [stream_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit,libaticalcl.so'}}
+        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.2-1, libaticalcl.so'}}
         )
         
 if __name__ == "__main__":

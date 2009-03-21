@@ -19,7 +19,7 @@
 */
 
 #include <stdint.h>
-#include <cuda/cuda.h>
+#include <cuda.h>
 
 #ifndef CPYRIT_CUDA
 #define CPYRIT_CUDA

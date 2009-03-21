@@ -4,4 +4,4 @@ setup.py
 _brook_tmp/_stream.cpp
 _brook_tmp/_stream.h
 _brook_tmp/_stream_gpu.h
-
+MANIFEST

@@ -290,7 +290,7 @@ PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
 
 static PyMethodDef CUDADevice_methods[] =
 {
-    {"calc_pmklist", (PyObject*)cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
+    {"calc_pmklist", (PyCFunction)cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
     {NULL, NULL}
 };
 
