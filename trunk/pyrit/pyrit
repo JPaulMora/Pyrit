@@ -18,7 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-import time, zlib, getopt, hashlib, os, re, struct, random, sys, threading, struct, sqlite3
+import getopt, hashlib, itertools, os, random, re, struct, sys, sqlite3, struct, threading, time, zlib
 
 class Pyrit_CLI(object):
     class options(object):
@@ -172,19 +172,17 @@ class Pyrit_CLI(object):
             return
         if self.options.file == "-":
             for pwfile in self.passwdstore:
-                for row in pwfile:
-                    sys.stdout.write(row)
-                    sys.stdout.write("\n")
+                sys.stdout.write("\n".join(pwfile))
+                sys.stdout.write("\n")
             sys.stdout.flush()
         else:
             f = open(self.options.file,"wb")
             self.tell("Exporting to '%s'..." % self.options.file)
-            max_idx = 0
             lines = 0
             for pwfile in self.passwdstore:
-                for row in pwfile:
-                    f.write(row+"\n")
-                    lines += 1
+                f.write("\n".join(pwfile))
+                f.write("\n")
+                lines += len(pwfile)
                 self.tell("%i lines written\r" % lines, end=None)
             f.close()
             self.tell("\nAll done")
@@ -192,14 +190,10 @@ class Pyrit_CLI(object):
     def _genCowpHeader(self, essid):
         return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
     
-    def _genCowpEntry(self, passwd, pmk):
-        return chr(len(passwd) + 32 + 1) + passwd + pmk
-    
     def _genCowpatty(self, essid_obj):
-        yield self._genCowpHeader(essid_obj.essid)
+        yield (0, self._genCowpHeader(essid_obj.essid))
         for key, result in essid_obj:
-            for passwd, pmk in result.items():
-                yield self._genCowpEntry(passwd, pmk)
+            yield (len(result), "".join(map("".join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in result.iteritems()])))
     
     def export_cowpatty(self):
         if self.options.file is None:
@@ -210,8 +204,8 @@ class Pyrit_CLI(object):
             return
         if self.options.file == "-":
             try:
-                for row in self._genCowpatty(self.essidstore[self.options.essid]):
-                    sys.stdout.write(row)
+                for l, buf in self._genCowpatty(self.essidstore[self.options.essid]):
+                    sys.stdout.write(buf)
                 sys.stdout.flush()
             except IOError:
                 self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
@@ -219,11 +213,10 @@ class Pyrit_CLI(object):
             f = open(self.options.file, "wb")
             self.tell("Exporting to '%s'..." % self.options.file)
             lines = 0
-            for row in self._genCowpatty(self.essidstore[self.options.essid]):
-                f.write(row)
-                lines += 1
-                if lines % 10000 == 0:
-                    self.tell("\r%i entries written..." % lines, end=None, flush=True)
+            for l, buf in self._genCowpatty(self.essidstore[self.options.essid]):
+                f.write(buf)
+                lines += l
+                self.tell("\r%i entries written..." % lines, end=None, flush=True)
             self.tell("\r%i entries written. All done." % lines)
             f.close()
 
@@ -250,19 +243,17 @@ class Pyrit_CLI(object):
                     pw = l.strip()[:63]
                     if len(pw) >= 8:
                         pwbuffer.add(pw)
-                if len(pwbuffer) > 10000 or (not l and len(pwbuffer) > 0):
+                if len(pwbuffer) > 20000 or (not l and len(pwbuffer) > 0):
                     workunits.append(list(pwbuffer))
                     cp.enqueue(self.options.essid, workunits[-1], 10)
                     pwbuffer = set()
                 r = dequeue(block=False)
                 if r is not None:
-                    for pw, pmk in zip(workunits.pop(0), r):
-                        sys.stdout.write(self._genCowpEntry(pw, pmk))
+                    sys.stdout.write("".join(map("".join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in itertools.izip(workunits.pop(0), r)])))
                 if not l:
                     break
             for r in cp:
-                for pw, pmk in zip(workunits.pop(0), r):
-                    sys.stdout.write(self._genCowpEntry(pw, pmk))
+                sys.stdout.write("".join(map("".join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in itertools.izip(workunits.pop(0), r)])))
         except IOError:
             self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
         finally:
@@ -334,8 +325,7 @@ class Pyrit_CLI(object):
         def _writeCowpatty(resFile):
             if self.options.file == '-':
                 try:
-                    for passwd, pmk in resFile.results.items():
-                        sys.stdout.write(self._genCowpEntry(passwd, pmk))
+                    sys.stdout.write("".join(map("".join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in resFile.results.iteritems()])))
                 except IOError:
                     self.tell("IOError while writing to stdout. Batchprocessing continues silently...", stream=sys.stderr)
                     self.options.file = ''                        
@@ -375,7 +365,7 @@ class Pyrit_CLI(object):
                     newResults = cp.dequeue(block=False)
                     if newResults is not None:
                         newResFile, solvedPasswds = workunits.pop(0)
-                        newResFile.results.update(zip(solvedPasswds, newResults))
+                        newResFile.results.update(itertools.izip(solvedPasswds, newResults))
                         newResFile.savefile()
                         _writeCowpatty(newResFile)
                         totalResCount += len(newResults)
@@ -385,7 +375,7 @@ class Pyrit_CLI(object):
             self.tell("Stopped reading workunits...")
             for newResults in cp:
                 newResFile, solvedPasswds = workunits.pop(0)
-                newResFile.results.update(zip(solvedPasswds, newResults))
+                newResFile.results.update(itertools.izip(solvedPasswds, newResults))
                 newResFile.savefile()
                 _writeCowpatty(newResFile)
                 totalResCount += len(newResults)
@@ -452,22 +442,16 @@ class PyrFile(object):
                 essid, inplength, digest = struct.unpack(nextheadfmt, f.read(struct.calcsize(nextheadfmt)))
                 assert essid == self.essid
                 infile_digest.update(essid)
-
                 pmkbuffer = f.read(inplength * 32)
                 assert len(pmkbuffer) == inplength * 32
                 pmkbuffer = [pmkbuffer[i*32:i*32+32] for i in xrange(inplength)]
                 inp = zlib.decompress(f.read()).split('\00')
-                
-                for i in pmkbuffer:
-                    infile_digest.update(i)
-                for i in inp:
-                    infile_digest.update(i)
+                infile_digest.update("".join(pmkbuffer))
+                infile_digest.update("".join(inp))
                 if infile_digest.digest() != digest:
                     raise Exception, "Digest check failed on PyrFile '%s'." % self
-
-                results = dict(zip(inp, pmkbuffer))
                 self.essid = essid
-                self.results = results
+                self.results = dict(itertools.izip(inp, pmkbuffer))
                 self.f = f
         except:
             print >>sys.stderr, "Exception while opening PyrFile '%s', file not loaded." % infile
@@ -485,18 +469,17 @@ class PyrFile(object):
         if self.essid is None or len(self.essid) == 0:
             raise Exception, "ESSID not set."
         self.f.truncate(0)
-        pwbuffer,pmkbuffer = zip(*self.results.iteritems())
-        raw_digest = hashlib.md5()
-        raw_digest.update(self.essid)
-        for i in pmkbuffer:
-            raw_digest.update(i)
-        for i in pwbuffer:
-            raw_digest.update(i)
-        headfmt = "<4sH%ssi%ss" % (len(self.essid),raw_digest.digest_size)
-        self.f.write(struct.pack(headfmt, "PYRT", len(self.essid), self.essid, len(pmkbuffer), raw_digest.digest()))
-        for i in pmkbuffer:
-            self.f.write(i)
-        self.f.write(zlib.compress("\00".join(pwbuffer)))
+        items = self.results.items()
+        pws = [pw for pw, pmk in items]
+        pmkbuffer = "".join([pmk for pw, pmk in items])
+        md = hashlib.md5()
+        md.update(self.essid)
+        md.update(pmkbuffer)
+        md.update("".join(pws))
+        headfmt = "<4sH%ssi%ss" % (len(self.essid), md.digest_size)
+        self.f.write(struct.pack(headfmt, "PYRT", len(self.essid), self.essid, len(pws), md.digest()))
+        self.f.write(pmkbuffer)
+        self.f.write(zlib.compress("\00".join(pws), 1))
         self.f.flush()
 
 
@@ -600,8 +583,7 @@ class PasswordFile(object):
             md = hashlib.md5()
             digest = self.f.read(md.digest_size)
             inp = sorted(self.f.read().split("\00"))
-            for pw in inp:
-                md.update(pw)
+            md.update("".join(inp))
             if digest == md.digest():
                 if filename[-3-len(md.hexdigest()):-3] != md.hexdigest():
                     raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
@@ -614,8 +596,7 @@ class PasswordFile(object):
         return self.f.__repr__()
 
     def __iter__(self):
-        for pw in self.bucket:
-            yield pw
+        return self.bucket.__iter__()
             
     def __len__(self):
         return len(self.bucket)
@@ -623,7 +604,7 @@ class PasswordFile(object):
     def savefile(self):
         md = hashlib.md5()
         b = sorted(list(self.bucket))
-        map(md.update, b)
+        md.update("".join(b))
         self.f.truncate(0)
         self.f.write("PAWD")
         self.f.write(md.digest())
@@ -669,8 +650,7 @@ class PasswordStore(object):
         if len(bucket) == 0:
             return
         md = hashlib.md5()
-        for pw in sorted(list(bucket)):
-            md.update(pw)
+        md.update("".join(sorted(list(bucket))))
         destpath = os.path.join(self.passwdpath, pw_h1)
         self._makedir(destpath)
         f = PasswordFile(os.path.join(destpath, md.hexdigest() + ".pw"))

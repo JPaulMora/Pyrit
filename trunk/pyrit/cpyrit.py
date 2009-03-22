@@ -90,7 +90,7 @@ class CPUCore(Core):
         self.start()
 
     def solve(self, essid, passwordlist):
-        return _cpyrit_cpu.calc_pmklist(essid, passwordlist) 
+        return _cpyrit_cpu.calc_pmklist(essid, passwordlist)
 
 _avail_cores.append(('CPU', CPUCore, "CPU-Core (%s)" % _cpyrit_cpu.getPlatform(), {}))
 
