@@ -247,7 +247,7 @@ class Pyrit_CLI(object):
                     workunits.append(list(pwbuffer))
                     cp.enqueue(self.options.essid, workunits[-1], 10)
                     pwbuffer = set()
-                r = dequeue(block=False)
+                r = cp.dequeue(block=False)
                 if r is not None:
                     sys.stdout.write("".join(map("".join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in itertools.izip(workunits.pop(0), r)])))
                 if not l:
