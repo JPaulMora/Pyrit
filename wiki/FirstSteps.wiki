@@ -14,15 +14,15 @@ The commandline-client _pyrit_ and the basic CPU-cores are required for everyone
 
 ==== Compiling from source ====
 
-  * Pyrit (required): [http://pyrit.googlecode.com/svn/tags/0.2.1/Pyrit-0.2.1.tar.gz Version 0.2.1]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.1/CPyrit-CUDA-0.2.1.tar.gz Version 0.2.1]
-  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.1/CPyrit-Stream-0.2.1.tar.gz Version 0.2.1]
+  * Pyrit (required): [http://pyrit.googlecode.com/svn/tags/0.2.2/Pyrit-0.2.2.tar.gz Version 0.2.2]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-CUDA-0.2.2.tar.gz Version 0.2.2]
+  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-Stream-0.2.2.tar.gz Version 0.2.2]
 
 ==== Binary packages ====
 
-  * Pyrit (required): [http://pyrit.googlecode.com/svn/tags/0.2.1/Pyrit-0.2.1-1.i386.rpm Version 0.2.1]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://code.google.com/p/pyrit/source/browse/tags/0.2.1/CPyrit-CUDA-0.2.1-1.i386.rpm Version 0.2.1]
-  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/svn/tags/0.2.1/CPyrit-Stream-0.2.1-1.i386.rpm Version 0.2.1]
+  * Pyrit (required): Version 0.2.2, [http://pyrit.googlecode.com/svn/tags/0.2.2/Pyrit-0.2.1-1.i386.rpm i386], [http://pyrit.googlecode.com/svn/tags/0.2.2/Pyrit-0.2.1-1.x86_64.rpm x86_64]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): Version 0.2.2, [http://code.google.com/p/pyrit/source/browse/tags/0.2.2/CPyrit-CUDA-0.2.2-1.i386.rpm i386], [http://code.google.com/p/pyrit/source/browse/tags/0.2.2/CPyrit-CUDA-0.2.2-1.x86_64.rpm x86_64]
+  * CPyrit-Stream (optional, for ATI-hardware): Version 0.2.2, [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-Stream-0.2.2-1.i386.rpm, i386], [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-Stream-0.2.2-1.x86_64.rpm, x86_64]
 
 ---- 
 
