@@ -22,7 +22,7 @@ The commandline-client _pyrit_ and the basic CPU-cores are required for everyone
 
   * Pyrit (required): Version 0.2.2, [http://pyrit.googlecode.com/svn/tags/0.2.2/Pyrit-0.2.2-1.i386.rpm i386], [http://pyrit.googlecode.com/svn/tags/0.2.2/Pyrit-0.2.2-1.x86_64.rpm x86_64]
   * CPyrit-CUDA (optional, for Nvidia-hardware): Version 0.2.2, [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-CUDA-0.2.2-1.i386.rpm i386], [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-CUDA-0.2.2-1.x86_64.rpm x86_64]
-  * CPyrit-Stream (optional, for ATI-hardware): Version 0.2.2, [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-Stream-0.2.2-1.i386.rpm, i386], [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-Stream-0.2.2-1.x86_64.rpm, x86_64]
+  * CPyrit-Stream (optional, for ATI-hardware): Version 0.2.2, [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-Stream-0.2.2-1.i386.rpm i386], [http://pyrit.googlecode.com/svn/tags/0.2.2/CPyrit-Stream-0.2.2-1.x86_64.rpm x86_64]
 
 ---- 
 
