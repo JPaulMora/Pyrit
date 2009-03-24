@@ -47,17 +47,12 @@ class Pyrit_CLI(object):
     def init(self):
         options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:")
         for option, value in dict(options).items():
-            if option == '-u':
-                self.options.essidstore_path = value
-            elif option == '-v':
-                self.options.passwdstore_path = value
-            elif option == '-e':
+            if option == '-e':
                 self.options.essid = value
             elif option == '-f':
                 self.options.file = value
             else:
                 self.tell("Option '%s' not known. Ignoring..." % option)
-        
         if self.options.file == "-" or 'passthrough' in commands:
             self.options.verbose = False
 
@@ -89,8 +84,6 @@ class Pyrit_CLI(object):
             "\n\nRecognized options:" \
             "\n  -e    : ESSID for the command" \
             "\n  -f    : filename for the command ('-' is stdin/stdout)" \
-            "\n  -u    : path to the ESSID-blobspace" \
-            "\n  -v    : path to the Password-blobspace" \
             "\n\nRecognized commands:" \
             "\n  batch            : Batchprocess" \
             "\n  benchmark        : Determine performance of cores" \
@@ -158,7 +151,7 @@ class Pyrit_CLI(object):
         pwcount = 0
         for pwfile in self.passwdstore:
             pwcount += len(pwfile)
-            self.tell("Passwords:\t%i available\r" % pwcount, end=None)
+            self.tell("Passwords:\t%i available\r" % pwcount, end=None, sep=None)
             pws = set(pwfile)
             for essid_obj in essid_objects:
                 try:
@@ -187,7 +180,7 @@ class Pyrit_CLI(object):
                 f.write("\n".join(pwfile))
                 f.write("\n")
                 lines += len(pwfile)
-                self.tell("%i lines written\r" % lines, end=None)
+                self.tell("%i lines written\r" % lines, end=None, sep=None)
             f.close()
             self.tell("\nAll done")
     
@@ -223,7 +216,7 @@ class Pyrit_CLI(object):
             for l, buf in self._genCowpatty(self.essidstore[self.options.essid]):
                 f.write(buf)
                 lines += l
-                self.tell("\r%i entries written..." % lines, end=None, flush=True)
+                self.tell("\r%i entries written..." % lines, end=None, sep=None)
             self.tell("\r%i entries written. All done." % lines)
             f.close()
 
@@ -377,7 +370,7 @@ class Pyrit_CLI(object):
                         _writeCowpatty(newResFile)
                         totalResCount += len(newResults)
                     tdiff = time.time() - startTime
-                    self.tell("Computed %i PMKs in %.2f seconds; %.1f PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None)
+                    self.tell("Computed %i PMKs in %.2f seconds; %.1f PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
                 self.tell("")
             self.tell("Stopped reading workunits...")
             for newResults in cp:
