@@ -18,7 +18,65 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-import getopt, hashlib, itertools, os, random, re, struct, sys, sqlite3, struct, threading, time, zlib
+import getopt, hashlib, itertools, os, random, re, struct, sys, sqlite3, StringIO, threading, time, zlib
+
+class AsyncFileWriter(threading.Thread):
+    def __init__(self, filehndl, maxsize=10*1024**2):
+        threading.Thread.__init__(self)
+        self.running = True
+        self.filehndl = filehndl
+        self.maxsize = maxsize
+        self.excp = None
+        self.buf = StringIO.StringIO()
+        self.cv = threading.Condition()
+        self.start()
+        
+    def close(self):
+        self.cv.acquire()
+        self.running = False
+        while self.running:
+            self.wait(0.5)
+        self.cv.release()
+        if self.excp:
+            raise self.excp
+
+    def write(self, buf):
+        if not self.running:
+            if self.excp:
+                raise self.excp
+            else:
+                raise Exception, "Writer has already been closed."
+        self.cv.acquire()
+        while self.running and self.buf.len > self.maxsize:
+            self.cv.wait(0.5)
+        self.buf.write(buf)
+        self.cv.notifyAll()
+        self.cv.release()
+
+    def _write(self, buf):
+        try:
+            if len(buf) > 0:
+                self.filehndl.write(buf)
+        except Exception, e:
+            self.running = False
+            self.excp = e
+
+    def run(self):
+        while self.running:
+            self.cv.acquire()
+            while self.running and self.buf.len == 0:
+                self.cv.wait(0.5)
+            buf = self.buf.getvalue()
+            self.buf = StringIO.StringIO()
+            self.cv.notifyAll()
+            self.cv.release()
+            self._write(buf)
+        self.cv.acquire()
+        buf = self.buf.getvalue()
+        self.cv.release()
+        self._write(buf)
+        self.filehndl.flush()
+
 
 class Pyrit_CLI(object):
     class options(object):
@@ -59,7 +117,7 @@ class Pyrit_CLI(object):
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
 
-        self.tell("Pyrit 0.2.2 (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
+        self.tell("Pyrit 0.2.3 (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
                 "\nThis code is distributed under the GNU General Public License v3\n")
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
             self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
@@ -112,7 +170,7 @@ class Pyrit_CLI(object):
         cp = cpyrit.CPyrit()
         self.tell("The following cores seem available...")
         for i, corename in enumerate(cp.availableCores()):
-            self.tell("#%i:  '%s'" % (i, corename))
+            self.tell("#%i:  '%s'" % (i+1, corename))
 
     def list_essids(self):
         self.tell("Listing ESSIDs...")
@@ -130,24 +188,21 @@ class Pyrit_CLI(object):
             else:
                 self.tell("'%s'" % self.options.file)
                 f = open(self.options.file, "r")
-            i = 0
-            for line in f:
+            for i, line in enumerate(f):
                 self.passwdstore.store_password(line)
-                i += 1
-                if i % 10000 == 0:
+                if i % 100000 == 0:
                     self.tell("\r%i lines read." % i, end=None, flush=True)
+            f.close()
+            self.tell("\r%i lines read. Flushing buffers..." % i)
             self.passwdstore.flush_buffer()
-            self.tell("\r%i lines read. All done." % i)
-            if f != sys.stdin:
-                f.close()
+            self.tell("All done.")
 
     def eval_results(self):
         if self.options.essid is None:
-            essids = self.essidstore
+            essid_objects = [self.essidstore[essid] for essid in self.essidstore]
         else:
-            essids = [self.options.essid]
+            essid_objects = [self.essidstore[self.options.essid]]
         essid_results = {}
-        essid_objects = [self.essidstore[essid] for essid in essids]
         pwcount = 0
         for pwfile in self.passwdstore:
             pwcount += len(pwfile)
@@ -203,10 +258,11 @@ class Pyrit_CLI(object):
             self.tell("The cowpatty-format only supports one ESSID per file. Please specify one using the -e option.", stream=sys.stderr)
             return
         if self.options.file == "-":
+            awriter = AsyncFileWriter(sys.stdout)
             try:
                 for l, buf in self._genCowpatty(self.essidstore[self.options.essid]):
-                    sys.stdout.write(buf)
-                sys.stdout.flush()
+                    awriter.write(buf)
+                awriter.close()
             except IOError:
                 self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
         else:
@@ -420,66 +476,51 @@ class Pyrit_CLI(object):
 
 
 class PyrFile(object):
-    def __init__(self, essid, infile):
+    def __init__(self, essid, filename):
         self.results = {}
         self.essid = essid
-        self.f = None
-        self.key = None
-        f = open(infile, "a+b")
-        self.key = infile.split(os.path.sep)[-1][:-4]
-        f.seek(0)
-        try:
-            preheadfmt = "<4sH"
-            prehead = f.read(struct.calcsize(preheadfmt))
-            if len(prehead) == 0:
-                self.f = f
-            else:
-                magic, essidlen = struct.unpack(preheadfmt, prehead)
-                assert magic == "PYRT"
-                infile_digest = hashlib.md5()
-                nextheadfmt = "<%ssi%ss" % (essidlen,infile_digest.digest_size)
-                essid, inplength, digest = struct.unpack(nextheadfmt, f.read(struct.calcsize(nextheadfmt)))
-                assert essid == self.essid
-                infile_digest.update(essid)
-                pmkbuffer = f.read(inplength * 32)
-                assert len(pmkbuffer) == inplength * 32
-                infile_digest.update(pmkbuffer)
-                pmkbuffer = [pmkbuffer[i*32:i*32+32] for i in xrange(inplength)]
-                inp = zlib.decompress(f.read()).split('\00')
-                infile_digest.update("".join(inp))
-                if infile_digest.digest() != digest:
-                    raise Exception, "Digest check failed on PyrFile '%s'." % self
-                self.essid = essid
-                self.results = dict(itertools.izip(inp, pmkbuffer))
-                self.f = f
-        except:
-            print >>sys.stderr, "Exception while opening PyrFile '%s', file not loaded." % infile
+        self.filename = filename
+        self.key = None 
+        if os.path.exists(filename):
+            self.key = filename.split(os.path.sep)[-1][:-4]
+            f = open(filename, "rb")
+            buf = f.read()
             f.close()
-            raise
-
-    def close(self):
-        if self.f is not None:
-            self.f.close()
-            self.f = None
+            if len(buf) > 0:
+                md = hashlib.md5()
+                preheadfmt = "<4sH"
+                preheadsize = struct.calcsize(preheadfmt)
+                magic, essidlen = struct.unpack(preheadfmt, buf[:preheadsize])
+                assert magic == "PYR2"
+                headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
+                headsize = struct.calcsize(headfmt)
+                essid, numElems, digest = struct.unpack(headfmt, buf[preheadsize:preheadsize+headsize])
+                assert essid == self.essid
+                pmkoffset = preheadsize + headsize
+                pwoffset = pmkoffset + numElems * 32
+                md.update(essid)
+                md.update(buf[pmkoffset:])
+                if md.digest() != digest:
+                    raise Exception, "Digest check failed on PyrFile '%s'." % filename
+                self.results = dict(itertools.izip(
+                                    zlib.decompress(buf[pwoffset:]).split("\n"),
+                                    [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]
+                                    ))
+                assert len(self.results) == numElems
 
     def savefile(self):
-        if self.f is None:
-            raise Exception, "No file opened."
-        if self.essid is None or len(self.essid) == 0:
-            raise Exception, "ESSID not set."
-        self.f.truncate(0)
-        items = self.results.items()
-        pws = [pw for pw, pmk in items]
-        pmkbuffer = "".join([pmk for pw, pmk in items])
+        pws, pmks = itertools.izip(*self.results.items())
+        pmkbuffer = "".join(pmks)
+        pwbuffer = zlib.compress("\n".join(pws), 1)
         md = hashlib.md5()
         md.update(self.essid)
         md.update(pmkbuffer)
-        md.update("".join(pws))
-        headfmt = "<4sH%ssi%ss" % (len(self.essid), md.digest_size)
-        self.f.write(struct.pack(headfmt, "PYRT", len(self.essid), self.essid, len(pws), md.digest()))
-        self.f.write(pmkbuffer)
-        self.f.write(zlib.compress("\00".join(pws), 1))
-        self.f.flush()
+        md.update(pwbuffer)
+        f = open(self.filename, "wb")
+        f.write(struct.pack("<4sH%ssi%ss" % (len(self.essid), md.digest_size), "PYR2", len(self.essid), self.essid, len(pws), md.digest()))
+        f.write(pmkbuffer)
+        f.write(pwbuffer)
+        f.close()
 
 
 class ESSID(object):
@@ -575,27 +616,28 @@ class EssidStore(object):
 
 
 class PasswordFile(object):
-    def __init__(self, filename):
+    def __init__(self, filepath, filename=None):
         self.bucket = set()
-        self.f = open(filename, "a+b")
-        self.f.seek(0)
-        buf = self.f.read()
-        if len(buf) > 0:
-            if buf[:4] != "PAWD":
-                raise Exception, "Not a PasswordFile."
-            md = hashlib.md5()
-            inp = sorted(buf[4+md.digest_size:].split("\00"))
-            md.update("".join(inp))
-            if buf[4:4+md.digest_size] == md.digest():
-                if filename[-3-len(md.hexdigest()):-3] != md.hexdigest():
-                    raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
-                self.bucket = frozenset(inp)
+        self.filepath = filepath
+        self.key = None
+        if filename:
+            f = open(os.path.join(filepath, filename), "rb")
+            buf = f.read()
+            f.close()
+            if len(buf) > 0:
+                if buf[:4] != "PAW2":
+                    raise Exception, "'%s' is not a PasswordFile." % filename
+                md = hashlib.md5()
+                md.update(buf[4+md.digest_size:])
+                if md.digest() != buf[4:4+md.digest_size]:
+                    raise Exception, "Digest check failed for %s" % filename
                 self.key = md.hexdigest()
-            else:
-                raise Exception, "Digest check failed for %s" % filename
-            
+                if filename[-3-len(self.key):-3] != self.key:
+                    raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
+                self.bucket = frozenset(zlib.decompress(buf[4+md.digest_size:]).split("\n"))
+
     def __repr__(self):
-        return self.f.__repr__()
+        return "Passwordfile '%s' in '%s'" % (self.key, self.filepath)
 
     def __iter__(self):
         return self.bucket.__iter__()
@@ -605,16 +647,21 @@ class PasswordFile(object):
 
     def savefile(self):
         md = hashlib.md5()
-        b = sorted(list(self.bucket))
-        md.update("".join(b))
-        self.f.truncate(0)
-        self.f.write("PAWD")
-        self.f.write(md.digest())
-        self.f.write("\00".join(b))
-        self.f.flush()
+        b = zlib.compress("\n".join(sorted(self.bucket)), 1)
+        md.update(b)
+        if self.key and self.key != md.hexdigest():
+            raise Exception, "PasswordFile unstable."
+        if not os.path.exists(self.filepath):
+            os.makedirs(self.filepath)
+        f = open(os.path.join(self.filepath, md.hexdigest() + ".pw"), "wb")
+        f.write("PAW2")
+        f.write(md.digest())
+        f.write(b)
+        f.close()
 
 
 class PasswordStore(object):
+    h1_list = ["%02.2X" % i for i in xrange(256)]
     def __init__(self, basepath):
         self.passwdpath = basepath
         self._makedir(self.passwdpath)
@@ -627,41 +674,34 @@ class PasswordStore(object):
             if errno == 17:
                 pass
 
-    def _getfiles(self):
+    def _getfiles(self, filt=None):
         pwfiles = {}
-        for pw_h1 in [x for x in os.listdir(self.passwdpath)]:
+        for pw_h1 in [x for x in os.listdir(self.passwdpath) if x == filt or filt is None]:
             for pw in [x for x in os.listdir(os.path.join(self.passwdpath, pw_h1)) if x[-3:] == '.pw']:
-                pwfiles[pw[:len(pw)-3]] = os.path.join(self.passwdpath, pw_h1, pw)
+                pwfiles[pw[:len(pw)-3]] = (os.path.join(self.passwdpath, pw_h1), pw)
         return pwfiles
 
     def __iter__(self):
-        for pwf in self._getfiles().values():
-            yield PasswordFile(pwf)
+        for pwpath, pwfile in self._getfiles().values():
+            yield PasswordFile(pwpath, pwfile)
 
     def __getitem__(self, key):
-        return PasswordFile(self._getfiles()[key])
+        return PasswordFile(*self._getfiles()[key])
 
-    def _flush_bucket(self, pw_h1, pwlist):
-        if len(pwlist) == 0:
-            return
-        assert all(["%02.2X" % (hash(pw) & 0xFF) == pw_h1 for pw in pwlist])
-        bucket = set(pwlist)
-        for pwfile in self._getfiles().values():
-            if pwfile.split(os.path.sep)[-2] == pw_h1:
-                bucket -= PasswordFile(pwfile).bucket
+    def _flush_bucket(self, pw_h1, bucket):
         if len(bucket) == 0:
             return
-        md = hashlib.md5()
-        md.update("".join(sorted(bucket)))
-        destpath = os.path.join(self.passwdpath, pw_h1)
-        self._makedir(destpath)
-        f = PasswordFile(os.path.join(destpath, md.hexdigest() + ".pw"))
+        for pwpath, pwfile in self._getfiles(pw_h1).values():
+            bucket -= PasswordFile(pwpath, pwfile).bucket
+        if len(bucket) == 0:
+            return
+        f = PasswordFile(filepath = os.path.join(self.passwdpath, pw_h1))
         f.bucket = bucket
         f.savefile()
 
     def flush_buffer(self):
         for pw_h1, pwlist in [(pw_h1, list(pwbucket)) for pw_h1, pwbucket in self.pwbuffer.iteritems() if len(pwbucket) > 0]:
-            for pwslice in (pwlist[x:x+20000] for x in xrange(0, len(pwlist), 20000)):
+            for pwslice in (set(pwlist[x:x+20000]) for x in xrange(0, len(pwlist), 20000)):
                 self._flush_bucket(pw_h1, pwslice)
             self.pwbuffer[pw_h1] = set()
 
@@ -669,7 +709,7 @@ class PasswordStore(object):
         passwd = passwd.strip()
         if len(passwd) < 8 or len(passwd) > 63:
             return
-        pw_h1 = "%02.2X" % (hash(passwd) & 0xFF)
+        pw_h1 = PasswordStore.h1_list[hash(passwd) & 0xFF]
         pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
         pw_bucket.add(passwd)
         if len(pw_bucket) >= 20000:
@@ -678,6 +718,12 @@ class PasswordStore(object):
 
 
 if __name__ == "__main__":
+    try:
+        import psyco
+    except ImportError:
+        pass
+    else:
+        psyco.full()
     p = Pyrit_CLI()
     p.init()
 
