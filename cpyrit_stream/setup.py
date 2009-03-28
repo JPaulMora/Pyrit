@@ -112,7 +112,7 @@ stream_extension = Extension('_cpyrit._cpyrit_stream',
 
 setup_args = dict(
         name = 'CPyrit-Stream',
-        version = '0.2.2',
+        version = '0.2.3',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
