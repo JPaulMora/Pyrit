@@ -46,8 +46,9 @@ The commandline-client _pyrit_ and the basic CPU-cores are required for everyone
 
 ==== AMD-Stream ====
 
-  * If you have a AMD/ATI card 4xxx and up, you can use _Pyrit_'s Stream-core for a similar effect as with CUDA.
+  * If you have a AMD/ATI card 38xx and up, you can use _Pyrit_'s Stream-core for a similar effect as with CUDA.
   * Install the AMD-Stream SDK. _brcc_ should be available from $PATH.
+  * You probably need to apply a series of workarounds for common bugs in the Stream-SDK. See [http://pyrit.wordpress.com/2009/02/12/compiling-amd-stream-core-with-g-43/ here], [http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=521323 here] and [http://developer.amd.com/support/KnowledgeBase/Lists/KnowledgeBase/DispForm.aspx?ID=28 here].
   * Change to the directory "cpyrit_stream" and modify setup.py to your needs
   * Run "setup.py build" to compile the Stream-core. Run "setup.py install" as root.
 
