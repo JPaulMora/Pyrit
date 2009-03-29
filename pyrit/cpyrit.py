@@ -104,12 +104,10 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
+    print >>sys.stderr, "Failed to load CUDA-core (%s: %s)." % (e.message, _cpyrit_cuda.getLastError())
 else:
     class CUDACore(Core):
         def __init__(self, inqueue, callback, name, dev):
-            if dev not in range(len(_cpyrit_cuda.listDevices())):
-                raise IndexError, "Invalid device number."
             Core.__init__(self, inqueue, callback, name)
             self.CUDADev = _cpyrit_cuda.CUDADevice(dev)
             self.minBufferSize = 20480
@@ -143,7 +141,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
+    print >>sys.stderr, "Failed to load Stream-core ('%s')" % e
 else:
     class StreamCore(Core):
         def __init__(self, inqueue, callback, name, dev):
