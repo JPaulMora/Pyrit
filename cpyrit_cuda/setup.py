@@ -28,18 +28,16 @@ EXTRA_COMPILE_ARGS = ['-O2']
 LIBRARY_DIRS = []
 INCLUDE_DIRS = []
 
-# Try to find the CUDA headers (part of the Toolkit)
 NVIDIA_INC_DIRS = []
 NVCC = 'nvcc'
 for path in ('/usr/local/cuda','/opt/cuda'):
     if os.path.exists(path):
-        NVIDIA_INC_DIRS.append(os.path.sep.join((path, 'include')))
-        NVCC = os.path.sep.join((path, 'bin', 'nvcc'))
+        NVIDIA_INC_DIRS.append(os.path.join(path, 'include'))
+        NVCC = os.path.join(path, 'bin', 'nvcc')
         break
 else:
     print >>sys.stderr, "The CUDA compiler and headers required to build the kernel were not found. Trying to continue anyway..."
 
-# Custom build_ext phase to create the GPU code with special compilers before building the whole thing
 class GPUBuilder(build_ext):
     def _call(self, comm):
         p = subprocess.Popen(comm, stdout=subprocess.PIPE, shell=True)
@@ -57,7 +55,6 @@ class GPUBuilder(build_ext):
             pass
 
     def run(self):
-        # The code which includes the CUDA-kernel gets passed through nvcc...
         if '_cpyrit_cudakernel.cubin.h' in os.listdir('./'):
             print "Skipping rebuild of Nvidia CUDA kernel ..."
         else:
@@ -79,13 +76,10 @@ class GPUBuilder(build_ext):
             f.write(cubin_inc)
             f.write("};\n\n")
             f.close()
-
-        # Now build the rest
         print "Building modules..."
         build_ext.run(self)
 
 
-# Custom clean phase to remove nvcc cruft. Only remove files that we know!
 class GPUCleaner(clean):
     def _unlink(self, node):
         try:
@@ -103,7 +97,6 @@ class GPUCleaner(clean):
                 self._unlink(f)
         except Exception, (errno, sterrno):
             print >>sys.stderr, "Exception while cleaning temporary files ('%s')" % sterrno
-
         clean.run(self)
 
 
@@ -124,7 +117,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [cuda_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.2-1'}}
+        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.3-1'}}
         )
         
 if __name__ == "__main__":

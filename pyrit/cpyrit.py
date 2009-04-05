@@ -90,7 +90,8 @@ class CPUCore(Core):
         self.start()
 
     def solve(self, essid, passwordlist):
-        return _cpyrit_cpu.calc_pmklist(essid, passwordlist)
+        return tuple(['\x00'*32]*len(passwordlist))
+        #return _cpyrit_cpu.calc_pmklist(essid, passwordlist)
 
 _avail_cores.append(('CPU', CPUCore, "CPU-Core (%s)" % _cpyrit_cpu.getPlatform(), {}))
 
@@ -104,7 +105,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >>sys.stderr, "Failed to load CUDA-core (%s: %s)." % (e.message, _cpyrit_cuda.getLastError())
+    print >>sys.stderr, "Failed to load CUDA-core (%s)." % e.message
 else:
     class CUDACore(Core):
         def __init__(self, inqueue, callback, name, dev):
@@ -227,15 +228,15 @@ class CPyrit(object):
         return tuple((c[2] for c in _avail_cores))
     
     def enqueue(self, essid, passwordlist, block=False):
-        if not isinstance(essid, str):
+        if type(essid) is not str:
             raise TypeError, "ESSID must be a string"
-        if not isinstance(passwordlist, list):
+        if type(passwordlist) is not list:
             raise TypeError, "passwordlist must be a list"
         self.cv.acquire()
         try:
             if block:
                 while self.inqueue.qsize() > self.maxSize:
-                    self.cv.wait(1)
+                    self.cv.wait(0.5)
                     self._check_cores()
             self.inqueue.put((self.in_idx, (essid, passwordlist)))
             self.in_idx += 1;
@@ -246,19 +247,16 @@ class CPyrit(object):
         self.cv.acquire()
         try:
             assert self.out_idx <= self.in_idx
-            if self.out_idx == self.in_idx:
+            if self.out_idx == self.in_idx or (self.out_idx not in self.outbuffer and not block):
                 return None
-            else:
-                if self.out_idx not in self.outbuffer and not block:
+            while self.out_idx not in self.outbuffer:
+                self.cv.wait(0.5)
+                self._check_cores()
+                if timeout is not None and time.time() - t > timeout:
                     return None
-                while self.out_idx not in self.outbuffer:
-                    self.cv.wait(1)
-                    self._check_cores()
-                    if timeout is not None and time.time() - t > timeout:
-                        return None
-                results = self.outbuffer.pop(self.out_idx)
-                self.out_idx += 1
-                return results
+            results = self.outbuffer.pop(self.out_idx)
+            self.out_idx += 1
+            return results
         finally:
             self.cv.release() 
 

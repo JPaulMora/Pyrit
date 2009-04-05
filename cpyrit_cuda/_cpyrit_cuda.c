@@ -36,11 +36,9 @@ typedef struct
     CUmodule mod;
     CUfunction kernel;
     CUcontext dev_ctx;
-    CUresult lastError;
 } CUDADevice;
 
 int cudaDevCount;
-CUresult globalLastError;
 
 static char*
 getCUresultMsg(CUresult error)
@@ -86,8 +84,6 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
 
     if (!PyArg_ParseTuple(args, "i:CUDADevice", &dev_idx))
         return -1;
-        
-    self->lastError = CUDA_SUCCESS;
 
     if (dev_idx < 0 || dev_idx > cudaDevCount-1)
     {
@@ -99,18 +95,14 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     ret = cuDeviceGetName(self->dev_name, sizeof(self->dev_name), self->dev_idx);
     if (ret != CUDA_SUCCESS)
     {
-        PyErr_SetString(PyExc_SystemError, "Failed to resolve device name");
-        self->lastError = ret;
-        globalLastError = ret;        
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
         return -1;
     }
     
     ret = cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_YIELD, self->dev_idx);
     if (ret != CUDA_SUCCESS)
     {
-        PyErr_SetString(PyExc_SystemError, "Failed to create device-context");
-        self->lastError = ret;
-        globalLastError = ret;        
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
         return -1;
     }
     
@@ -118,9 +110,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     if (ret != CUDA_SUCCESS)
     {
         cuCtxDestroy(self->dev_ctx);
-        PyErr_SetString(PyExc_SystemError, "Failed to load CUBIN-module");
-        self->lastError = ret;
-        globalLastError = ret;
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
         return -1;
     }
 
@@ -129,8 +119,8 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     {
         cuCtxDestroy(self->dev_ctx);
         cuModuleUnload(self->mod);
-        PyErr_SetString(PyExc_SystemError, "Failed to load kernel-function");
-        return -1;    
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
+        return -1; 
     }
     
     ret = cuFuncSetBlockShape(self->kernel, THREADS_PER_BLOCK, 1, 1);
@@ -138,9 +128,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     {
         cuCtxDestroy(self->dev_ctx);
         cuModuleUnload(self->mod);
-        PyErr_SetString(PyExc_SystemError, "Failed to set block-shape");
-        self->lastError = ret;
-        globalLastError = ret;
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
         return -1;    
     }
     
@@ -149,9 +137,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     {
         cuCtxDestroy(self->dev_ctx);
         cuModuleUnload(self->mod);
-        PyErr_SetString(PyExc_SystemError, "Failed to detach from device-context after creation.");
-        self->lastError = ret;
-        globalLastError = ret;
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
         return -1;
     }
 
@@ -182,23 +168,6 @@ PyObject* cpyrit_listDevices(PyObject* self, PyObject* args)
     }
 
     return result;
-}
-
-PyObject* cpyrit_getLastError(PyObject* self, PyObject *args)
-{
-    if (!PyArg_ParseTuple(args, ""))
-        return NULL;
-
-    return Py_BuildValue("s", getCUresultMsg(globalLastError));
-}
-
-
-PyObject *cudadev_getLastError(CUDADevice *self, PyObject *args)
-{
-    if (!PyArg_ParseTuple(args, ""))
-        return NULL;
-
-    return Py_BuildValue("s", getCUresultMsg(self->lastError));
 }
 
 CUresult calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
@@ -319,9 +288,10 @@ PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
         GET_BE(c_inbuffer[i].e2.h4, temp, 16);
     }
     
-    if (cuCtxPushCurrent(self->dev_ctx) != CUDA_SUCCESS)
+    ret = cuCtxPushCurrent(self->dev_ctx);
+    if (ret != CUDA_SUCCESS)
     {
-        PyErr_SetString(PyExc_SystemError, "Failed to attach to device-context before launch.");
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
         free(c_inbuffer);
         free(c_outbuffer);
         return NULL;
@@ -336,9 +306,7 @@ PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
     if (ret != CUDA_SUCCESS)
     {
         free(c_outbuffer);
-        PyErr_SetString(PyExc_SystemError, "Failed to launch CUDA-kernel");
-        self->lastError = ret;
-        globalLastError = ret;
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
         return NULL;
     }
 
@@ -361,7 +329,6 @@ PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
 static PyMethodDef CUDADevice_methods[] =
 {
     {"calc_pmklist", (PyCFunction)cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
-    {"getLastError", (PyCFunction)cudadev_getLastError, METH_VARARGS, "Get a string representation of the last CUDA-Driver error reported on this object."},
     {NULL, NULL}
 };
 
@@ -412,7 +379,6 @@ static PyTypeObject CUDADevice_type = {
 
 static PyMethodDef CPyritCUDA_methods[] = {
     {"listDevices", cpyrit_listDevices, METH_VARARGS, "Returns a tuple of tuples, each describing a CUDA-capable device."},
-    {"getLastError", cpyrit_getLastError, METH_VARARGS, "Get a string representation of the last CUDA-Driver error reported somewhere in the module."},
     {NULL, NULL, 0, NULL}
 };
 
