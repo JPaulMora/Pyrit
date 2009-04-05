@@ -42,7 +42,6 @@ else:
     print >>sys.stderr, "The AMD-Stream compiler, headers and libraries required to build the kernel were not found. Trying to continue anyway..."
 
 
-# Custom build_ext phase to create the GPU code with special compilers before building the whole thing
 class GPUBuilder(build_ext):
     def _call(self, comm):
         p = subprocess.Popen(comm, stdout=subprocess.PIPE, shell=True)
@@ -60,7 +59,6 @@ class GPUBuilder(build_ext):
             pass
 
     def run(self):
-        # Prepare AMD-Stream kernel code within _brook_tmp directory.
         if '_brook_tmp' in os.listdir('./') and '_stream.cpp' in os.listdir('_brook_tmp'):
             print "Skipping rebuild of AMD-Stream kernel ..."
         else:
@@ -74,13 +72,10 @@ class GPUBuilder(build_ext):
             f.close()
             print "Compiling AMD-Stream kernel..."
             subprocess.check_call(BRCC + ' -p cal -r -o ./_brook_tmp/_stream ./_brook_tmp/cpyrit_stream_pp.br', shell=True)
-            
-        # Now build the rest
         print "Building modules..."
         build_ext.run(self)
 
 
-# Custom clean phase to remove nvcc/brcc cruft. Only remove files that we know!
 class GPUCleaner(clean):
     def _unlink(self, node):
         try:
@@ -98,7 +93,6 @@ class GPUCleaner(clean):
                 self._unlink(f)
         except Exception, (errno, sterrno):
             print >>sys.stderr, "Exception while cleaning temporary files ('%s')" % sterrno
-
         clean.run(self)
 
 
@@ -120,7 +114,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [stream_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.2-1, libaticalcl.so'}}
+        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.3-1, libaticalcl.so'}}
         )
         
 if __name__ == "__main__":

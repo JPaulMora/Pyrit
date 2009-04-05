@@ -75,35 +75,33 @@ PyObject* cpyrit_calcpmklist (PyObject * self, PyObject * args)
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
 
-        dbuf[(8192 * 2 * 0) + (line * 2) + 1] = dbuf[(8192 * 2 * 0) + (line * 2)] = ctx_pad.h0;
-        dbuf[(8192 * 2 * 1) + (line * 2) + 1] = dbuf[(8192 * 2 * 1) + (line * 2)] = ctx_pad.h1;
-        dbuf[(8192 * 2 * 2) + (line * 2) + 1] = dbuf[(8192 * 2 * 2) + (line * 2)] = ctx_pad.h2;
-        dbuf[(8192 * 2 * 3) + (line * 2) + 1] = dbuf[(8192 * 2 * 3) + (line * 2)] = ctx_pad.h3;
-        dbuf[(8192 * 2 * 4) + (line * 2) + 1] = dbuf[(8192 * 2 * 4) + (line * 2)] = ctx_pad.h4;
+        dbuf[(8192 * 2 * 00) + (line * 2) + 1] = dbuf[(8192 * 2 * 00) + (line * 2) + 0] = ctx_pad.h0;
+        dbuf[(8192 * 2 * 01) + (line * 2) + 1] = dbuf[(8192 * 2 * 01) + (line * 2) + 0] = ctx_pad.h1;
+        dbuf[(8192 * 2 * 02) + (line * 2) + 1] = dbuf[(8192 * 2 * 02) + (line * 2) + 0] = ctx_pad.h2;
+        dbuf[(8192 * 2 * 03) + (line * 2) + 1] = dbuf[(8192 * 2 * 03) + (line * 2) + 0] = ctx_pad.h3;
+        dbuf[(8192 * 2 * 04) + (line * 2) + 1] = dbuf[(8192 * 2 * 04) + (line * 2) + 0] = ctx_pad.h4;
 
         for (i = 0; i < 16; i++)
             ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
         SHA1_Init (&ctx_pad);
         SHA1_Update (&ctx_pad, pad, sizeof(pad));
 
-        dbuf[(8192 * 2 * 5) + (line * 2) + 1] = dbuf[(8192 * 2 * 5) + (line * 2)] = ctx_pad.h0;
-        dbuf[(8192 * 2 * 6) + (line * 2) + 1] = dbuf[(8192 * 2 * 6) + (line * 2)] = ctx_pad.h1;
-        dbuf[(8192 * 2 * 7) + (line * 2) + 1] = dbuf[(8192 * 2 * 7) + (line * 2)] = ctx_pad.h2;
-        dbuf[(8192 * 2 * 8) + (line * 2) + 1] = dbuf[(8192 * 2 * 8) + (line * 2)] = ctx_pad.h3;
-        dbuf[(8192 * 2 * 9) + (line * 2) + 1] = dbuf[(8192 * 2 * 9) + (line * 2)] = ctx_pad.h4;
+        dbuf[(8192 * 2 * 05) + (line * 2) + 1] = dbuf[(8192 * 2 * 05) + (line * 2) + 0] = ctx_pad.h0;
+        dbuf[(8192 * 2 * 06) + (line * 2) + 1] = dbuf[(8192 * 2 * 06) + (line * 2) + 0] = ctx_pad.h1;
+        dbuf[(8192 * 2 * 07) + (line * 2) + 1] = dbuf[(8192 * 2 * 07) + (line * 2) + 0] = ctx_pad.h2;
+        dbuf[(8192 * 2 * 08) + (line * 2) + 1] = dbuf[(8192 * 2 * 08) + (line * 2) + 0] = ctx_pad.h3;
+        dbuf[(8192 * 2 * 09) + (line * 2) + 1] = dbuf[(8192 * 2 * 09) + (line * 2) + 0] = ctx_pad.h4;
 
         essid[slen - 1] = '\1';
-        HMAC(EVP_sha1 (), (unsigned char *) key, strlen (key),
-        (unsigned char *) essid, slen, (unsigned char *) &ctx_pad, NULL);
-        dbuf[(8192 * 2 * 10) + (line * 2)] = ctx_pad.h0;
-        dbuf[(8192 * 2 * 11) + (line * 2)] = ctx_pad.h1;
-        dbuf[(8192 * 2 * 12) + (line * 2)] = ctx_pad.h2;
-        dbuf[(8192 * 2 * 13) + (line * 2)] = ctx_pad.h3;
-        dbuf[(8192 * 2 * 14) + (line * 2)] = ctx_pad.h4;
+        HMAC(EVP_sha1(), (unsigned char *) key, strlen(key), (unsigned char *) essid, slen, (unsigned char *) &ctx_pad, NULL);
+        dbuf[(8192 * 2 * 10) + (line * 2) + 0] = ctx_pad.h0;
+        dbuf[(8192 * 2 * 11) + (line * 2) + 0] = ctx_pad.h1;
+        dbuf[(8192 * 2 * 12) + (line * 2) + 0] = ctx_pad.h2;
+        dbuf[(8192 * 2 * 13) + (line * 2) + 0] = ctx_pad.h3;
+        dbuf[(8192 * 2 * 14) + (line * 2) + 0] = ctx_pad.h4;
 
         essid[slen - 1] = '\2';
-        HMAC(EVP_sha1 (), (unsigned char *) key, strlen (key),
-        (unsigned char *) essid, slen, (unsigned char *) &ctx_pad, NULL);
+        HMAC(EVP_sha1(), (unsigned char *) key, strlen(key), (unsigned char *) essid, slen, (unsigned char *) &ctx_pad, NULL);
         dbuf[(8192 * 2 * 10) + (line * 2) + 1] = ctx_pad.h0;
         dbuf[(8192 * 2 * 11) + (line * 2) + 1] = ctx_pad.h1;
         dbuf[(8192 * 2 * 12) + (line * 2) + 1] = ctx_pad.h2;
@@ -139,17 +137,17 @@ PyObject* cpyrit_calcpmklist (PyObject * self, PyObject * args)
     ::brook::Stream < uint2 > pmk_out3 (1, &dim);
     ::brook::Stream < uint2 > pmk_out4 (1, &dim);
 
-    ipad_A.read (dbuf + (8192 * 2 * 0));
-    ipad_B.read (dbuf + (8192 * 2 * 1));
-    ipad_C.read (dbuf + (8192 * 2 * 2));
-    ipad_D.read (dbuf + (8192 * 2 * 3));
-    ipad_E.read (dbuf + (8192 * 2 * 4));
+    ipad_A.read (dbuf + (8192 * 2 * 00));
+    ipad_B.read (dbuf + (8192 * 2 * 01));
+    ipad_C.read (dbuf + (8192 * 2 * 02));
+    ipad_D.read (dbuf + (8192 * 2 * 03));
+    ipad_E.read (dbuf + (8192 * 2 * 04));
 
-    opad_A.read (dbuf + (8192 * 2 * 5));
-    opad_B.read (dbuf + (8192 * 2 * 6));
-    opad_C.read (dbuf + (8192 * 2 * 7));
-    opad_D.read (dbuf + (8192 * 2 * 8));
-    opad_E.read (dbuf + (8192 * 2 * 9));
+    opad_A.read (dbuf + (8192 * 2 * 05));
+    opad_B.read (dbuf + (8192 * 2 * 06));
+    opad_C.read (dbuf + (8192 * 2 * 07));
+    opad_D.read (dbuf + (8192 * 2 * 08));
+    opad_E.read (dbuf + (8192 * 2 * 09));
 
     pmk_in0.read (dbuf + (8192 * 2 * 10));
     pmk_in1.read (dbuf + (8192 * 2 * 11));

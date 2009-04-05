@@ -18,7 +18,19 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-import getopt, hashlib, itertools, os, random, re, struct, sys, sqlite3, StringIO, threading, time, zlib
+import getopt
+import hashlib
+import itertools
+import os
+import random
+import re
+import struct
+import sys
+import sqlite3
+import cStringIO
+import threading
+import time
+import zlib
 
 class AsyncFileWriter(threading.Thread):
     def __init__(self, filehndl, maxsize=10*1024**2):
@@ -27,7 +39,7 @@ class AsyncFileWriter(threading.Thread):
         self.filehndl = filehndl
         self.maxsize = maxsize
         self.excp = None
-        self.buf = StringIO.StringIO()
+        self.buf = cStringIO.StringIO()
         self.cv = threading.Condition()
         self.start()
         
@@ -47,7 +59,7 @@ class AsyncFileWriter(threading.Thread):
             else:
                 raise Exception, "Writer has already been closed."
         self.cv.acquire()
-        while self.running and self.buf.len > self.maxsize:
+        while self.running and self.buf.tell() > self.maxsize:
             self.cv.wait(0.5)
         self.buf.write(buf)
         self.cv.notifyAll()
@@ -64,10 +76,10 @@ class AsyncFileWriter(threading.Thread):
     def run(self):
         while self.running:
             self.cv.acquire()
-            while self.running and self.buf.len == 0:
+            while self.running and self.buf.tell() == 0:
                 self.cv.wait(0.5)
             buf = self.buf.getvalue()
-            self.buf = StringIO.StringIO()
+            self.buf = cStringIO.StringIO()
             self.cv.notifyAll()
             self.cv.release()
             self._write(buf)
@@ -194,7 +206,7 @@ class Pyrit_CLI(object):
                 if i % 100000 == 0:
                     self.tell("\r%i lines read." % i, end=None, flush=True)
             f.close()
-            self.tell("\r%i lines read. Flushing buffers..." % i)
+            self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
             self.passwdstore.flush_buffer()
             self.tell("All done.")
 
@@ -207,16 +219,16 @@ class Pyrit_CLI(object):
         pwcount = 0
         for pwfile in self.passwdstore:
             pwcount += len(pwfile)
-            self.tell("Passwords:\t%i available\r" % pwcount, end=None, sep=None)
+            self.tell("Passwords available:\t%i\r" % pwcount, end=None, sep=None)
             pws = set(pwfile)
             for essid_obj in essid_objects:
                 try:
-                    essid_results[essid_obj] += len(pws.intersection(essid_obj[pwfile].results))
+                    essid_results[essid_obj] += len(pws.intersection(essid_obj[pwfile]))
                 except KeyError:
-                    essid_results[essid_obj] = len(pws.intersection(essid_obj[pwfile].results))
-        self.tell("\n")
-        for essid, rescount in essid_results.iteritems():
-            self.tell("ESSID '%s':\t%i done (%.2f%%)" % (essid, rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
+                    essid_results[essid_obj] = len(pws.intersection(essid_obj[pwfile]))
+        self.tell("Passwords available:\t%i\n" % pwcount)
+        for essid, rescount in sorted(essid_results.items()):
+            self.tell("ESSID '%s':\t%i (%.2f%%)" % (essid, rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
         self.tell("")
 
     def export_passwords(self):
@@ -404,11 +416,10 @@ class Pyrit_CLI(object):
         else:
             essids = self.essidstore
 
-        pwfile = None
+        totalResCount = 0
+        startTime = time.time()
+        workunits = []
         try: 
-            totalResCount = 0
-            startTime = time.time()
-            workunits = []
             for essid in essids:
                 essid_object = self.essidstore[essid]
                 self.tell("Working on ESSID '%s'" % essid_object.essid)
@@ -417,7 +428,7 @@ class Pyrit_CLI(object):
 
                 for pwfile in self.passwdstore:
                     resFile = essid_object[pwfile]
-                    unsolvedPasswds = list(set(pwfile).difference(set(resFile.results.keys())))
+                    unsolvedPasswds = [pw for pw in pwfile if pw not in resFile]
                     if len(unsolvedPasswds) > 0:
                         workunits.append((resFile, unsolvedPasswds))
                         cp.enqueue(essid_object.essid, unsolvedPasswds, True)
@@ -428,10 +439,10 @@ class Pyrit_CLI(object):
                         newResFile, solvedPasswds = workunits.pop(0)
                         newResFile.results.update(itertools.izip(solvedPasswds, newResults))
                         newResFile.savefile()
-                        _writeCowpatty(newResFile)
                         totalResCount += len(newResults)
+                        _writeCowpatty(newResFile)
                     tdiff = time.time() - startTime
-                    self.tell("Computed %i PMKs in %.2f seconds; %.1f PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
+                    self.tell("Computed %i PMKs in %i seconds; %i PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
                 self.tell("")
             self.tell("Stopped reading workunits...")
             for newResults in cp:
@@ -447,15 +458,12 @@ class Pyrit_CLI(object):
             self.tell("Unhandled exception while batchprocessing '%s'" % pwfile, stream=sys.stderr)
             raise
         finally:
-            try:
-                if totalResCount > 0:   
-                    self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))
-                    tdiff = time.time() - startTime
-                    for core in cp.cores:
-                        resCount, compTime = core.getStats()
-                        self.tell("%s: %.2f PMKs/s, %.2f%% occupancy" % (core.name, (resCount / compTime) if compTime > 0 else 0 , compTime * 100.0 / tdiff))
-            except:
-                raise
+            if totalResCount > 0:   
+                tdiff = time.time() - startTime
+                self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))
+                for core in cp.cores:
+                    resCount, compTime = core.getStats()
+                    self.tell("%s: %.2f PMKs/s, %.2f%% occupancy" % (core.name, (resCount / compTime) if compTime > 0 else 0 , compTime * 100.0 / tdiff))
         self.tell("Batchprocessing done.")
 
     def benchmark(self):
@@ -513,6 +521,15 @@ class PyrFile(object):
                                     ))
                 assert len(self.results) == numElems
 
+    def __contains__(self, key):
+        return key in self.results
+
+    def __iter__(self):
+        return self.results.__iter__()
+            
+    def __len__(self):
+        return len(self.results)
+
     def savefile(self):
         pws, pmks = itertools.izip(*self.results.items())
         pmkbuffer = "".join(pmks)
@@ -521,12 +538,12 @@ class PyrFile(object):
         md.update(self.essid)
         md.update(pmkbuffer)
         md.update(pwbuffer)
+        buf = cStringIO.StringIO()
+        buf.write(struct.pack("<4sH%ssi%ss" % (len(self.essid), md.digest_size), "PYR2", len(self.essid), self.essid, len(pws), md.digest()))
+        buf.write(pmkbuffer)
+        buf.write(pwbuffer)
         f = open(self.filename, "wb")
-        f.write(struct.pack("<4sH%ssi%ss" % (len(self.essid), md.digest_size), "PYR2", len(self.essid), self.essid, len(pws), md.digest()))
-        f.write(pmkbuffer)
-        f.write(pwbuffer)
-        f.close()
-
+        f.write(buf.getvalue())
 
 class ESSID(object):
     def __init__(self, path):
@@ -544,19 +561,11 @@ class ESSID(object):
         return self.essid
 
     def __iter__(self):
-        if self.f is None:
-            raise Exception, "ESSID not locked."
         for key, results in ((k, dict(self._getPyrFile(k).results)) for k in (x[:-4] for x in os.listdir(self.path) if x[-4:] == '.pyr')):
             yield (key, results)
 
     def __getitem__(self, key):
         return self._getPyrFile(key)
-        
-    def __setitem__(self, key, value):
-        assert isinstance(value, dict)
-        pyrfile = self._getPyrFile(key)
-        pyrfile.results = value
-        self.resultwriter.savefile(pyrfile)
 
     def close(self):
         if self.f is not None:
@@ -566,8 +575,6 @@ class ESSID(object):
         self.essid = None
      
     def _getPyrFile(self, key):
-        if self.f is None:
-            raise Exception, "ESSID not locked."
         if isinstance(key, str):
             fname = key
         elif isinstance(key, PasswordFile):
@@ -601,14 +608,17 @@ class EssidStore(object):
         return len([x for x in self])
 
     def __iter__(self):
+        essids = set()
         for essid_hash in os.listdir(self.essidpath):
             f = open(os.path.join(self.essidpath, essid_hash,'essid'), "rb")
             essid = f.read()
             f.close()
             if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
-                yield essid
+                essids.add(essid)
             else:
                 print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
+        for essid in sorted(essids):
+            yield essid
 
     def create_essid(self,essid):
         if len(essid) < 3 or len(essid) > 32:
@@ -654,16 +664,16 @@ class PasswordFile(object):
         md = hashlib.md5()
         b = zlib.compress("\n".join(sorted(self.bucket)), 1)
         md.update(b)
+        buf = cStringIO.StringIO()
+        buf.write('PAW2')
+        buf.write(md.digest())
+        buf.write(b)
         if self.key and self.key != md.hexdigest():
             raise Exception, "PasswordFile unstable."
         if not os.path.exists(self.filepath):
             os.makedirs(self.filepath)
         f = open(os.path.join(self.filepath, md.hexdigest() + ".pw"), "wb")
-        f.write("PAW2")
-        f.write(md.digest())
-        f.write(b)
-        f.close()
-
+        f.write(buf.getvalue())
 
 class PasswordStore(object):
     h1_list = ["%02.2X" % i for i in xrange(256)]
@@ -706,7 +716,7 @@ class PasswordStore(object):
 
     def flush_buffer(self):
         for pw_h1, pwlist in [(pw_h1, list(pwbucket)) for pw_h1, pwbucket in self.pwbuffer.iteritems() if len(pwbucket) > 0]:
-            for pwslice in (set(pwlist[x:x+20000]) for x in xrange(0, len(pwlist), 20000)):
+            for pwslice in (set(pwlist[x:x+10000]) for x in xrange(0, len(pwlist), 10000)):
                 self._flush_bucket(pw_h1, pwslice)
             self.pwbuffer[pw_h1] = set()
 
@@ -717,7 +727,7 @@ class PasswordStore(object):
         pw_h1 = PasswordStore.h1_list[hash(passwd) & 0xFF]
         pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
         pw_bucket.add(passwd)
-        if len(pw_bucket) >= 20000:
+        if len(pw_bucket) >= 10000:
             self._flush_bucket(pw_h1, pw_bucket)
             self.pwbuffer[pw_h1] = set()
 
