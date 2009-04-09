@@ -205,7 +205,6 @@ CUresult calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* o
     {
         cuMemFree(g_inbuffer);
         cuMemFree(g_outbuffer);
-        cuCtxPopCurrent(NULL);
         return ret;
     }
 
@@ -215,7 +214,6 @@ CUresult calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* o
     if (ret != CUDA_SUCCESS)
     {
         cuMemFree(g_outbuffer);
-        cuCtxPopCurrent(NULL);
         return ret;
     }
     
@@ -300,9 +298,9 @@ PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
     Py_BEGIN_ALLOW_THREADS;
     ret = calc_pmklist(self, c_inbuffer, c_outbuffer, numLines);
     Py_END_ALLOW_THREADS;
-    
     cuCtxPopCurrent(NULL);
     free(c_inbuffer);
+
     if (ret != CUDA_SUCCESS)
     {
         free(c_outbuffer);
