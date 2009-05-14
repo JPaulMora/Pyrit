@@ -24,7 +24,6 @@
 #ifndef CPYRIT_CUDA
 #define CPYRIT_CUDA
 
-// Cover my mistakes of better memory access patterns by creatings blocks as small as possible
 #define THREADS_PER_BLOCK 64
 
 #define GET_BE(n,b,i)                            \
@@ -52,6 +51,13 @@ typedef struct {
     dst.h0 = src.h0; dst.h1 = src.h1; \
     dst.h2 = src.h2; dst.h3 = src.h3; \
     dst.h4 = src.h4; \
+}
+
+#define CUSAFECALL(cmd) \
+{ \
+    ret = (cmd); \
+    if (ret != CUDA_SUCCESS) \
+        goto errout; \
 }
 
 typedef struct {
