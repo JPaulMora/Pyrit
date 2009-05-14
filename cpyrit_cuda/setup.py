@@ -65,16 +65,14 @@ class GPUBuilder(build_ext):
                 raise SystemError, "Nvidia's CUDA-compiler 'nvcc' can't be found. Make sure it's available to $PATH. " \
                                     "It is part of the CUDA Toolkit (not the SDK)."
             print "Compiling CUDA module using nvcc %s..." % nvcc_version
-            nvcc = NVCC + ' --host-compilation C -Xptxas "-v" --opencc-options "-WOPT:expr_reass=off" -Xcompiler "-fPIC" --cubin ./_cpyrit_cudakernel.cu'
-            subprocess.check_call(nvcc, shell=True)
+            subprocess.check_call(NVCC + ' --host-compilation C -Xptxas "-v" -Xcompiler "-fPIC" --cubin ./_cpyrit_cudakernel.cu', shell=True)
             f = open("_cpyrit_cudakernel.cubin", "rb")
-            cubin_img = f.read()
+            cubin_inc = ",".join(("0x%02X%s" % (ord(c), "\n" if i % 32 == 0 else "") for i, c in enumerate(f.read())))
             f.close()
-            cubin_inc = ",".join(("0x%02X%s" % (ord(c), "\n" if i % 16 == 0 else "") for i, c in enumerate(cubin_img)))
             f = open("_cpyrit_cudakernel.cubin.h", "wb")
             f.write("const unsigned char __cudakernel_module[] = {")
             f.write(cubin_inc)
-            f.write("};\n\n")
+            f.write(",0x00};\n\n")
             f.close()
         print "Building modules..."
         build_ext.run(self)

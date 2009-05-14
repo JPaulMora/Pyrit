@@ -90,65 +90,38 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
         PyErr_SetString(PyExc_SystemError, "Invalid device number");
         return -1;
     }
+    
     self->dev_idx = dev_idx;
+    self->mod = NULL;
+    self->dev_ctx = NULL;
     
-    ret = cuDeviceGetName(self->dev_name, sizeof(self->dev_name), self->dev_idx);
-    if (ret != CUDA_SUCCESS)
-    {
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
-        return -1;
-    }
+    CUSAFECALL(cuDeviceGetName(self->dev_name, sizeof(self->dev_name), self->dev_idx));
     
-    ret = cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_YIELD, self->dev_idx);
-    if (ret != CUDA_SUCCESS)
-    {
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
-        return -1;
-    }
+    CUSAFECALL(cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_AUTO, self->dev_idx));
     
-    ret = cuModuleLoadData(&self->mod, &__cudakernel_module);
-    if (ret != CUDA_SUCCESS)
-    {
-        cuCtxDestroy(self->dev_ctx);
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
-        return -1;
-    }
+    CUSAFECALL(cuModuleLoadData(&self->mod, &__cudakernel_module));
 
-    ret = cuModuleGetFunction(&self->kernel, self->mod, "cuda_pmk_kernel");
-    if (ret != CUDA_SUCCESS)
-    {
-        cuCtxDestroy(self->dev_ctx);
-        cuModuleUnload(self->mod);
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
-        return -1; 
-    }
+    CUSAFECALL(cuModuleGetFunction(&self->kernel, self->mod, "cuda_pmk_kernel"));
     
-    ret = cuFuncSetBlockShape(self->kernel, THREADS_PER_BLOCK, 1, 1);
-    if (ret != CUDA_SUCCESS)
-    {
-        cuCtxDestroy(self->dev_ctx);
-        cuModuleUnload(self->mod);
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
-        return -1;    
-    }
+    CUSAFECALL(cuFuncSetBlockShape(self->kernel, THREADS_PER_BLOCK, 1, 1));
     
-    ret = cuCtxPopCurrent(NULL);
-    if (ret != CUDA_SUCCESS)
-    {
-        cuCtxDestroy(self->dev_ctx);
-        cuModuleUnload(self->mod);
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
-        return -1;
-    }
+    CUSAFECALL(cuCtxPopCurrent(NULL));
 
     return 0;
+    
+errout:
+    PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
+    return -1;
+    
 }
 
 static void
 cudadev_dealloc(CUDADevice *self)
 {
-    cuModuleUnload(self->mod);
-    cuCtxDestroy(self->dev_ctx);
+    if (self->mod)
+        cuModuleUnload(self->mod);
+    if (self->dev_ctx)
+        cuCtxDestroy(self->dev_ctx);
     PyObject_Del(self);
 }
 
@@ -178,48 +151,33 @@ CUresult calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* o
     
     // Align size of memory allocation and operations to full threadblocks. Threadblocks should be aligned to warp-size.
     buffersize = (size / THREADS_PER_BLOCK + (size % THREADS_PER_BLOCK == 0 ? 0 : 1)) * THREADS_PER_BLOCK;
-    ret = cuMemAlloc(&g_inbuffer, buffersize*sizeof(gpu_inbuffer));
-    if (ret != CUDA_SUCCESS)
-        return ret;
+    g_inbuffer = 0;
+    g_outbuffer = 0;
     
-    ret = cuMemAlloc(&g_outbuffer, buffersize*sizeof(gpu_outbuffer));
-    if (ret != CUDA_SUCCESS)
-    {
-        cuMemFree(g_inbuffer);
-        return ret;
-    }
+    CUSAFECALL(cuMemAlloc(&g_inbuffer, buffersize*sizeof(gpu_inbuffer)));
     
-    ret = cuMemcpyHtoD(g_inbuffer, inbuffer, size*sizeof(gpu_inbuffer));
-    if (ret != CUDA_SUCCESS)
-    {
-        cuMemFree(g_outbuffer);
-        cuMemFree(g_inbuffer);
-        return ret;
-    }
+    CUSAFECALL(cuMemAlloc(&g_outbuffer, buffersize*sizeof(gpu_outbuffer)));
+    
+    CUSAFECALL(cuMemcpyHtoD(g_inbuffer, inbuffer, size*sizeof(gpu_inbuffer)));
     
     cuParamSeti(self->kernel, 0, g_inbuffer);
     cuParamSeti(self->kernel, sizeof(void*), g_outbuffer);
     cuParamSetSize(self->kernel, sizeof(void*)*2);
-    ret = cuLaunchGrid(self->kernel, buffersize / THREADS_PER_BLOCK, 1);
-    if (ret != CUDA_SUCCESS)
-    {
-        cuMemFree(g_inbuffer);
-        cuMemFree(g_outbuffer);
-        return ret;
-    }
+    CUSAFECALL(cuLaunchGrid(self->kernel, buffersize / THREADS_PER_BLOCK, 1));
 
-    cuMemFree(g_inbuffer);
-
-    ret = cuMemcpyDtoH(outbuffer, g_outbuffer, size*sizeof(gpu_outbuffer));
-    if (ret != CUDA_SUCCESS)
-    {
-        cuMemFree(g_outbuffer);
-        return ret;
-    }
+    CUSAFECALL(cuMemcpyDtoH(outbuffer, g_outbuffer, size*sizeof(gpu_outbuffer)));
     
+    cuMemFree(g_inbuffer);
     cuMemFree(g_outbuffer);
 
     return CUDA_SUCCESS;
+    
+errout:
+    if (g_inbuffer != 0)
+        cuMemFree(g_inbuffer);
+    if (g_outbuffer != 0)
+        cuMemFree(g_outbuffer);
+    return ret;
 }
 
 PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
