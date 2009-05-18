@@ -1,0 +1,5 @@
+_cpyrit_opencl.h
+_cpyrit_opencl.c
+_cpyrit_oclkernel.cl
+setup.py
+MANIFEST
