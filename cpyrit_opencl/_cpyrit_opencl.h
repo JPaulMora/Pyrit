@@ -21,6 +21,8 @@
 #ifndef CPYRIT_OPENCL
 #define CPYRIT_OPENCL
 
+#define WORKGROUP_SIZE 64
+
 #ifndef uint32_t
 #define uint32_t unsigned int
 #endif

@@ -22,6 +22,7 @@
 #include <CL/cl.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
+#include <zlib.h>
 #include "_cpyrit_opencl.h"
 
 // Created by setup.py
@@ -33,6 +34,7 @@ typedef struct
 {
     PyObject_HEAD
     int dev_idx;
+    size_t lWorksize;
     cl_context dev_ctx;
     cl_program dev_prog;
     cl_kernel dev_kernel;
@@ -41,6 +43,7 @@ typedef struct
 
 cl_uint OpenCLDevCount;
 cl_device_id* OpenCLDevices;
+unsigned char *oclkernel_program;
 
 static char*
 getCLresultMsg(cl_int error)
@@ -103,9 +106,6 @@ opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
 {
     int dev_idx;
     cl_int errcode;
-   
-    const char *kernel_ptr = oclkernel_program;
-    const size_t kernel_length = sizeof(oclkernel_program);
 
     if (!PyArg_ParseTuple(args, "i:OpenCLDevice", &dev_idx))
         return -1;
@@ -121,6 +121,7 @@ opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
     self->dev_prog = NULL;
     self->dev_kernel = NULL;
     self->dev_queue = NULL;
+    self->lWorksize = WORKGROUP_SIZE; // make this depend on the device?
     
     self->dev_ctx = clCreateContext(NULL, 1, &OpenCLDevices[dev_idx], NULL, NULL, &errcode);
     if (errcode != CL_SUCCESS)
@@ -136,7 +137,7 @@ opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
         return -1;
     }
     
-    self->dev_prog = clCreateProgramWithSource(self->dev_ctx, 1, &kernel_ptr, &kernel_length, &errcode);
+    self->dev_prog = clCreateProgramWithSource(self->dev_ctx, 1, (void*)&oclkernel_program, &oclkernel_size, &errcode);
     if (errcode != CL_SUCCESS)
     {
         PyErr_Format(PyExc_SystemError, "Failed to load kernel-source (%s)", getCLresultMsg(errcode));
@@ -201,21 +202,23 @@ cl_int calc_pmklist(OpenCLDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* o
 {
     cl_mem g_inbuffer, g_outbuffer;
     cl_int errcode;
-    size_t gWorksize[1], lWorksize[1];
+    size_t gWorksize[1], lWorksize[1], buffersize;
     
+    buffersize = (size / self->lWorksize + (size % self->lWorksize == 0 ? 0 : 1)) * self->lWorksize;
+
     g_inbuffer = NULL;
     g_outbuffer = NULL;
-    gWorksize[0] = size;
-    lWorksize[0] = 1;
+    gWorksize[0] = buffersize;
+    lWorksize[0] = self->lWorksize;
     
-    g_inbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_READ_ONLY, size*sizeof(gpu_inbuffer), NULL, &errcode);
+    g_inbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_READ_ONLY, buffersize*sizeof(gpu_inbuffer), NULL, &errcode);
     if (errcode != CL_SUCCESS)
         goto out;
     errcode = clEnqueueWriteBuffer(self->dev_queue, g_inbuffer, CL_FALSE, 0, size*sizeof(gpu_inbuffer), inbuffer, 0, NULL, NULL);
     if (errcode != CL_SUCCESS)
         goto out;
     
-    g_outbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_WRITE_ONLY, size*sizeof(gpu_outbuffer), NULL, &errcode);
+    g_outbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_WRITE_ONLY, buffersize*sizeof(gpu_outbuffer), NULL, &errcode);
     if (errcode != CL_SUCCESS)
         goto out;
     
@@ -237,6 +240,7 @@ out:
         clReleaseMemObject(g_inbuffer);
     if (g_outbuffer != NULL)
         clReleaseMemObject(g_outbuffer);
+    
     return errcode;
 }
 
@@ -307,8 +311,8 @@ PyObject *cpyrit_pmklist(OpenCLDevice *self, PyObject *args)
     Py_BEGIN_ALLOW_THREADS;
     ret = calc_pmklist(self, c_inbuffer, c_outbuffer, numLines);
     Py_END_ALLOW_THREADS;
+    
     free(c_inbuffer);
-
     if (ret != CL_SUCCESS)
     {
         free(c_outbuffer);
@@ -391,6 +395,8 @@ static PyMethodDef CPyritOpenCL_methods[] = {
 PyMODINIT_FUNC
 init_cpyrit_opencl(void)
 {
+    z_stream zst;
+
     if (clGetDeviceIDs((cl_platform_id)CL_PLATFORM_NVIDIA, CL_DEVICE_TYPE_GPU, 0, NULL, &OpenCLDevCount) != CL_SUCCESS || OpenCLDevCount < 1)
     {
         PyErr_SetString(PyExc_ImportError, "Could not enumerate available OpenCL-devices or no devices reported.");
@@ -404,6 +410,37 @@ init_cpyrit_opencl(void)
         PyErr_SetString(PyExc_ImportError, "Failed to get Device-IDs");
         return;
     }
+    
+    oclkernel_program = malloc(oclkernel_size);
+    if (!oclkernel_program)
+    {
+        free(OpenCLDevices);
+        PyErr_NoMemory();
+        return;
+    }
+    zst.zalloc = Z_NULL;
+    zst.zfree = Z_NULL;
+    zst.opaque = Z_NULL;
+    zst.avail_in = sizeof(oclkernel_packedprogram);
+    zst.next_in = oclkernel_packedprogram;
+    if (inflateInit(&zst) != Z_OK)
+    {
+        free(OpenCLDevices);
+        free(oclkernel_program);
+        PyErr_SetString(PyExc_IOError, "Failed to initialize zlib.");
+        return;
+    }
+    zst.avail_out = oclkernel_size;
+    zst.next_out = oclkernel_program;   
+    if (inflate(&zst, Z_FINISH) != Z_STREAM_END)
+    {
+        inflateEnd(&zst);
+        free(OpenCLDevices);
+        free(oclkernel_program);    
+        PyErr_SetString(PyExc_IOError, "Failed to decompress OpenCL-kernel.");
+        return;
+    }
+    inflateEnd(&zst);
     
     if (PyType_Ready(&OpenCLDevice_type) < 0)
     {
