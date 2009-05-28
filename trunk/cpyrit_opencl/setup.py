@@ -23,6 +23,7 @@ from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
 import sys, subprocess, re, os
+import zlib
 
 EXTRA_COMPILE_ARGS = ['-O2']
 LIBRARY_DIRS = []
@@ -44,11 +45,14 @@ class GPUBuilder(build_ext):
         f = open("_cpyrit_oclkernel.cl", "rb")
         kernel = f.read()
         f.close()
+        oclkernel_program = header + "\n" + kernel + "\00"
+        oclkernel_packed = zlib.compress(oclkernel_program)        
         f = open("_cpyrit_oclkernel.cl.h", "wb")
-        f.write("const char oclkernel_program[] = {")
-        f.write(",".join(("0x%02X%s" % (ord(c), "\n" if i % 32 == 0 else "") for i, c in enumerate(header + "\n" + kernel))))
-        f.write(",0x00};\n\n")
+        f.write("unsigned char oclkernel_packedprogram[] = {")
+        f.write(",".join(("0x%02X%s" % (ord(c), "\n" if i % 16 == 0 else "") for i, c in enumerate(oclkernel_packed))))
+        f.write("};\nsize_t oclkernel_size = %i;\n" % len(oclkernel_program))
         f.close()
+        
         print "Building modules..."
         build_ext.run(self)
 
@@ -74,7 +78,7 @@ class GPUCleaner(clean):
 
 
 cuda_extension = Extension('_cpyrit._cpyrit_opencl',
-                    libraries = ['ssl', 'OpenCL'],
+                    libraries = ['ssl', 'OpenCL', 'z'],
                     sources = ['_cpyrit_opencl.c'],
                     extra_compile_args = EXTRA_COMPILE_ARGS,
                     include_dirs = INCLUDE_DIRS + OPENCL_INC_DIRS,
