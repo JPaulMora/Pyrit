@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
 #
 #    This file is part of Pyrit.
 #
@@ -22,7 +22,10 @@
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
-import sys, subprocess, re, os
+import os
+import re
+import sys
+import subprocess
 
 EXTRA_COMPILE_ARGS = ['-O2']
 LIBRARY_DIRS = []

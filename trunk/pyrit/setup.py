@@ -21,7 +21,11 @@
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
-import distutils.util, sys, subprocess, re, os
+import distutils.util
+import os
+import re
+import subprocess
+import sys
 
 EXTRA_COMPILE_ARGS = ['-O2']
 if distutils.util.get_platform() == 'win32':
