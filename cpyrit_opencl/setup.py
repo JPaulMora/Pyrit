@@ -22,7 +22,10 @@
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
-import sys, subprocess, re, os
+import os
+import re
+import sys
+import subprocess
 import zlib
 
 EXTRA_COMPILE_ARGS = ['-O2']

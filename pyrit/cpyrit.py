@@ -17,7 +17,12 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-import time, Queue, threading, sys, os
+import os
+import sys
+import Queue
+import time
+import threading
+
 try:
     import _cpyrit
 except ImportError:
