@@ -17,11 +17,15 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
+import httplib
+import hashlib
 import os
 import sys
 import Queue
 import time
 import threading
+import urllib2
+import zlib
 
 try:
     import _cpyrit
@@ -29,17 +33,16 @@ except ImportError:
     print >>sys.stderr, "Failed to load the internal _cpyrit module. Check your installation."
     raise
 
-
 TV_ESSID = 'foo'
 TV_PASSWD = 'barbarbar'
-TV_PMK = [6,56,101,54,204,94,253,3,243,250,132,170,142,162,204,132,8,151,61,243,75,216,75,83,128,110,237,48,35,205,166,126]
+TV_PMK = (6,56,101,54,204,94,253,3,243,250,132,170,142,162,204,132,8,151,61,243,75,216,75,83,128,110,237,48,35,205,166,126)
 def _testComputeFunction(func, i):
     for pmk in func(TV_ESSID, [TV_PASSWD]*i):
-        if [ord(x) for x in pmk] != TV_PMK:
+        if tuple(map(ord, pmk)) != TV_PMK:
             raise Exception, "Test-vector does not result in correct result."
 
-
 _avail_cores = []
+
 
 class Core(threading.Thread):
     def __init__(self, inQueue, callback, name, **kwargs):
@@ -52,10 +55,9 @@ class Core(threading.Thread):
         self.compTime = 0
         self.setDaemon(True)
 
-    def run(self):
-        while True:
+    def _gather(self):
             essid_dict = {}
-            while sum((len(pwlist) for pwlist,slices in essid_dict.values())) < self.minBufferSize:
+            while sum((len(pwlist) for pwlist,slices in essid_dict.itervalues())) < self.minBufferSize:
                 try:
                     wu_idx, (wu_essid, wu_pwlist) = self.inQueue.get(block=len(essid_dict) == 0, timeout=1.0)
                     try:
@@ -66,13 +68,18 @@ class Core(threading.Thread):
                     pwlist.extend(wu_pwlist)
                 except Queue.Empty:
                     break
-            t = time.time()
-            for essid, (pwlist, slicelist) in essid_dict.items():
+            for essid, (pwlist, slicelist) in essid_dict.iteritems():
+                yield essid, pwlist, slicelist
+
+    def run(self):
+        while True:
+            for essid, pwlist, slicelist in self._gather():
+                t = time.time()
                 results = self.solve(essid, pwlist)
+                self.compTime += time.time() - t
                 for wu_idx, start, length in slicelist:
                     self.callback(wu_idx, results[start:start+length])
                 self.resCount += len(results)
-            self.compTime += time.time() - t
 
     def __repr__(self):
         return self.name
@@ -103,13 +110,10 @@ _avail_cores.append(('CPU', CPUCore, "CPU-Core (%s)" % _cpyrit_cpu.getPlatform()
 ## Try creating the CUDA-Core. Failure is acceptable.
 try:
     from _cpyrit import _cpyrit_cuda
-    for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
-        d = _cpyrit_cuda.CUDADevice(dev_idx)
-        _testComputeFunction(d.calc_pmklist, 101)
 except ImportError:
     pass
 except Exception, e:
-    print >>sys.stderr, "Failed to load CUDA-core (%s)." % e.message
+    print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
 else:
     class CUDACore(Core):
         def __init__(self, inqueue, callback, name, dev):
@@ -136,7 +140,52 @@ else:
             return tuple(res)
     
     for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
-        _avail_cores.append(('GPU', CUDACore, "CUDA-Device #%i '%s'" % (dev_idx+1,device[0]), {'dev':dev_idx}))
+        try:
+            d = _cpyrit_cuda.CUDADevice(dev_idx)
+            _testComputeFunction(d.calc_pmklist, 101)
+        except Exception, e:
+            print >>sys.stderr, "Failed to load CUDA-device '%s': '%s'" % (device[0], e)
+        else:
+            _avail_cores.append(('GPU', CUDACore, "CUDA-Device #%i '%s'" % (dev_idx+1,device[0]), {'dev':dev_idx}))
+
+
+## Try creating the OpenCL-Core. Failure is acceptable.
+try:
+    from _cpyrit import _cpyrit_opencl
+except ImportError:
+    pass
+except Exception, e:
+    print >>sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
+else:
+    class OpenCLCore(Core):
+        def __init__(self, inqueue, callback, name, dev):
+            Core.__init__(self, inqueue, callback, name)
+            self.OpenCLDev = _cpyrit_opencl.OpenCLDevice(dev)
+            self.minBufferSize = 20480
+            self.buffersize = 2048
+            self.start()
+            
+        def solve(self, essid, passwordlist):
+            res = []
+            i = 0
+            while i < len(passwordlist):
+                t = time.time()
+                pwslice = passwordlist[i:i+self.buffersize]
+                res.extend(self.OpenCLDev.calc_pmklist(essid, pwslice))
+                i += self.buffersize
+                if len(pwslice) >= 2048:
+                    self.buffersize = int(max(2048, min(20480, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
+            return tuple(res)
+    
+    for dev_idx, device in enumerate(_cpyrit_opencl.listDevices()):
+        if device[1] != 'NVIDIA Corporation' or '_cpyrit._cpyrit_cuda' not in sys.modules:
+            try:
+                d = _cpyrit_opencl.OpenCLDevice(dev_idx)
+                _testComputeFunction(d.calc_pmklist, 101)
+            except Exception, e:
+                print >>sys.stderr, "Failed to load OpenCL-device '%s': '%s'" % (device[0], e)
+            else:
+                _avail_cores.append(('GPU', OpenCLCore, "OpenCL-Device #%i '%s'" % (dev_idx+1, device[0]), {'dev':dev_idx}))
 
 
 ## Try creating the Stream-Core. Failure is acceptable.
@@ -146,7 +195,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >>sys.stderr, "Failed to load Stream-core ('%s')" % e
+    print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
 else:
     class StreamCore(Core):
         def __init__(self, inqueue, callback, name, dev):
@@ -167,10 +216,90 @@ else:
                 i += 8192
             return tuple(res)
 
-    for dev_idx in range(_cpyrit_stream.getDeviceCount()):        
-        _avail_cores.append(('GPU', StreamCore, "AMD-Stream device #%i" % dev_idx, {'dev':dev_idx}))
+    for dev_idx in range(_cpyrit_stream.getDeviceCount()):
+        try:
+            d = _cpyrit_stream.StreamCore(dev_idx)
+            _testComputeFunction(d.calc_pmklist, 101)
+        except Exception, e:
+            print >>sys.stderr, "Failed to load Stream-device '%s': '%s'" % (device[0], e)
+        else:        
+            _avail_cores.append(('GPU', StreamCore, "AMD-Stream device #%i" % dev_idx, {'dev':dev_idx}))
 
 
+## Create Network-Cores as described in the config-file.
+class NetworkCore(Core):
+    def __init__(self, inqueue, callback, name, host):
+        Core.__init__(self, inqueue, callback, name)
+        self.minBufferSize = 20480
+        self.host = host
+        self.uuid = None
+        self.start()
+    
+    def _enqueue_on_host(self, essid, pwlist):
+        pwbuffer = zlib.compress('\n'.join(pwlist), 1)
+        digest = hashlib.sha1()
+        digest.update(essid)
+        digest.update(pwbuffer)
+        req = urllib2.urlopen('http://%s:19935/ENQUEUE?client=%s' % (self.host, self.uuid), digest.digest() + '\n'.join((essid, pwbuffer)))
+        if req.code != httplib.OK:
+            raise Exception, "Enqueue on host '%s' failed with status %s (%s)" % (self.host, req.code, req.msg)
+    
+    def _dequeue_from_host(self):
+        try:
+            req = urllib2.urlopen('http://%s:19935/DEQUEUE?client=%s' % (self.host, self.uuid))
+        except urllib2.HTTPError, e:
+            if e.code == httplib.PROCESSING:
+                return None
+            else:
+                raise
+        if req.code == httplib.OK:
+            buf = req.read()
+            digest = hashlib.sha1()
+            digest.update(buf[digest.digest_size:])
+            if buf[:digest.digest_size] != digest.digest():
+                raise Exception, "Digest check failed."
+            buf = buf[digest.digest_size:]
+            assert len(buf) % 32 == 0
+            return [buf[i*32:i*32 + 32] for i in xrange(len(buf) / 32)]
+        else:
+            raise Exception, "Dequeue from host '%s' failed with status %s (%s)" % (self.host, req.code, req.msg)
+    
+    def run(self):
+        workbuffer = []
+        while True:
+            try:
+                req = urllib2.urlopen('http://%s:19935/REGISTER' % self.host)
+            except urllib2.URLError, e:
+                time.sleep(5)
+            else:
+                self.uuid = req.read()
+                break
+        while True:
+            if len(workbuffer) < 3:
+                for essid, pwlist, slicelist in self._gather():
+                    workbuffer.append(slicelist)
+                    self._enqueue_on_host(essid, pwlist)
+            if len(workbuffer) != 0:
+                t = time.time()
+                results = self._dequeue_from_host()
+                self.compTime += time.time() - t
+                if results is not None:
+                    for wu_idx, start, length in workbuffer.pop(0):
+                        self.callback(wu_idx, results[start:start+length])
+                    self.resCount += len(results)
+                else:
+                    if len(workbuffer) >= 3:
+                        time.sleep(0.1)
+
+hostfile = os.path.expanduser(os.path.join('~','.pyrit','hosts'))
+if os.path.exists(hostfile):
+    f = open(hostfile, "r")
+    for host in set([host.strip() for host in f]):
+        _avail_cores.append(('NET', NetworkCore, "Network-Core @%s" % (host), {'host': host}))
+    f.close()
+
+
+## The CPyrit-class puts everything together...
 class CPyrit(object):
     def __init__(self):
         self.inqueue = Queue.Queue()
@@ -202,12 +331,14 @@ class CPyrit(object):
         #return the default value
         return 1
 
-    def _autoconfig(self):
+    def _autoconfig(self, ignore_types=()):
         ncpus = self._detect_ncpus()
         for coretype, coreclass, name, kwargs in _avail_cores:
-            if coretype == 'GPU':
+            if coretype == 'GPU' and coretype not in ignore_types:
                 self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
                 ncpus -= 1
+            elif coretype == 'NET' and coretype not in ignore_types:
+                self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
         coretype, coreclass, name, kwargs = _avail_cores[0]
         for i in xrange(ncpus):
             self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
@@ -226,21 +357,18 @@ class CPyrit(object):
             self._autoconfig()
         for core in self.cores:
             if not core.isAlive():
-                raise SystemError, "A core has died unexpectedly."
+                raise SystemError, "The core '%s' has died unexpectedly." % core
     
     def availableCores(self):
-        return tuple((c[2] for c in _avail_cores))
+        self._check_cores()
+        return tuple([core.name for core in self.cores])
     
     def enqueue(self, essid, passwordlist, block=False):
-        if type(essid) is not str:
-            raise TypeError, "ESSID must be a string"
-        if type(passwordlist) is not list:
-            raise TypeError, "passwordlist must be a list"
         self.cv.acquire()
         try:
             if block:
                 while self.inqueue.qsize() > self.maxSize:
-                    self.cv.wait(0.5)
+                    self.cv.wait(0.05)
                     self._check_cores()
             self.inqueue.put((self.in_idx, (essid, passwordlist)))
             self.in_idx += 1;
@@ -253,8 +381,9 @@ class CPyrit(object):
             assert self.out_idx <= self.in_idx
             if self.out_idx == self.in_idx or (self.out_idx not in self.outbuffer and not block):
                 return None
+            t = time.time()
             while self.out_idx not in self.outbuffer:
-                self.cv.wait(0.5)
+                self.cv.wait(0.05)
                 self._check_cores()
                 if timeout is not None and time.time() - t > timeout:
                     return None
