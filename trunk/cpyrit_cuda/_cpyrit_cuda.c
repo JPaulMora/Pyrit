@@ -97,7 +97,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     
     CUSAFECALL(cuDeviceGetName(self->dev_name, sizeof(self->dev_name), self->dev_idx));
     
-    CUSAFECALL(cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_AUTO, self->dev_idx));
+    CUSAFECALL(cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_YIELD, self->dev_idx));
     
     CUSAFECALL(cuModuleLoadData(&self->mod, &__cudakernel_module));
 

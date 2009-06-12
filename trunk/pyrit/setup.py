@@ -28,14 +28,9 @@ import subprocess
 import sys
 
 EXTRA_COMPILE_ARGS = ['-O2']
-if distutils.util.get_platform() == 'win32':
-    LIBRARY_DIRS = ['C:\OpenSSL\lib']
-    INCLUDE_DIRS = ['C:\Python25\include', 'C:\OpenSSL\include']
-    LIBRARIES = ['libeay32']
-else:
-    LIBRARY_DIRS = []
-    INCLUDE_DIRS = []
-    LIBRARIES = ['ssl']
+LIBRARY_DIRS = []
+INCLUDE_DIRS = []
+LIBRARIES = ['ssl']
 
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
                     sources = ['_cpyrit/_cpyrit_cpu.c'],

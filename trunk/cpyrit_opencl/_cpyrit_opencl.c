@@ -397,14 +397,14 @@ init_cpyrit_opencl(void)
 {
     z_stream zst;
 
-    if (clGetDeviceIDs((cl_platform_id)CL_PLATFORM_NVIDIA, CL_DEVICE_TYPE_GPU, 0, NULL, &OpenCLDevCount) != CL_SUCCESS || OpenCLDevCount < 1)
+    if (clGetDeviceIDs(NULL, CL_DEVICE_TYPE_GPU, 0, NULL, &OpenCLDevCount) != CL_SUCCESS || OpenCLDevCount < 1)
     {
         PyErr_SetString(PyExc_ImportError, "Could not enumerate available OpenCL-devices or no devices reported.");
         return;
     }
     
     OpenCLDevices = (cl_device_id*)malloc(sizeof(cl_device_id) * OpenCLDevCount);
-    if (clGetDeviceIDs((cl_platform_id)CL_PLATFORM_NVIDIA, CL_DEVICE_TYPE_GPU, OpenCLDevCount, OpenCLDevices, NULL) != CL_SUCCESS)
+    if (clGetDeviceIDs(NULL, CL_DEVICE_TYPE_GPU, OpenCLDevCount, OpenCLDevices, NULL) != CL_SUCCESS)
     {
         free(OpenCLDevices);
         PyErr_SetString(PyExc_ImportError, "Failed to get Device-IDs");
