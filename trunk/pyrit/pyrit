@@ -29,6 +29,7 @@ import re
 import struct
 import sys
 import sqlite3
+import SocketServer
 import cStringIO
 import threading
 import time
@@ -513,8 +514,15 @@ class Pyrit_CLI(object):
         print "\nBenchmark done. %.2f PMKs/s total." % total
 
     def serve(self):
+        self.tell('Booting...', end=None)
         httpd = PyritServer()
-        httpd.serve_forever()
+        self.tell('%s, %i cores:' % (httpd.name, len(httpd.cp.cores)))
+        for i, core in enumerate(httpd.cp.cores):
+            self.tell("#%i '%s'" % (i+1, core))
+        try:
+            httpd.serve_forever()
+        except (KeyboardInterrupt, SystemExit):
+            self.tell("Exiting...")
 
 
 class PyrFile(object):
@@ -756,155 +764,179 @@ class PasswordStore(object):
             self.pwbuffer[pw_h1] = set()
 
 
-class PyritHandler(BaseHTTPServer.BaseHTTPRequestHandler):
-    def _root(self):
-        self.send_response(httplib.OK)
-        self.end_headers()
-        self.wfile.write(self.server.name)
-        
-    def _register(self):
-        client_uuid = self.server.register_client(self.client_address[0])
-        self.send_response(httplib.OK)
-        self.end_headers()
-        self.wfile.write(client_uuid)
+class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
+    class PyritHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.parsed_path = urlparse.urlparse(self.path)
+            self.params = {}
+            if len(self.parsed_path.query) > 0:
+                self.params.update([x.split('=') for x in self.parsed_path.query.split("&")])
 
-    def _enqueue(self):
-        if 'client' not in self.params or self.params['client'] not in self.server.clients:
-            self.send_response(httplib.FORBIDDEN)
-            self.end_headers()
-        else:
-            buf = self.rfile.read(int(self.headers.getheader('Content-Length')))
-            digest = hashlib.sha1()
-            essid, pwbuffer = buf[digest.digest_size:].split('\n', 1)
-            digest.update(essid)
-            digest.update(pwbuffer)
-            if digest.digest() != buf[:digest.digest_size]:
-                raise Exception, "Digest check failed."
-            self.server.enqueue(self.params['client'], essid, zlib.decompress(pwbuffer).split('\n'))
-            self.send_response(httplib.OK)
-            self.end_headers()
-
-    def _dequeue(self):
-        if 'client' not in self.params or self.params['client'] not in self.server.clients:
-            self.send_response(httplib.FORBIDDEN)
-            self.end_headers()
-        else:
-            t = time.time()
-            while True:
-                res = self.server.dequeue(self.params['client'])
-                if res is not None or time.time() - t > 3.0:
-                    break
-                else:
-                    time.sleep(0.1)
-            if res is None:
-                self.send_response(httplib.PROCESSING)
-                self.end_headers()
-            else:
-                buf = ''.join(res)
-                digest = hashlib.sha1()
-                digest.update(buf)
+            if self.parsed_path.path == "/":
                 self.send_response(httplib.OK)
                 self.end_headers()
-                self.wfile.write(digest.digest())
-                self.wfile.write(buf)
+                self.wfile.write('%s, started %s\n\nActive cores:\n' % (self.server.name, time.ctime(self.server.started)))
+                for i, core in enumerate(self.server.cp.cores):
+                    self.wfile.write(" #%i '%s', did %i PMKs so far\n" % (i, core, core.getStats()[0]))
+                self.wfile.write('\nActive clients:\n')
+                for i, (name, joined, lastseen, inCount, outCount) in enumerate(self.server.getClientStats()):
+                    self.wfile.write(" #%i '%s'\n  Joined %s, last seen %s\n  %i passwords queued, %i processed\n\n" %
+                                        (i, name, time.ctime(joined), time.ctime(lastseen), inCount, outCount))
 
-    def do_GET(self):
-        self.parsed_path = urlparse.urlparse(self.path)
-        self.params = {}
-        if len(self.parsed_path.query) > 0:
-            self.params.update([x.split('=') for x in self.parsed_path.query.split("&")])
-        if self.parsed_path.path == "/":
-            self._root()
-        elif self.parsed_path.path == "/ENQUEUE":
-            self._enqueue()
-        elif self.parsed_path.path == "/DEQUEUE":
-            self._dequeue()
-        elif self.parsed_path.path == "/REGISTER":
-            self._register()
-        else:
-            self.send_response(httplib.NOT_FOUND)
-            self.end_headers()
-    do_POST = do_GET
+            elif self.parsed_path.path == "/ENQUEUE":
+                if 'client' not in self.params or self.params['client'] not in self.server.clients:
+                    self.send_response(httplib.FORBIDDEN)
+                    self.end_headers()
+                else:
+                    buf = self.rfile.read(int(self.headers.getheader('Content-Length')))
+                    digest = hashlib.sha1()
+                    essid, pwbuffer = buf[digest.digest_size:].split('\n', 1)
+                    digest.update(essid)
+                    digest.update(pwbuffer)
+                    if digest.digest() != buf[:digest.digest_size]:
+                        raise Exception, "Digest check failed."
+                    self.server.enqueue(self.params['client'], essid, zlib.decompress(pwbuffer).split('\n'))
+                    self.send_response(httplib.OK)
+                    self.end_headers()
+                    self.wfile.write(str(len(self.server)))
 
+            elif self.parsed_path.path == "/DEQUEUE":
+                if 'client' not in self.params or self.params['client'] not in self.server.clients:
+                    self.send_response(httplib.FORBIDDEN)
+                    self.end_headers()
+                else:
+                    t = time.time()
+                    while True:
+                        res = self.server.dequeue(self.params['client'])
+                        if res is not None or time.time() - t > 3.0:
+                            break
+                        else:
+                            time.sleep(0.1)
+                    if res is None:
+                        self.send_response(httplib.PROCESSING)
+                        self.end_headers()
+                    else:
+                        buf = ''.join(res)
+                        digest = hashlib.sha1()
+                        digest.update(buf)
+                        self.send_response(httplib.OK)
+                        self.end_headers()
+                        self.wfile.write(digest.digest())
+                        self.wfile.write(buf)
 
-class PyritServerCleaner(threading.Thread):
-    def __init__(self, server):
-        threading.Thread.__init__(self)
-        self.server = server
-        self.setDaemon(True)
-        self.start()
-        
-    def run(self):
-        while True:
-            self.server.cv.acquire()
-            try:
-                for client, (host, timestamp, queue) in self.server.clients.items():
-                    if time.time() - timestamp > 60:
-                        del self.server.clients[client]
-            finally:
-                self.server.cv.release()
-            time.sleep(5)
+            elif self.parsed_path.path == "/REGISTER":
+                client = self.server.registerClient(self.client_address[0])
+                self.send_response(httplib.OK)
+                self.end_headers()
+                self.wfile.write(client.uuid)
 
+            else:
+                self.send_response(httplib.NOT_FOUND)
+                self.end_headers()
+        do_POST = do_GET
 
-class PyritServer(BaseHTTPServer.HTTPServer):
+    class PyritServerCleaner(threading.Thread):
+        def __init__(self, server):
+            threading.Thread.__init__(self)
+            self.server = server
+            self.setDaemon(True)
+            self.start()
+            
+        def run(self):
+            while True:
+                self.server.cv.acquire()
+                try:
+                    for client_uuid, client in self.server.clients.items():
+                        if time.time() - client.lastseen > 60:
+                            del self.server.clients[client_uuid]
+                finally:
+                    self.server.cv.release()
+                time.sleep(15)
+
+    class PyritClient(object):
+        def __init__(self, host):
+            self.host = host
+            self.uuid = str(uuid.uuid4())
+            self.joined = self.lastseen = time.time()
+            self.inCount = self.outCount = 0
+            self.outQueue = []
+            
+        def __repr__(self):
+            return '%s@%s' % (self.host, self.uuid)
+
     def __init__(self):
-        print "Booting...",
-        BaseHTTPServer.HTTPServer.__init__(self, ('', 19935), PyritHandler)
-        import cpyrit
-        self.cp = cpyrit.CPyrit()
-        self.cp._autoconfig(ignore_types='NET')
-        self.name = "Pyrit 0.2.3-dev (%i cores)" % len(self.cp.availableCores())
-        print self.name
-        for core in self.cp.cores:
-            print core
+        BaseHTTPServer.HTTPServer.__init__(self, ('', 19935), PyritServer.PyritHandler)
+        self.started = time.time()
         self.clients = {}
         self.wu_clients = []
         self.cv = threading.Condition()
-        self.cleaner = PyritServerCleaner(self)
+        import cpyrit
+        self.cp = cpyrit.CPyrit()
+        self.cp._autoconfig(ignore_types='NET')
+        self.name = "Pyrit 0.2.3-dev"
+        self.cleaner = PyritServer.PyritServerCleaner(self)
 
-    def register_client(self, host):
+    def registerClient(self, host):
         self.cv.acquire()
         try:
-            client_uuid = str(uuid.uuid4())
-            self.clients[client_uuid] = [host, time.time(), []]
-            return client_uuid
+            client = PyritServer.PyritClient(host)
+            self.clients[client.uuid] = client
+            return client
+        finally:
+            self.cv.release()
+    
+    def getClientStats(self):
+        self.cv.acquire()
+        try:
+            return tuple([(str(c), c.joined, c.lastseen, c.inCount, c.outCount) for c in self.clients.itervalues()])
         finally:
             self.cv.release()
 
-    def enqueue(self, client, essid, passwordlist):
+    def enqueue(self, client_uuid, essid, passwordlist):
         assert self.cleaner.isAlive()
         self.cv.acquire()
         try:
-            if client not in self.clients:
+            if client_uuid not in self.clients:
                 raise KeyError, "Client not registered"
+            client = self.clients[client_uuid]
             self.cp.enqueue(essid, passwordlist, block=False)
-            self.wu_clients.append(client)
-            self.clients[client][1] = time.time()
+            self.wu_clients.append(client_uuid)
+            client.lastseen = time.time()
+            client.inCount += len(passwordlist)
         finally:
             self.cv.release()
         
-    def dequeue(self, client):
+    def dequeue(self, client_uuid):
         assert self.cleaner.isAlive()
         self.cv.acquire()
         try:
-            if client not in self.clients:
+            if client_uuid not in self.clients:
                 raise KeyError, "Client not registered"
             while True:
                 results = self.cp.dequeue(block=False)
                 if results is None:
                     break
                 else:
-                    wu_client = self.wu_clients.pop(0)
-                    if wu_client in self.clients:
-                        self.clients[wu_client][2].append(results)
-            self.clients[client][1] = time.time()
-            if len(self.clients[client][2]) > 0:
-                return self.clients[client][2].pop(0)
+                    wu_client_uuid = self.wu_clients.pop(0)
+                    if wu_client_uuid in self.clients:
+                        wu_client = self.clients[wu_client_uuid]
+                        wu_client.outQueue.append(results)
+                        wu_client.outCount += len(results)
+            client = self.clients[client_uuid]
+            client.lastseen = time.time()
+            if len(client.outQueue) > 0:
+                return client.outQueue.pop(0)
             else:
                 return None
         finally:
             self.cv.release() 
 
+    def __len__(self):
+        self.cv.acquire()
+        try:
+            return len(self.cp)
+        finally:
+            self.cv.release()
 
 if __name__ == "__main__":
     try:

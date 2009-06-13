@@ -243,6 +243,7 @@ class NetworkCore(Core):
         req = urllib2.urlopen('http://%s:19935/ENQUEUE?client=%s' % (self.host, self.uuid), digest.digest() + '\n'.join((essid, pwbuffer)))
         if req.code != httplib.OK:
             raise Exception, "Enqueue on host '%s' failed with status %s (%s)" % (self.host, req.code, req.msg)
+        return int(req.read())
     
     def _dequeue_from_host(self):
         try:
@@ -274,30 +275,40 @@ class NetworkCore(Core):
             else:
                 self.uuid = req.read()
                 break
+        self._enqueue_on_host(TV_ESSID, [TV_PASSWD]*101)
         while True:
-            if len(workbuffer) < 3:
+            res = self._dequeue_from_host()
+            if res is not None:
+                break
+        for pmk in res:
+            if tuple(map(ord, pmk)) != TV_PMK:
+                raise Exception, "Test-vector does not result in correct result."
+        
+        server_queue_length = 0
+        while True:
+            if server_queue_length < 3:
                 for essid, pwlist, slicelist in self._gather():
                     workbuffer.append(slicelist)
-                    self._enqueue_on_host(essid, pwlist)
+                    server_queue_length = self._enqueue_on_host(essid, pwlist)
             if len(workbuffer) != 0:
                 t = time.time()
                 results = self._dequeue_from_host()
                 self.compTime += time.time() - t
                 if results is not None:
+                    server_queue_length -= 1
                     for wu_idx, start, length in workbuffer.pop(0):
                         self.callback(wu_idx, results[start:start+length])
                     self.resCount += len(results)
-                else:
-                    if len(workbuffer) >= 3:
-                        time.sleep(0.1)
 
 hostfile = os.path.expanduser(os.path.join('~','.pyrit','hosts'))
 if os.path.exists(hostfile):
-    f = open(hostfile, "r")
-    for host in set([host.strip() for host in f]):
+    for host in set([host.strip() for host in open(hostfile, "r") if len(host.strip()) > 0 and not host.startswith('#')]):
         _avail_cores.append(('NET', NetworkCore, "Network-Core @%s" % (host), {'host': host}))
+else:
+    f = open(hostfile, "w")
+    f.write('## List of known Pyrit-servers; one IP/hostname per line...\n'
+            '## lines that start with # are ignored.\n')
     f.close()
-
 
 ## The CPyrit-class puts everything together...
 class CPyrit(object):
@@ -334,11 +345,10 @@ class CPyrit(object):
     def _autoconfig(self, ignore_types=()):
         ncpus = self._detect_ncpus()
         for coretype, coreclass, name, kwargs in _avail_cores:
-            if coretype == 'GPU' and coretype not in ignore_types:
+            if coretype not in ignore_types and coretype != 'CPU':
                 self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
-                ncpus -= 1
-            elif coretype == 'NET' and coretype not in ignore_types:
-                self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
+                if coretype == 'GPU':
+                    ncpus -= 1
         coretype, coreclass, name, kwargs = _avail_cores[0]
         for i in xrange(ncpus):
             self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
