@@ -300,7 +300,10 @@ class NetworkCore(Core):
                         self.callback(wu_idx, results[start:start+length])
                     self.resCount += len(results)
 
-hostfile = os.path.expanduser(os.path.join('~','.pyrit','hosts'))
+configpath = os.path.expanduser(os.path.join('~','.pyrit','hosts'))
+if not os.path.exists(configpath):
+        os.makedirs(configpath)
+hostfile = os.path.join(configpath, "hosts")
 if os.path.exists(hostfile):
     for host in set([host.strip() for host in open(hostfile, "r") if len(host.strip()) > 0 and not host.startswith('#')]):
         _avail_cores.append(('NET', NetworkCore, "Network-Core @%s" % (host), {'host': host}))

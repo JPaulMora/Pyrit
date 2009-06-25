@@ -360,8 +360,8 @@ static PyTypeObject OpenCLDevice_type = {
     0,                          /*tp_hash*/
     0,                          /*tp_call*/
     0,                          /*tp_str*/
-    PyObject_GenericGetAttr,    /*tp_getattro*/
-    PyObject_GenericSetAttr,    /*tp_setattro*/
+    0,                          /*tp_getattro*/
+    0,                          /*tp_setattro*/
     0,                          /*tp_as_buffer*/
     Py_TPFLAGS_DEFAULT,         /*tp_flags*/
     0,                          /*tp_doc*/
@@ -380,9 +380,9 @@ static PyTypeObject OpenCLDevice_type = {
     0,                          /*tp_descr_set*/
     0,                          /*tp_dictoffset*/
     (initproc)opencldev_init,   /*tp_init*/
-    PyType_GenericAlloc,        /*tp_alloc*/
-    PyType_GenericNew,          /*tp_new*/
-    _PyObject_Del,              /*tp_free*/
+    0,                          /*tp_alloc*/
+    0,                          /*tp_new*/
+    0,                          /*tp_free*/
     0,                          /*tp_is_gc*/
 };
 
@@ -441,7 +441,12 @@ init_cpyrit_opencl(void)
         return;
     }
     inflateEnd(&zst);
-    
+
+    OpenCLDevice_type.tp_getattro = PyObject_GenericGetAttr;
+    OpenCLDevice_type.tp_setattro = PyObject_GenericSetAttr;
+    OpenCLDevice_type.tp_alloc  = PyType_GenericAlloc;
+    OpenCLDevice_type.tp_new = PyType_GenericNew;
+    OpenCLDevice_type.tp_free = _PyObject_Del;
     if (PyType_Ready(&OpenCLDevice_type) < 0)
     {
         free(OpenCLDevices);

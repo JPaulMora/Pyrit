@@ -40,7 +40,7 @@ import zlib
 class AsyncFileWriter(threading.Thread):
     def __init__(self, filehndl, maxsize=10*1024**2):
         threading.Thread.__init__(self)
-        self.running = True
+        self.shallstop = False
         self.filehndl = filehndl
         self.maxsize = maxsize
         self.excp = None
@@ -50,22 +50,37 @@ class AsyncFileWriter(threading.Thread):
         
     def close(self):
         self.cv.acquire()
-        self.running = False
-        while self.isAlive():
-            self.cv.wait(0.5)
-        self.cv.release()
-        self._raise()
+        try:
+            self.shallstop = True
+            while self.isAlive():
+                self.cv.wait()
+            self._flush()
+            self._raise()
+        finally:
+            self.cv.release()
 
     def write(self, buf):
-        self._raise()
-        if not self.running:
-            raise Exception, "Writer has already been closed."
         self.cv.acquire()
-        while self.running and self.buf.tell() > self.maxsize:
-            self.cv.wait(0.05)
-        self.buf.write(buf)
-        self.cv.notifyAll()
-        self.cv.release()
+        try:
+            self._raise()
+            while True:
+                if not self.isAlive() or self.shallstop:
+                    raise Exception, "Writer has already been closed."
+                if self.buf.tell() > self.maxsize:
+                    self.cv.wait(1)
+                else:
+                    break
+            self.buf.write(buf)
+            self.cv.notifyAll()
+        finally:
+            self.cv.release()
+
+    def flush(self):
+        self.cv.acquire()
+        try:
+            self._flush()
+        finally:
+            self.cv.release()
 
     def _raise(self):
         if self.excp:
@@ -78,24 +93,25 @@ class AsyncFileWriter(threading.Thread):
             if len(buf) > 0:
                 self.filehndl.write(buf)
         except Exception, e:
-            self.running = False
+            self.shallstop = True
             self.excp = e
 
+    def _flush(self):
+        while self.isAlive() and self.buf.tell() != 0:
+            self.cv.wait(1)
+
     def run(self):
-        while self.running:
+        while not self.shallstop:
             self.cv.acquire()
-            while self.running and self.buf.tell() == 0:
-                self.cv.wait(0.05)
-            buf = self.buf.getvalue()
-            self.buf = cStringIO.StringIO()
-            self.cv.notifyAll()
-            self.cv.release()
+            try:
+                while self.buf.tell() == 0 and not self.shallstop:
+                    self.cv.wait(1)
+                buf = self.buf.getvalue()
+                self.buf = cStringIO.StringIO()
+                self.cv.notifyAll()
+            finally:
+                self.cv.release()
             self._write(buf)
-        self.cv.acquire()
-        buf = self.buf.getvalue()
-        self.cv.release()
-        self._write(buf)
-        self.filehndl.flush()
 
 
 class Pyrit_CLI(object):
@@ -338,11 +354,12 @@ class Pyrit_CLI(object):
                     break
             for r in cp:
                 awriter.write(self._genCowpEntries(itertools.izip(workunits.pop(0), r)))
+            f.close()
+            awriter.close()
+        except (KeyboardInterrupt, SystemExit):
+            self.tell("Exiting...")
         except IOError:
             self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
-        finally:
-            awriter.close()
-            f.close()
 
     def export_hashdb(self):
         if self.options.file is None:
