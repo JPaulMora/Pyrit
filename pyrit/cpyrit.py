@@ -25,218 +25,163 @@ import Queue
 import time
 import threading
 import urllib2
-import zlib
 
-try:
-    import _cpyrit
-except ImportError:
-    print >>sys.stderr, "Failed to load the internal _cpyrit module. Check your installation."
-    raise
+import _cpyrit
 
-TV_ESSID = 'foo'
-TV_PASSWD = 'barbarbar'
-TV_PMK = (6,56,101,54,204,94,253,3,243,250,132,170,142,162,204,132,8,151,61,243,75,216,75,83,128,110,237,48,35,205,166,126)
-def _testComputeFunction(func, i):
-    for pmk in func(TV_ESSID, [TV_PASSWD]*i):
-        if tuple(map(ord, pmk)) != TV_PMK:
-            raise Exception, "Test-vector does not result in correct result."
-
-_avail_cores = []
+# Snippet taken from ParallelPython
+def _detect_ncpus():
+    """Detect the number of effective CPUs in the system"""
+    # For Linux, Unix and MacOS
+    if hasattr(os, "sysconf"):
+        if "SC_NPROCESSORS_ONLN" in os.sysconf_names:
+            #Linux and Unix
+            ncpus = os.sysconf("SC_NPROCESSORS_ONLN")
+            if isinstance(ncpus, int) and ncpus > 0:
+                return ncpus
+        else:
+            #MacOS X
+            return int(os.popen2("sysctl -n hw.ncpu")[1].read())
+    #for Windows
+    if "NUMBER_OF_PROCESSORS" in os.environ:
+        ncpus = int(os.environ["NUMBER_OF_PROCESSORS"])
+        if ncpus > 0:
+            return ncpus
+    #return the default value
+    return 1
 
 
 class Core(threading.Thread):
-    def __init__(self, inQueue, callback, name, **kwargs):
+    TV_ESSID = 'foo'
+    TV_PASSWD = 'barbarbar'
+    TV_PMK = (6,56,101,54,204,94,253,3,243,250,132,170,142,162,204,132,8,
+            151,61,243,75,216, 75,83,128,110,237,48,35,205,166,126)
+    def __init__(self, queue):
         threading.Thread.__init__(self)
-        self.name = name
-        self.minBufferSize = 20000
-        self.inQueue = inQueue
-        self.callback = callback
-        self.resCount = 0
+        self.queue = queue
         self.compTime = 0
+        self.resCount = 0
         self.setDaemon(True)
 
-    def _gather(self):
-            essid_dict = {}
-            while sum((len(pwlist) for pwlist,slices in essid_dict.itervalues())) < self.minBufferSize:
-                try:
-                    wu_idx, (wu_essid, wu_pwlist) = self.inQueue.get(block=len(essid_dict) == 0, timeout=1.0)
-                    try:
-                        pwlist, slices = essid_dict[wu_essid]
-                    except KeyError:
-                        essid_dict[wu_essid] = (pwlist, slices) = [], []
-                    slices.append((wu_idx, len(pwlist), len(wu_pwlist)))
-                    pwlist.extend(wu_pwlist)
-                except Queue.Empty:
-                    break
-            for essid, (pwlist, slicelist) in essid_dict.iteritems():
-                yield essid, pwlist, slicelist
-
+    def _testComputeFunction(self, i):
+        return
+        if any((tuple(map(ord, pmk)) != Core.TV_PMK for pmk in self.solve(Core.TV_ESSID, [Core.TV_PASSWD]*i))):
+            raise Exception, "Test-vector does not result in correct result."
+            
     def run(self):
+        self._testComputeFunction(101)
         while True:
-            for essid, pwlist, slicelist in self._gather():
-                t = time.time()
-                results = self.solve(essid, pwlist)
-                self.compTime += time.time() - t
-                for wu_idx, start, length in slicelist:
-                    self.callback(wu_idx, results[start:start+length])
-                self.resCount += len(results)
+            essid, pwlist = self.queue._gather(self.buffersize)
+            t = time.time()
+            res = self.solve(essid, pwlist)
+            self.compTime += time.time() - t
+            self.resCount += len(res)
+            self.buffersize = int(max(128, min(20480, (2 * self.buffersize + (self.resCount / self.compTime * 3.0)) / 3)))
+            self.queue._scatter(essid, pwlist, res)
 
-    def __repr__(self):
+    def __str__(self):
         return self.name
-
+        
     def getStats(self):
         return (self.resCount, self.compTime)
 
 
-## Create the CPU-driven core
+## CPU
 try:
     from _cpyrit import _cpyrit_cpu
-    _testComputeFunction(_cpyrit_cpu.calc_pmklist, 21)
 except:
     print >>sys.stderr, "Failed to load Pyrit's CPU-driven core; this module should always be available. Sorry, we can't continue."
     raise
 class CPUCore(Core):
-    def __init__(self, inqueue, callback, name):
-        Core.__init__(self, inqueue, callback, name)
-        self.minBufferSize = 500
+    def __init__(self, queue):
+        Core.__init__(self, queue)
+        self.buffersize = 512
+        self.name = "CPU-Core (%s)" % _cpyrit_cpu.getPlatform()
         self.start()
-
-    def solve(self, essid, passwordlist):
-        return _cpyrit_cpu.calc_pmklist(essid, passwordlist)
-
-_avail_cores.append(('CPU', CPUCore, "CPU-Core (%s)" % _cpyrit_cpu.getPlatform(), {}))
+        
+    def solve(self, essid, pwlist):
+        return _cpyrit_cpu.calc_pmklist(essid, pwlist)
 
 
-## Try creating the CUDA-Core. Failure is acceptable.
+## CUDA
 try:
     from _cpyrit import _cpyrit_cuda
 except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
-else:
-    class CUDACore(Core):
-        def __init__(self, inqueue, callback, name, dev):
-            Core.__init__(self, inqueue, callback, name)
-            self.CUDADev = _cpyrit_cuda.CUDADevice(dev)
-            self.minBufferSize = 20480
-            self.buffersize = 2048
-            self.start()
-            
-        def solve(self, essid, passwordlist):
-            # The kernel allows a max. execution time of 5 seconds per call (when X11 is loaded) so we have to
-            # limit the input-buffer to some degree. However the size of the input-buffer is crucial
-            # to overall performance. Therefor buffersize is to be calibrated somewhere near
-            # it's maximum value allowed. Target is 3.0 seconds execution time.
-            res = []
-            i = 0
-            while i < len(passwordlist):
-                t = time.time()
-                pwslice = passwordlist[i:i+self.buffersize]
-                res.extend(self.CUDADev.calc_pmklist(essid, pwslice))
-                i += self.buffersize
-                if len(pwslice) >= 2048:
-                    self.buffersize = int(max(2048, min(20480, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
-            return tuple(res)
-    
-    for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
-        try:
-            d = _cpyrit_cuda.CUDADevice(dev_idx)
-            _testComputeFunction(d.calc_pmklist, 101)
-        except Exception, e:
-            print >>sys.stderr, "Failed to load CUDA-device '%s': '%s'" % (device[0], e)
-        else:
-            _avail_cores.append(('GPU', CUDACore, "CUDA-Device #%i '%s'" % (dev_idx+1,device[0]), {'dev':dev_idx}))
+class CUDACore(Core):
+    def __init__(self, queue, dev_idx):
+        Core.__init__(self, queue)
+        self.name = "CUDA-Device #%i '%s'" % (dev_idx+1, _cpyrit_cuda.listDevices()[dev_idx][0])
+        self.CUDADev = _cpyrit_cuda.CUDADevice(dev_idx)
+        self.buffersize = 4096
+        self.start()
+        
+    def solve(self, essid, pwlist):
+        return self.CUDADev.calc_pmklist(essid, pwlist)
 
 
-## Try creating the OpenCL-Core. Failure is acceptable.
+## OpenCL
 try:
     from _cpyrit import _cpyrit_opencl
 except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
-else:
-    class OpenCLCore(Core):
-        def __init__(self, inqueue, callback, name, dev):
-            Core.__init__(self, inqueue, callback, name)
-            self.OpenCLDev = _cpyrit_opencl.OpenCLDevice(dev)
-            self.minBufferSize = 20480
-            self.buffersize = 2048
-            self.start()
-            
-        def solve(self, essid, passwordlist):
-            res = []
-            i = 0
-            while i < len(passwordlist):
-                t = time.time()
-                pwslice = passwordlist[i:i+self.buffersize]
-                res.extend(self.OpenCLDev.calc_pmklist(essid, pwslice))
-                i += self.buffersize
-                if len(pwslice) >= 2048:
-                    self.buffersize = int(max(2048, min(20480, (2 * self.buffersize + (3.0 / (time.time() - t) * self.buffersize)) / 3)))
-            return tuple(res)
-    
-    for dev_idx, device in enumerate(_cpyrit_opencl.listDevices()):
-        if device[1] != 'NVIDIA Corporation' or '_cpyrit._cpyrit_cuda' not in sys.modules:
-            try:
-                d = _cpyrit_opencl.OpenCLDevice(dev_idx)
-                _testComputeFunction(d.calc_pmklist, 101)
-            except Exception, e:
-                print >>sys.stderr, "Failed to load OpenCL-device '%s': '%s'" % (device[0], e)
-            else:
-                _avail_cores.append(('GPU', OpenCLCore, "OpenCL-Device #%i '%s'" % (dev_idx+1, device[0]), {'dev':dev_idx}))
+class OpenCLCore(Core):
+    def __init__(self, queue, dev_idx):
+        Core.__init__(self, queue)
+        self.name = "OpenCL-Device #%i '%s'" % (dev_idx+1, _cpyrit_opencl.listDevices()[dev_idx][0])
+        self.OpenCLDev = _cpyrit_opencl.OpenCLDevice(dev_idx)
+        self.buffersize = 4096
+        self.start()
+        
+    def solve(self, essid, pwlist):
+        return self.OpenCLDev.calc_pmklist(essid, pwlist)
 
 
-## Try creating the Stream-Core. Failure is acceptable.
+## Stream
 try:
     from _cpyrit import _cpyrit_stream
-    _testComputeFunction(_cpyrit_stream.calc_pmklist, 101)
 except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
-else:
-    class StreamCore(Core):
-        def __init__(self, inqueue, callback, name, dev):
-            Core.__init__(self, inqueue, callback, name)
-            self.dev = dev
-            self.minBufferSize = 20480
-            self.start()
+class StreamCore(Core):
+    def __init__(self, queue, dev_idx):
+        Core.__init__(self, queue)
+        self.name = "ATI-Stream device %i" % dev_idx+1
+        self.dev_idx = dev_idx
+        self.start()
 
-        def run(self):
-            _cpyrit_stream.setDevice(self.dev)
-            Core.run(self)
+    def run(self):
+        _cpyrit_stream.setDevice(self.dev_idx)
+        self._testComputeFunction(101)
+        while True:
+            essid, pwlist = self.queue._gather(8192)
+            t = time.time()
+            res = self.solve(essid, pwlist)
+            self.compTime += time.time() - t
+            self.resCount += len(res)
+            self.queue._scatter(essid, pwlist, res)
 
-        def solve(self, essid, passwordlist):
-            res = []
-            i = 0
-            while i < len(passwordlist):
-                res.extend(_cpyrit_stream.calc_pmklist(essid, passwordlist[i:i+8192]))
-                i += 8192
-            return tuple(res)
-
-    for dev_idx in range(_cpyrit_stream.getDeviceCount()):
-        try:
-            d = _cpyrit_stream.StreamCore(dev_idx)
-            _testComputeFunction(d.calc_pmklist, 101)
-        except Exception, e:
-            print >>sys.stderr, "Failed to load Stream-device '%s': '%s'" % (device[0], e)
-        else:        
-            _avail_cores.append(('GPU', StreamCore, "AMD-Stream device #%i" % dev_idx, {'dev':dev_idx}))
+    def solve(self, essid, pwlist):
+        assert len(pwlist) <= 8192
+        return _cpyrit_stream.calc_pmklist(essid, pwlist)
 
 
-## Create Network-Cores as described in the config-file.
+## Network
 class NetworkCore(Core):
-    def __init__(self, inqueue, callback, name, host):
-        Core.__init__(self, inqueue, callback, name)
-        self.minBufferSize = 20480
+    def __init__(self, queue, host):
+        Core.__init__(self, queue)
+        self.name = "Network-Core @%s" % host
+        self.buffersize = 20480
         self.host = host
         self.uuid = None
         self.start()
     
     def _enqueue_on_host(self, essid, pwlist):
-        pwbuffer = zlib.compress('\n'.join(pwlist), 1)
+        pwbuffer = '\n'.join(pwlist)
         digest = hashlib.sha1()
         digest.update(essid)
         digest.update(pwbuffer)
@@ -275,144 +220,236 @@ class NetworkCore(Core):
             else:
                 self.uuid = req.read()
                 break
-        self._enqueue_on_host(TV_ESSID, [TV_PASSWD]*101)
+        self._enqueue_on_host(Core.TV_ESSID, [Core.TV_PASSWD]*101)
         while True:
             res = self._dequeue_from_host()
             if res is not None:
                 break
-        for pmk in res:
-            if tuple(map(ord, pmk)) != TV_PMK:
-                raise Exception, "Test-vector does not result in correct result."
-        
+        if any((tuple(map(ord, pmk)) != Core.TV_PMK for pmk in res)):
+            raise Exception, "Test-vector does not result in correct result."
+
         server_queue_length = 0
         while True:
-            if server_queue_length < 3:
-                for essid, pwlist, slicelist in self._gather():
-                    workbuffer.append(slicelist)
-                    server_queue_length = self._enqueue_on_host(essid, pwlist)
-            if len(workbuffer) != 0:
-                t = time.time()
-                results = self._dequeue_from_host()
-                self.compTime += time.time() - t
-                if results is not None:
-                    server_queue_length -= 1
-                    for wu_idx, start, length in workbuffer.pop(0):
-                        self.callback(wu_idx, results[start:start+length])
-                    self.resCount += len(results)
+            if server_queue_length < 50000:
+                essid, worklist = self.queue._gather(8192)
+                workbuffer.append(worklist)
+                pwlist = []
+                for r, pwslice in worklist:
+                    pwlist.extend(pwslice)
+                server_queue_length = self._enqueue_on_host(essid, pwlist)
+            t = time.time()
+            results = self._dequeue_from_host()
+            self.compTime += time.time() - t
+            if results is not None:
+                server_queue_length -= len(results)
+                self.resCount += len(results)
+                self.queue._scatter(workbuffer.pop(0), results)
 
-configpath = os.path.expanduser(os.path.join('~','.pyrit','hosts'))
-if not os.path.exists(configpath):
-        os.makedirs(configpath)
-hostfile = os.path.join(configpath, "hosts")
-if os.path.exists(hostfile):
-    for host in set([host.strip() for host in open(hostfile, "r") if len(host.strip()) > 0 and not host.startswith('#')]):
-        _avail_cores.append(('NET', NetworkCore, "Network-Core @%s" % (host), {'host': host}))
-else:
-    f = open(hostfile, "w")
-    f.write('## List of known Pyrit-servers; one IP/hostname per line...\n'
-            '## lines that start with # are ignored.\n')
-    f.close()
 
-## The CPyrit-class puts everything together...
 class CPyrit(object):
-    def __init__(self):
-        self.inqueue = Queue.Queue()
-        self.outbuffer = {}
-        self.cv = threading.Condition()
+    def __init__(self, maxBufferSize=50000):
+        self.inqueue = []
+        self.outqueue = {}
+        self.workunits = []
+        self.slices = {}
         self.in_idx = 0
         self.out_idx = 0
-        self.maxSize = 5
+        self.maxBufferSize = maxBufferSize
         self.cores = []
+        self.cv = threading.Condition()
 
-    # Snippet taken from ParallelPython
-    def _detect_ncpus(self):
-        """Detect the number of effective CPUs in the system"""
-        # For Linux, Unix and MacOS
-        if hasattr(os, "sysconf"):
-            if "SC_NPROCESSORS_ONLN" in os.sysconf_names:
-                #Linux and Unix
-                ncpus = os.sysconf("SC_NPROCESSORS_ONLN")
-                if isinstance(ncpus, int) and ncpus > 0:
-                    return ncpus
-            else:
-                #MacOS X
-                return int(os.popen2("sysctl -n hw.ncpu")[1].read())
-        #for Windows
-        if "NUMBER_OF_PROCESSORS" in os.environ:
-            ncpus = int(os.environ["NUMBER_OF_PROCESSORS"])
-            if ncpus > 0:
-                return ncpus
-        #return the default value
-        return 1
+        ncpus = _detect_ncpus()
+        # CUDA
+        if '_cpyrit._cpyrit_cuda' in sys.modules:
+            for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
+                self.cores.append(CUDACore(queue=self, dev_idx=dev_idx))
+        # OpenCL
+        if '_cpyrit._cpyrit_opencl' in sys.modules:
+            for dev_idx, device in enumerate(_cpyrit_opencl.listDevices()):
+                if device[1] != 'NVIDIA Corporation' or '_cpyrit._cpyrit_cuda' not in sys.modules:
+                    self.cores.append(OpenCLCore(queue=self, dev_idx=dev_idx))
+        # ATI
+        if '_cpyrit._cpyrit_stream' in sys.modules:
+            for dev_idx in xrange(_cpyrit_stream.getDeviceCount()):
+                self.cores.append(StreamCore(queue=self, dev_idx=dev_idx))
+        #CPUs
+        for i in xrange(ncpus - (1 if len(self.cores) > 0 else 0)):
+            self.cores.append(CPUCore(queue=self))
+        #Network
+        configpath = os.path.expanduser(os.path.join('~','.pyrit'))
+        if not os.path.exists(configpath):
+            os.makedirs(configpath)
+        hostfile = os.path.join(configpath, "hosts")
+        if os.path.exists(hostfile):
+            hosts = set()
+            for host in open(hostfile, "r"):
+                if not host.startswith('#') and len(host.strip()) > 0:
+                    hosts.add(host.strip())
+            for host in hosts:
+                self.cores.append(NetworkCore(queue=self, host=host))
+        else:
+            f = open(hostfile, "w")
+            f.write('## List of known Pyrit-servers; one IP/hostname per line...\n'
+                    '## lines that start with # are ignored.\n')
+            f.close()
 
-    def _autoconfig(self, ignore_types=()):
-        ncpus = self._detect_ncpus()
-        for coretype, coreclass, name, kwargs in _avail_cores:
-            if coretype not in ignore_types and coretype != 'CPU':
-                self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
-                if coretype == 'GPU':
-                    ncpus -= 1
-        coretype, coreclass, name, kwargs = _avail_cores[0]
-        for i in xrange(ncpus):
-            self.cores.append(coreclass(self.inqueue, self._res_callback, name, **kwargs))
-    
-    def _res_callback(self, wu_idx, results):
-        self.cv.acquire()
-        try:
-            assert wu_idx not in self.outbuffer
-            self.outbuffer[wu_idx] = results
-            self.cv.notifyAll()
-        finally:
-            self.cv.release()
- 
     def _check_cores(self):
-        if len(self.cores) == 0:
-            self._autoconfig()
         for core in self.cores:
             if not core.isAlive():
                 raise SystemError, "The core '%s' has died unexpectedly." % core
-    
+
+    def _len(self):
+        return sum((sum((len(pwlist) for pwlist in pwdict.itervalues())) for essid, pwdict in self.inqueue))
+
+    def __len__(self):
+        self.cv.acquire()
+        try:
+            return self._len()
+        finally:
+            self.cv.release()
+
+    def __iter__(self):
+        while True:
+            r = self.dequeue(block=True)
+            if r is None:
+                break
+            yield r
+
     def availableCores(self):
         self._check_cores()
         return tuple([core.name for core in self.cores])
-    
-    def enqueue(self, essid, passwordlist, block=False):
+
+    def enqueue(self, essid, passwords, block=False):
         self.cv.acquire()
         try:
-            if block:
-                while self.inqueue.qsize() > self.maxSize:
-                    self.cv.wait(0.05)
+            if self.maxBufferSize and block:
+                while self._len() > self.maxBufferSize:
+                    self.cv.wait(5)
                     self._check_cores()
-            self.inqueue.put((self.in_idx, (essid, passwordlist)))
-            self.in_idx += 1;
+            passwordlist = list(passwords)
+            if len(self.inqueue) > 0 and self.inqueue[-1][0] == essid:
+                self.inqueue[-1][1][self.in_idx] = passwordlist
+            else:
+                self.inqueue.append((essid, {self.in_idx: passwordlist}))
+            self.workunits.append(len(passwordlist))
+            self.in_idx += len(passwordlist)
+            self.cv.notifyAll()
         finally:
             self.cv.release()
         
     def dequeue(self, block=True, timeout=None):
         self.cv.acquire()
+        t = time.time()
         try:
-            assert self.out_idx <= self.in_idx
-            if self.out_idx == self.in_idx or (self.out_idx not in self.outbuffer and not block):
-                return None
-            t = time.time()
-            while self.out_idx not in self.outbuffer:
-                self.cv.wait(0.05)
-                self._check_cores()
-                if timeout is not None and time.time() - t > timeout:
-                    return None
-            results = self.outbuffer.pop(self.out_idx)
-            self.out_idx += 1
-            return results
+            if len(self.workunits) == 0:
+                return
+            while True:
+                wu_length = self.workunits[0]
+                print [(idx, len(pwlen)) for idx, pwlen in self.outqueue.iteritems()]
+                if self.out_idx not in self.outqueue or len(self.outqueue[self.out_idx]) < wu_length:
+                    if block:
+                        if timeout:
+                            while time.time() - t > timeout:
+                                self.cv.wait(0.1)
+                                if self.out_idx in self.outqueue and len(self.outqueue[self.out_idx]) >= wu_length:
+                                    break
+                            else:
+                                return None
+                        else:
+                            self.cv.wait()
+                    else:
+                        return None
+                else:
+                    reslist = self.outqueue[self.out_idx]
+                    del self.outqueue[self.out_idx]
+                    results = reslist[:wu_length]
+                    self.out_idx += wu_length
+                    self.outqueue[self.out_idx] = reslist[wu_length:]
+                    self.workunits.pop(0)
+                    return tuple(results)
         finally:
-            self.cv.release() 
+            self.cv.release()
+        
+    def _gather(self, desired_size):
+        self.cv.acquire()
+        try:
+            passwords = []
+            pwslices = []
+            cur_essid = None
+            restsize = desired_size
+            while True:
+                for essid, pwdict in self.inqueue:
+                    for idx, pwslice in sorted(pwdict.items()):
+                        if len(pwslice) > 0:
+                            if cur_essid is None:
+                                cur_essid = essid
+                            elif cur_essid != essid:
+                                break
+                            newslice = pwslice[:restsize]
+                            del pwdict[idx]
+                            if len(pwslice[len(newslice):]) > 0:
+                                pwdict[idx+len(newslice)] = pwslice[len(newslice):]
+                            pwslices.append((idx, len(newslice)))
+                            passwords.extend(newslice)
+                            restsize -= len(newslice)
+                            if restsize <= 0:
+                                break
+                    if len(pwdict) == 0:
+                        self.inqueue.remove((essid,pwdict))
+                    if restsize <= 0:
+                        break
+                if len(passwords) > 0:
+                    wu = (cur_essid, tuple(passwords))
+                    try:
+                        self.slices[wu].append(pwslices)
+                    except KeyError:
+                        self.slices[wu] = [pwslices]
+                    return wu
+                else:
+                    self.cv.wait()
+        finally:
+            self.cv.release()
 
-    def __len__(self):
-        return self.inqueue.qsize()
+    def _scatter(self, essid, passwords, results):
+        assert len(results) == len(passwords)
+        self.cv.acquire()
+        try:
+            wu = (essid, passwords)
+            slices = self.slices[wu].pop(0)
+            if len(self.slices[wu]) == 0:
+                del self.slices[wu]
+            ptr = 0
+            for idx, length in slices:
+                self.outqueue[idx] = list(results[ptr:ptr+length])
+                ptr += length
+            for idx in sorted(self.outqueue.iterkeys(), reverse=True)[1:]:
+                res = self.outqueue[idx]
+                o_idx = idx + len(res)
+                if o_idx in self.outqueue:
+                    res.extend(self.outqueue[o_idx])
+                    del self.outqueue[o_idx]
+            self.cv.notifyAll()
+        finally:
+            self.cv.release()
 
-    def __iter__(self):
-        while True:
-            r = self.dequeue()
-            if r is None:
-                break
-            yield r
+    def _revoke(self, essid, passwords):
+        self.cv.acquire()
+        try:
+            wu = (essid, passwords)
+            slices = self.slices[wu].pop()
+            if len(self.slices[wu]) == 0:
+                del self.slices[wu]
+            passwordlist = list(passwords)
+            if len(self.inqueue) > 0 and self.inqueue[0][0] == essid:
+                d = self.inqueue[0][1]
+            else:
+                d = {}
+                self.inqueue.insert(0, (essid, d))
+            ptr = 0
+            for idx, length in slices:
+                d[idx] = passwordlist[ptr:ptr+length]
+                ptr += length
+            self.cv.notifyAll()
+        finally:
+            self.cv.release()
 

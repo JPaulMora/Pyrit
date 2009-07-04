@@ -37,6 +37,33 @@ import uuid
 import urlparse
 import zlib
 
+PMK_TESTVECTORS = {
+    'foo': {
+        'soZcEvntHVrGRDIxNaBCyUL': (247,210,173,42,68,187,144,253,145,93,126,250,16,188,100,55,89,153,135,155,198,86,124,33,45,16,9,54,113,194,159,211),
+        'EVuYtpQCAZzBXyWNRGTI': (5,48,168,39,10,98,151,201,8,80,23,138,19,24,24,50,66,214,189,180,159,97,194,27,212,124,114,100,253,62,50,170),
+        'XNuwoiGMnjlkxBHfhyRgZrJItFDqQVESm': (248,208,207,115,247,35,170,203,214,228,228,21,40,214,165,0,98,194,136,62,110,253,69,205,67,215,119,109,72,226,255,199),
+        'bdzPWNTaIol': (228,236,73,0,189,244,21,141,84,247,3,144,2,164,99,205,37,72,218,202,182,246,227,84,24,58,147,114,206,221,40,127),
+        'nwUaVYhRbvsH': (137,21,14,210,213,68,210,123,35,143,108,57,196,47,62,161,150,35,165,197,154,61,76,14,212,88,125,234,51,38,159,208),
+        'gfeuvPBbaDrQHldZzRtXykjFWwAhS': (88,127,99,35,137,177,147,161,244,32,197,233,178,1,96,247,5,109,163,250,35,222,188,143,155,70,106,1,253,79,109,135),
+        'QcbpRkAJerVqHz': (158,124,37,190,197,150,225,165,3,34,104,147,107,253,233,127,33,239,75,11,169,187,127,171,187,165,166,187,95,107,137,212),
+        'EbYJsCNiwXDmHtgkFVacuOv': (136,5,34,189,145,60,145,54,179,198,195,223,34,180,144,3,116,102,39,134,68,82,210,185,190,199,36,25,136,152,0,111),
+        'GpIMrFZwLcqyt': (28,144,175,10,200,46,253,227,219,35,98,208,220,11,101,95,62,244,80,221,111,49,206,255,174,100,240,240,33,229,172,207),
+        'tKxgswlaOMLeZVScGDW': (237,62,117,60,38,107,65,166,113,174,196,221,128,227,69,89,23,77,119,234,41,176,145,105,92,40,157,151,229,50,81,65)
+        },
+    'bar': {
+        'zLwSfveNskZoR': (38,93,196,77,112,65,163,197,249,158,180,107,231,140,188,60,254,77,12,210,77,185,233,59,79,212,222,181,44,19,127,220),
+        'lxsvOCeZXop': (91,39,98,36,82,2,162,106,12,244,4,113,155,120,131,133,11,209,12,12,240,213,203,156,129,148,28,64,31,61,162,13),
+        'tfHrgLLOA': (110,72,123,80,222,233,150,54,40,99,205,155,177,157,174,172,87,11,247,164,87,85,136,165,21,107,93,212,71,133,145,211),
+        'vBgsaSJrlqajUlQJM': (113,110,180,150,204,221,61,202,238,142,147,118,177,196,65,79,102,47,179,80,175,95,251,35,227,220,47,121,50,125,55,16),
+        'daDIHwIMKSUaKWXS': (33,87,211,99,26,70,123,19,254,229,148,97,252,182,3,44,228,125,85,141,247,223,166,133,246,37,204,145,100,218,66,70),
+        'agHOeAjOpK': (226,163,62,215,250,63,6,32,130,34,117,116,189,178,245,172,74,26,138,10,106,119,15,214,210,114,51,94,254,57,81,200),
+        'vRfEagJIzSohxsakj': (61,71,159,35,233,27,138,30,228,121,38,201,57,83,192,211,248,207,149,12,147,70,190,216,52,14,165,190,226,180,62,210),
+        'PuDomzkiwsejblaXs': (227,164,137,231,16,31,222,169,134,1,238,190,55,126,255,88,178,118,148,119,244,130,183,219,124,249,194,96,94,159,163,185),
+        'RErvpNrOsW': (24,145,197,137,14,154,1,36,73,148,9,192,138,157,164,81,47,184,41,75,225,34,71,153,59,253,127,179,242,193,246,177),
+        'ipptbpKkCCep': (81,34,253,39,124,19,234,163,32,10,104,88,249,29,40,142,24,173,1,68,187,212,21,189,74,88,83,228,7,100,23,244)
+        }
+    }
+
 class AsyncFileWriter(threading.Thread):
     def __init__(self, filehndl, maxsize=10*1024**2):
         threading.Thread.__init__(self)
@@ -52,33 +79,23 @@ class AsyncFileWriter(threading.Thread):
         self.cv.acquire()
         try:
             self.shallstop = True
+            self.cv.notifyAll()
             while self.isAlive():
                 self.cv.wait()
-            self._flush()
-            self._raise()
+            self._raise
         finally:
             self.cv.release()
 
-    def write(self, buf):
+    def write(self, data):
         self.cv.acquire()
         try:
             self._raise()
-            while True:
-                if not self.isAlive() or self.shallstop:
+            while self.buf.tell() > self.maxsize and not self.shallstop:
+                self.cv.wait()
+                if self.shallstop:
                     raise Exception, "Writer has already been closed."
-                if self.buf.tell() > self.maxsize:
-                    self.cv.wait(1)
-                else:
-                    break
-            self.buf.write(buf)
+            self.buf.write(data)
             self.cv.notifyAll()
-        finally:
-            self.cv.release()
-
-    def flush(self):
-        self.cv.acquire()
-        try:
-            self._flush()
         finally:
             self.cv.release()
 
@@ -88,30 +105,26 @@ class AsyncFileWriter(threading.Thread):
             self.excp = None
             raise type(e)(e.message)
 
-    def _write(self, buf):
+    def run(self):
         try:
-            if len(buf) > 0:
-                self.filehndl.write(buf)
+            while self.buf.tell() > 0 or not self.shallstop:
+                self.cv.acquire()
+                try:
+                    while self.buf.tell() == 0 and not self.shallstop:
+                        self.cv.wait()
+                    data = self.buf.getvalue()
+                    self.buf = cStringIO.StringIO()
+                    self.cv.notifyAll()
+                finally:
+                    self.cv.release()
+                self.filehndl.write(data)
         except Exception, e:
             self.shallstop = True
             self.excp = e
-
-    def _flush(self):
-        while self.isAlive() and self.buf.tell() != 0:
-            self.cv.wait(1)
-
-    def run(self):
-        while not self.shallstop:
+        finally:
             self.cv.acquire()
-            try:
-                while self.buf.tell() == 0 and not self.shallstop:
-                    self.cv.wait(1)
-                buf = self.buf.getvalue()
-                self.buf = cStringIO.StringIO()
-                self.cv.notifyAll()
-            finally:
-                self.cv.release()
-            self._write(buf)
+            self.cv.notifyAll()
+            self.cv.release()
 
 
 class Pyrit_CLI(object):
@@ -165,12 +178,15 @@ class Pyrit_CLI(object):
         'list_cores': self.list_cores,
         'list_essids': self.list_essids,
         'create_essid': self.create_essid,
+        'delete_essid': self.delete_essid,
         'eval': self.eval_results,
         'batch': self.batchprocess,
         'batchprocess': self.batchprocess,
         'passthrough': self.passthrough,
         'benchmark': self.benchmark,
         'serve': self.serve,
+        'selftest': self.selftest,
+        'verify': self.verify,
         'help': self.print_help
         }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)()
 
@@ -182,27 +198,43 @@ class Pyrit_CLI(object):
             "\n  -f    : filename for the command ('-' is stdin/stdout)" \
             "\n\nRecognized commands:" \
             "\n  batch            : Batchprocess" \
-            "\n  benchmark        : Determine performance of cores" \
+            "\n  benchmark        : Determine performance of available cores" \
             "\n  create_essid     : Create a new ESSID" \
-            "\n  eval             : Count the passwords available and matching results" \
+            "\n  delete_essid     : Delete a ESSID and corresponding results" \
+            "\n  eval             : Count the available passwords and matching results" \
             "\n  export_cowpatty  : Export into a new cowpatty file" \
-            "\n  export_hashdb    : Export into an existing airolib database" \
-            "\n  import_passwords : Import passwords into the Password-blobspace" \
+            "\n  export_hashdb    : Export into an airolib database" \
+            "\n  import_passwords : Import passwords" \
             "\n  list_cores       : List available cores" \
-            "\n  list_essids      : List all ESSIDs in the ESSID-blobspace" \
+            "\n  list_essids      : List all ESSIDs but don't count matching results" \
             "\n  passthrough      : Compute PMKs on the fly and write to stdout" \
             "\n  serve            : Serve requests from clients on the network" \
+            "\n  selftest         : Test all cores for computing correct results" \
+            "\n  verify           : Verify 10% of the results through recomputation" \
             "\n")
 
     def create_essid(self):
-        essid = self.options.essid
-        if essid is None:
-            self.tell("One must specify a ESSID using the -e option. See 'help'", stream=sys.stderr)
-        elif essid in self.essidstore:
+        if self.options.essid is None:
+            self.tell("You must specify a ESSID using the -e option. See 'help'.", stream=sys.stderr)
+        elif self.options.essid in self.essidstore:
             self.tell("ESSID already created", stream=sys.stderr)
         else:
-            self.essidstore.create_essid(essid)
-            self.tell("Created ESSID '%s'" % essid)
+            self.essidstore.create_essid(self.options.essid)
+            self.tell("Created ESSID '%s'" % self.options.essid)
+
+    def delete_essid(self):
+        if self.options.essid is None:
+            self.tell("You must specify a ESSID using the -e option. See 'help'.", stream=sys.stderr)
+        elif self.options.essid not in self.essidstore:
+            self.tell("ESSID not found...", stream=sys.stderr)
+        else:
+            self.tell("All results for ESSID '%s' will be deleted! Continue? [y/N]" % self.options.essid, end=None)
+            if sys.stdin.readline().strip() == 'y':
+                self.tell("deleting...")
+                self.essidstore.delete_essid(self.options.essid)
+                self.tell("Deleted ESSID '%s'." % self.options.essid)
+            else:
+                self.tell("aborted.")
 
     def list_cores(self):
         import cpyrit
@@ -300,22 +332,22 @@ class Pyrit_CLI(object):
                 self.tell("The cowpatty-format only supports one ESSID per file. Please specify one using the -e option.", stream=sys.stderr)
                 return
         if self.options.file == "-":
-            awriter = AsyncFileWriter(sys.stdout)
-            try:
-                for l, buf in self._genCowpatty(self.essidstore[self.options.essid]):
-                    awriter.write(buf)
-                awriter.close()
-            except IOError:
-                self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
+            f = sys.stdout
         else:
             f = open(self.options.file, "wb")
-            self.tell("Exporting to '%s'..." % self.options.file)
-            lines = 0
+        awriter = AsyncFileWriter(f)
+        lines = 0
+        self.tell("Exporting to '%s'..." % self.options.file)
+        try:
             for l, buf in self._genCowpatty(self.essidstore[self.options.essid]):
-                f.write(buf)
+                awriter.write(buf)
                 lines += l
                 self.tell("\r%i entries written..." % lines, end=None, sep=None)
             self.tell("\r%i entries written. All done." % lines)
+        except IOError:
+            self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
+        finally:
+            awriter.close()
             f.close()
 
     def passthrough(self):
@@ -354,12 +386,11 @@ class Pyrit_CLI(object):
                     break
             for r in cp:
                 awriter.write(self._genCowpEntries(itertools.izip(workunits.pop(0), r)))
-            f.close()
-            awriter.close()
-        except (KeyboardInterrupt, SystemExit):
-            self.tell("Exiting...")
         except IOError:
             self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
+        finally:
+            awriter.close()
+            f.close()
 
     def export_hashdb(self):
         if self.options.file is None:
@@ -371,6 +402,7 @@ class Pyrit_CLI(object):
             essids = [self.options.essid]
 
         con = sqlite3.connect(self.options.file)
+        con.text_factory = str
         cur = con.cursor()
         cur.execute('SELECT * FROM sqlite_master')
         tbls = [x[1] for x in cur.fetchall() if x[0] == u'table']
@@ -396,7 +428,6 @@ class Pyrit_CLI(object):
                 con.close()
                 self.tell("Failed to initialize the database:", stream=sys.stderr)
                 raise
-
         try:
             cur.execute("PRAGMA synchronous = 1")
             i = 0
@@ -443,7 +474,6 @@ class Pyrit_CLI(object):
         if self.options.file == "-" and self.options.essid is None:
             self.tell("Results will be written to stdout while batchprocessing. This requires to specify a ESSID.", stream=sys.stderr) 
             return
-            
         if self.options.essid is not None:
             if self.options.essid not in self.essidstore:
                 self.tell("The ESSID '%s' is not found in the repository" % self.options.essid, stream=sys.stderr)
@@ -452,7 +482,7 @@ class Pyrit_CLI(object):
                 essids = [self.options.essid]
         else:
             essids = self.essidstore
-
+        
         totalResCount = 0
         startTime = time.time()
         workunits = []
@@ -466,9 +496,9 @@ class Pyrit_CLI(object):
                 for pwfile in self.passwdstore:
                     resFile = essid_object[pwfile]
                     if len(resFile) < len(pwfile):
-                        unsolvedPasswds = [pw for pw in pwfile if pw not in resFile]
-                        workunits.append((resFile, unsolvedPasswds))
-                        cp.enqueue(essid_object.essid, unsolvedPasswds, True)
+                        pws = list(pwfile)
+                        workunits.append((resFile, pws))
+                        cp.enqueue(essid_object.essid, pws, True)
                     else:
                         _writeCowpatty(awriter, resFile)
                     newResults = cp.dequeue(block=False)
@@ -488,7 +518,6 @@ class Pyrit_CLI(object):
                 newResFile.savefile()
                 _writeCowpatty(awriter, newResFile)
                 totalResCount += len(newResults)
-
         except (KeyboardInterrupt, SystemExit):
             self.tell("Exiting...")
         except:
@@ -506,15 +535,15 @@ class Pyrit_CLI(object):
 
     def benchmark(self):
         import cpyrit
-        cp = cpyrit.CPyrit()
-        cp.maxSize = 1
-        print "Running benchmark for at least 60 seconds...\n"
+        cp = cpyrit.CPyrit(maxBufferSize=10000)
+        self.tell("Running benchmark for at least 60 seconds...\n")
         t = time.time()
+        pws = ['barbarbar']*3500
         while time.time() - t < 60:
-            cp.enqueue('foo', ['barbarbar']*3500, block=True)
+            cp.enqueue('foo', pws, block=True)
             while True:
                 r = cp.dequeue(block=False)
-                if r is None:
+                if not r:
                     break
         for r in cp:
             pass
@@ -522,13 +551,96 @@ class Pyrit_CLI(object):
         tdiff = time.time() - t
         for core in cp.cores:
             resCount, compTime = core.getStats()
-            if compTime > 0:
-                perf = resCount / compTime
-            else:
-                perf = 0
-            print "%s: %.2f PMKs/s, (%.2f%% occupancy)" % (core.name, perf, compTime * 100.0 / tdiff)
+            perf = resCount / compTime if compTime > 0 else 0
+            self.tell("%s: %.2f PMKs/s (%.2f%% occupancy)" % (core.name, perf, compTime * 100.0 / tdiff))
             total += perf
-        print "\nBenchmark done. %.2f PMKs/s total." % total
+        self.tell("\nBenchmark done. %.2f PMKs/s total." % total)
+
+    def selftest(self):
+        import cpyrit
+        cp = cpyrit.CPyrit(maxBufferSize=10000)
+        self.tell("Running selftest for at least 60 seconds...\n")
+        workunits = []
+        t = time.time()
+        err = False
+        while time.time() - t < 60 and not err:
+            essid = random.choice(PMK_TESTVECTORS.keys())
+            pws = [random.choice(PMK_TESTVECTORS[essid].keys()) for i in xrange(random.randrange(10, 500))]
+            workunits.append((essid, pws))
+            cp.enqueue(essid, pws, block=True)
+            while True:
+                r = cp.dequeue(block=False)
+                if r is not None:
+                    essid, pws = workunits.pop(0)
+                    if [PMK_TESTVECTORS[essid][pw] for pw in pws] != [tuple(map(ord, pmk)) for pmk in r]:
+                        err = True
+                        break
+                if err or not r:
+                    break
+        if not err:
+            for r in cp:
+                essid, pws = workunits.pop(0)
+                if [PMK_TESTVECTORS[essid][pw] for pw in pws] != [tuple(map(ord, pmk)) for pmk in r]:
+                    err = True
+                    break
+        if err or len(workunits) != 0 or len(cp) != 0:
+            self.tell("!!! WARNING !!!\n"\
+                      "At least some results are definitly invalid."\
+                      "This may be caused by a bug in Pyrit, faulty hardware or malicious network clients. Do not trust this installation...\n",
+                      stream=sys.stderr)
+        else:
+            self.tell("All results verified. Your installation seems OK.")
+    
+    def verify(self):
+        import cpyrit
+        cp = cpyrit.CPyrit()
+        if self.options.essid is not None:
+            if self.options.essid not in self.essidstore:
+                self.tell("The ESSID '%s' is not found in the repository" % self.options.essid, stream=sys.stderr)
+                return
+            else:
+                essids = [self.options.essid]
+        else:
+            essids = self.essidstore
+        totalResCount = 0
+        err = False
+        startTime = time.time()
+        workunits = []
+        try: 
+            for essid in essids:
+                essid_object = self.essidstore[essid]
+                self.tell("Verifying ESSID '%s'" % essid_object.essid)
+                for key, results in essid_object:
+                    pws = random.sample(results, int(len(results) * 0.1))
+                    if len(pws) > 0:
+                        workunits.append((essid, key, tuple([results[pw] for pw in pws])))
+                        cp.enqueue(essid, pws, True)
+                    newResults = cp.dequeue(block=False)
+                    if newResults is not None:
+                        totalResCount += len(newResults)
+                        e, k, pmks = workunits.pop(0)
+                        if pmks != newResults:
+                            self.tell("Workunit %s for ESSID '%s' seems corrupted." % (k, e), stream=sys.stderr)
+                            err = True
+                    tdiff = time.time() - startTime
+                    self.tell("Computed %i PMKs in %i seconds; %i PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
+                for newResults in cp:
+                    totalResCount += len(newResults)
+                    e, k, pmks = workunits.pop(0)
+                    if pmks != newResults:
+                        self.tell("Workunit %s for ESSID '%s' seems corrupted." % (k, e), stream=sys.stderr)
+                        err = True
+            self.tell("\nVerified %i PMKs with %.2f PMKs/s." % (totalResCount, totalResCount / (time.time() - startTime)))
+        except (KeyboardInterrupt, SystemExit):
+            self.tell("Exiting...")
+        if err:
+            self.tell("\nAt least one workunit-file contains invalid results. There are two options now:\n"
+                      "* The results on the disk are really invalid. You should mistrust the entire repository but at least delete and recompute the offending ESSIDs.\n"
+                      "* The result on the disk are correct but your installation is broken and currently computes invalid results.\n"
+                      "Run 'selftest' for an extensive self-test in order to tell the two options apart.",
+                      stream=sys.stderr)
+        else:
+            self.tell("Everything seems OK.")
 
     def serve(self):
         self.tell('Booting...', end=None)
@@ -644,27 +756,22 @@ class EssidStore(object):
         self._makedir(self.essidpath)
 
     def _makedir(self, pathname):
-        try:
+        if not os.path.exists(pathname):
             os.makedirs(pathname)
-        except OSError, (errno, sterrno):
-            if errno == 17:
-                pass
-            else:
-                raise
 
     def _getessidroot(self, essid):
         return os.path.join(self.essidpath, hashlib.md5(essid).hexdigest()[:8])
 
     def __getitem__(self, essid):
         return ESSID(self._getessidroot(essid))
-
+        
     def __len__(self):
         return len([x for x in self])
 
     def __iter__(self):
         essids = set()
         for essid_hash in os.listdir(self.essidpath):
-            f = open(os.path.join(self.essidpath, essid_hash,'essid'), "rb")
+            f = open(os.path.join(self.essidpath, essid_hash, 'essid'), "rb")
             essid = f.read()
             f.close()
             if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
@@ -673,15 +780,35 @@ class EssidStore(object):
                 print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
         for essid in sorted(essids):
             yield essid
+            
+    def __contains__(self, key):
+        essid_root = self._getessidroot(key)
+        if os.path.exists(essid_root):
+            f = open(os.path.join(essid_root, 'essid'), 'rb')
+            essid = f.read()
+            f.close()
+            return essid == key
+        else:
+            return False
 
-    def create_essid(self,essid):
+    def create_essid(self, essid):
         if len(essid) < 3 or len(essid) > 32:
-            raise Exception, "ESSID invalid."
+            raise ValueError, "ESSID invalid."
         essid_root = self._getessidroot(essid)
         self._makedir(essid_root)
-        f = open(os.path.join(essid_root,'essid'), "wb")
+        f = open(os.path.join(essid_root, 'essid'), 'wb')
         f.write(essid)
         f.close()
+
+    def delete_essid(self, essid):
+        if essid not in self:
+            raise KeyError, "ESSID not in store."
+        essid_root = self._getessidroot(essid)
+        for fname in os.listdir(essid_root):
+            if fname[-4:] == '.pyr':
+                os.unlink(os.path.join(essid_root, fname))
+        os.unlink(os.path.join(essid_root, 'essid'))
+        os.rmdir(essid_root)
 
 
 class PasswordFile(object):
@@ -812,7 +939,7 @@ class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
                     digest.update(pwbuffer)
                     if digest.digest() != buf[:digest.digest_size]:
                         raise Exception, "Digest check failed."
-                    self.server.enqueue(self.params['client'], essid, zlib.decompress(pwbuffer).split('\n'))
+                    self.server.enqueue(self.params['client'], essid, pwbuffer.split('\n'))
                     self.send_response(httplib.OK)
                     self.end_headers()
                     self.wfile.write(str(len(self.server)))
@@ -883,13 +1010,13 @@ class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
 
     def __init__(self):
         BaseHTTPServer.HTTPServer.__init__(self, ('', 19935), PyritServer.PyritHandler)
+        import cpyrit
+        self.cp = cpyrit.CPyrit()
+        self.cp._autoconfig()
         self.started = time.time()
         self.clients = {}
         self.wu_clients = []
         self.cv = threading.Condition()
-        import cpyrit
-        self.cp = cpyrit.CPyrit()
-        self.cp._autoconfig(ignore_types='NET')
         self.name = "Pyrit 0.2.3-dev"
         self.cleaner = PyritServer.PyritServerCleaner(self)
 
@@ -963,3 +1090,4 @@ if __name__ == "__main__":
     else:
         psyco.full()
     Pyrit_CLI().init()
+
