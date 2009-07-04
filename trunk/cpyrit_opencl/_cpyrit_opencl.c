@@ -178,7 +178,8 @@ opencldev_dealloc(OpenCLDevice *self)
     PyObject_Del(self);
 }
 
-PyObject* cpyrit_listDevices(PyObject* self, PyObject* args)
+PyObject*
+cpyrit_listDevices(PyObject* self, PyObject* args)
 {
     int i;
     PyObject* result;
@@ -198,7 +199,8 @@ PyObject* cpyrit_listDevices(PyObject* self, PyObject* args)
     return result;
 }
 
-cl_int calc_pmklist(OpenCLDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
+cl_int
+calc_pmklist(OpenCLDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
 {
     cl_mem g_inbuffer, g_outbuffer;
     cl_int errcode;
@@ -246,93 +248,122 @@ out:
 
 PyObject *cpyrit_pmklist(OpenCLDevice *self, PyObject *args)
 {
-    char *essid_pre, *key, essid[33+4];
+    char *essid_pre, essid[33+4], *passwd;
     unsigned char pad[64], temp[32];
-    int i, j, numLines, slen, ret;
-    PyObject *passwdList, *resultList;
-    gpu_inbuffer* c_inbuffer;
-    gpu_outbuffer* c_outbuffer;
+    int i, arraysize, slen;
+    PyObject *passwd_seq, *passwd_obj, *result;
+    gpu_inbuffer *c_inbuffer, *t;
+    gpu_outbuffer *c_outbuffer;
     SHA_CTX ctx_pad;
 
-    if (!PyArg_ParseTuple(args, "sO!", &essid_pre, &PyList_Type, &passwdList))
-        return NULL;
+    if (!PyArg_ParseTuple(args, "sO", &essid_pre, &passwd_seq)) return NULL;
+    passwd_seq = PyObject_GetIter(passwd_seq);
+    if (!passwd_seq) return NULL;
     
-    numLines = PyList_Size(passwdList);
-    if (numLines <= 0)
-        return PyTuple_New(0);
-
-    c_inbuffer = (gpu_inbuffer *)malloc(numLines*sizeof(gpu_inbuffer));
-    if (c_inbuffer == NULL)
-        return PyErr_NoMemory();
-    
-    c_outbuffer = (gpu_outbuffer *)malloc(numLines*sizeof(gpu_outbuffer));
-    if (c_outbuffer == NULL)
-    {
-        free(c_inbuffer);
-        return PyErr_NoMemory();
-    }
-
     memset( essid, 0, sizeof(essid) );
     slen = strlen(essid_pre);
     slen = slen <= 32 ? slen : 32;
     memcpy(essid, essid_pre, slen);
-    slen = strlen(essid)+4;
+    slen = strlen(essid)+4;    
 
-    for (i = 0; i < numLines; i++)
+    arraysize = 0;
+    c_inbuffer = NULL;
+    c_outbuffer = NULL;
+    while ((passwd_obj = PyIter_Next(passwd_seq)))
     {
-        key = PyString_AsString(PyList_GetItem(passwdList, i));
-
-        strncpy((char*)pad, key, sizeof(pad));
-        for (j = 0; j < 16; j++)
-            ((unsigned int*)pad)[j] ^= 0x36363636;
+        if (arraysize % 1000 == 0)
+        {
+            t = PyMem_Resize(c_inbuffer, gpu_inbuffer, arraysize+1000);
+            if (!t)
+            {
+                Py_DECREF(passwd_seq);
+                PyMem_Free(c_inbuffer);
+                PyErr_NoMemory();
+                return NULL;
+            }
+            c_inbuffer = t;
+        }
+                
+        passwd = PyString_AsString(passwd_obj);
+        if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
+        {
+            Py_DECREF(passwd_seq);
+            PyMem_Free(c_inbuffer);
+            PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
+            return NULL;
+        }
+        
+        strncpy((char*)pad, passwd, sizeof(pad));
+        for (i = 0; i < 16; i++)
+            ((unsigned int*)pad)[i] ^= 0x36363636;
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
-        CPY_DEVCTX(ctx_pad, c_inbuffer[i].ctx_ipad);
-
-        for (j = 0; j < 16; j++)
-            ((unsigned int*)pad)[j] ^= 0x6A6A6A6A;
+        CPY_DEVCTX(ctx_pad, c_inbuffer[arraysize].ctx_ipad);
+        for (i = 0; i < 16; i++)
+            ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
-        CPY_DEVCTX(ctx_pad, c_inbuffer[i].ctx_opad);
-
+        CPY_DEVCTX(ctx_pad, c_inbuffer[arraysize].ctx_opad);
+        
         essid[slen - 1] = '\1';
-        HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
-        GET_BE(c_inbuffer[i].e1.h0, temp, 0); GET_BE(c_inbuffer[i].e1.h1, temp, 4);
-        GET_BE(c_inbuffer[i].e1.h2, temp, 8); GET_BE(c_inbuffer[i].e1.h3, temp, 12);
-        GET_BE(c_inbuffer[i].e1.h4, temp, 16);
+        HMAC(EVP_sha1(), (unsigned char *)passwd, strlen(passwd), (unsigned char*)essid, slen, temp, NULL);
+        GET_BE(c_inbuffer[arraysize].e1.h0, temp, 0);
+        GET_BE(c_inbuffer[arraysize].e1.h1, temp, 4);
+        GET_BE(c_inbuffer[arraysize].e1.h2, temp, 8);
+        GET_BE(c_inbuffer[arraysize].e1.h3, temp, 12);
+        GET_BE(c_inbuffer[arraysize].e1.h4, temp, 16);
 
         essid[slen - 1] = '\2';
-        HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
-        GET_BE(c_inbuffer[i].e2.h0, temp, 0); GET_BE(c_inbuffer[i].e2.h1, temp, 4);
-        GET_BE(c_inbuffer[i].e2.h2, temp, 8); GET_BE(c_inbuffer[i].e2.h3, temp, 12);
-        GET_BE(c_inbuffer[i].e2.h4, temp, 16);
+        HMAC(EVP_sha1(), (unsigned char *)passwd, strlen(passwd), (unsigned char*)essid, slen, temp, NULL);
+        GET_BE(c_inbuffer[arraysize].e2.h0, temp, 0);
+        GET_BE(c_inbuffer[arraysize].e2.h1, temp, 4);
+        GET_BE(c_inbuffer[arraysize].e2.h2, temp, 8);
+        GET_BE(c_inbuffer[arraysize].e2.h3, temp, 12);
+        GET_BE(c_inbuffer[arraysize].e2.h4, temp, 16);
+
+        arraysize++;
     }
+    Py_DECREF(passwd_seq);
     
-    Py_BEGIN_ALLOW_THREADS;
-    ret = calc_pmklist(self, c_inbuffer, c_outbuffer, numLines);
-    Py_END_ALLOW_THREADS;
-    
-    free(c_inbuffer);
-    if (ret != CL_SUCCESS)
+    if (arraysize == 0)
     {
-        free(c_outbuffer);
-        PyErr_Format(PyExc_SystemError, "Failed to execute kernel (%s)", getCLresultMsg(ret));
+        PyMem_Free(c_inbuffer);
+        return PyTuple_New(0);
+    }
+
+    c_outbuffer = PyMem_New(gpu_outbuffer, arraysize);
+    if (c_outbuffer == NULL)
+    {
+        PyMem_Free(c_inbuffer);
+        PyErr_NoMemory();
         return NULL;
     }
 
-    resultList = PyTuple_New(numLines);
-    for (i = 0; i < numLines; i++)
+    Py_BEGIN_ALLOW_THREADS;
+    i = calc_pmklist(self, c_inbuffer, c_outbuffer, arraysize);
+    Py_END_ALLOW_THREADS;    
+    PyMem_Free(c_inbuffer);
+    
+    if (i != CL_SUCCESS)
+    {
+        PyMem_Free(c_outbuffer);
+        PyErr_Format(PyExc_SystemError, "Failed to execute kernel (%s)", getCLresultMsg(i));
+        return NULL;
+    }
+
+    result = PyTuple_New(arraysize);
+    for (i = 0; i < arraysize; i++)
     {
         PUT_BE(c_outbuffer[i].pmk1.h0, temp, 0); PUT_BE(c_outbuffer[i].pmk1.h1, temp, 4);
         PUT_BE(c_outbuffer[i].pmk1.h2, temp, 8); PUT_BE(c_outbuffer[i].pmk1.h3, temp, 12); 
         PUT_BE(c_outbuffer[i].pmk1.h4, temp, 16);PUT_BE(c_outbuffer[i].pmk2.h0, temp, 20); 
         PUT_BE(c_outbuffer[i].pmk2.h1, temp, 24);PUT_BE(c_outbuffer[i].pmk2.h2, temp, 28); 
-        PyTuple_SetItem(resultList, i, Py_BuildValue("s#", temp, 32));
+        PyTuple_SetItem(result, i, Py_BuildValue("s#", temp, 32));
     }
     
-    free(c_outbuffer);
+    PyMem_Free(c_outbuffer);
 
-    return resultList;
+    return result;
 }
 
 
@@ -403,18 +434,18 @@ init_cpyrit_opencl(void)
         return;
     }
     
-    OpenCLDevices = (cl_device_id*)malloc(sizeof(cl_device_id) * OpenCLDevCount);
+    OpenCLDevices = PyMem_New(cl_device_id, OpenCLDevCount);
     if (clGetDeviceIDs(NULL, CL_DEVICE_TYPE_GPU, OpenCLDevCount, OpenCLDevices, NULL) != CL_SUCCESS)
     {
-        free(OpenCLDevices);
+        PyMem_Free(OpenCLDevices);
         PyErr_SetString(PyExc_ImportError, "Failed to get Device-IDs");
         return;
     }
     
-    oclkernel_program = malloc(oclkernel_size);
+    oclkernel_program = PyMem_Malloc(oclkernel_size);
     if (!oclkernel_program)
     {
-        free(OpenCLDevices);
+        PyMem_Free(OpenCLDevices);
         PyErr_NoMemory();
         return;
     }
@@ -425,8 +456,8 @@ init_cpyrit_opencl(void)
     zst.next_in = oclkernel_packedprogram;
     if (inflateInit(&zst) != Z_OK)
     {
-        free(OpenCLDevices);
-        free(oclkernel_program);
+        PyMem_Free(OpenCLDevices);
+        PyMem_Free(oclkernel_program);
         PyErr_SetString(PyExc_IOError, "Failed to initialize zlib.");
         return;
     }
@@ -435,8 +466,8 @@ init_cpyrit_opencl(void)
     if (inflate(&zst, Z_FINISH) != Z_STREAM_END)
     {
         inflateEnd(&zst);
-        free(OpenCLDevices);
-        free(oclkernel_program);    
+        PyMem_Free(OpenCLDevices);
+        PyMem_Free(oclkernel_program);    
         PyErr_SetString(PyExc_IOError, "Failed to decompress OpenCL-kernel.");
         return;
     }
@@ -446,13 +477,15 @@ init_cpyrit_opencl(void)
     OpenCLDevice_type.tp_setattro = PyObject_GenericSetAttr;
     OpenCLDevice_type.tp_alloc  = PyType_GenericAlloc;
     OpenCLDevice_type.tp_new = PyType_GenericNew;
-    OpenCLDevice_type.tp_free = _PyObject_Del;
+    OpenCLDevice_type.tp_free = _PyObject_Del;      
     if (PyType_Ready(&OpenCLDevice_type) < 0)
     {
-        free(OpenCLDevices);
+        PyMem_Free(OpenCLDevices);
+        PyMem_Free(oclkernel_program);
 	    return;
     }
 
     Py_INCREF(&OpenCLDevice_type);
     PyModule_AddObject(Py_InitModule("_cpyrit_opencl", CPyritOpenCL_methods), "OpenCLDevice", (PyObject *)&OpenCLDevice_type);
 }
+

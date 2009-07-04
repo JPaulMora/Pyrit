@@ -335,40 +335,54 @@ cpyrit_getPlatform(PyObject *self, PyObject *args)
 static PyObject *
 cpyrit_pmklist(PyObject *self, PyObject *args)
 {
-    char *essid;
-    PyObject *password_list, *result;
-    int i, numLines;
-    struct pmk_ctr *pmk_buffer;
+    char *essid, *passwd;
+    PyObject *passwd_seq, *passwd_obj, *result;
+    int i, arraysize;
+    struct pmk_ctr *pmk_buffer, *t;
 
-    if (!PyArg_ParseTuple(args, "sO!", &essid, &PyList_Type, &password_list)) return NULL;
-    numLines = PyList_Size(password_list);
+    if (!PyArg_ParseTuple(args, "sO", &essid, &passwd_seq)) return NULL;
+    passwd_seq = PyObject_GetIter(passwd_seq);
+    if (!passwd_seq) return NULL;
     
-    if (numLines <= 0)
+    arraysize = 0;
+    pmk_buffer = NULL;
+    while ((passwd_obj=PyIter_Next(passwd_seq)))
     {
-        return PyTuple_New(0);
+        if (arraysize % 100 == 0)
+        {
+            t = PyMem_Realloc(pmk_buffer, sizeof(struct pmk_ctr)*(arraysize+100));
+            if (!t)
+            {
+                Py_DECREF(passwd_seq);
+                PyMem_Free(pmk_buffer);
+                PyErr_NoMemory();
+                return NULL;
+            }
+            pmk_buffer = t;
+        }
+        passwd = PyString_AsString(passwd_obj);
+        if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
+        {
+            Py_DECREF(passwd_seq);
+            PyMem_Free(pmk_buffer);
+            PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
+            return NULL;
+        }
+        prepare_pmk(essid, passwd, &pmk_buffer[arraysize]);
+        arraysize++;
     }
-    else if (numLines == 1)
-    {
-        pmk_buffer = malloc(sizeof(struct pmk_ctr));
-        prepare_pmk(essid, PyString_AsString(PyList_GetItem(password_list, 0)), pmk_buffer);
-        finalize_pmk(pmk_buffer);    
-    }
-    else
-    {
-        pmk_buffer = malloc(numLines * sizeof(struct pmk_ctr));
-        for (i = 0; i < numLines; i++)
-            prepare_pmk(essid, PyString_AsString(PyList_GetItem(password_list, i)), &pmk_buffer[i]);
-        Py_BEGIN_ALLOW_THREADS;
-        for (i = 0; i < numLines; i++)
-            finalize_pmk(&pmk_buffer[i]);
-        Py_END_ALLOW_THREADS;
-    }
+            
+    Py_BEGIN_ALLOW_THREADS;
+    for (i = 0; i < arraysize; i++)
+        finalize_pmk(&pmk_buffer[i]);
+    Py_END_ALLOW_THREADS;
 
-    result = PyTuple_New(numLines);
-    for (i = 0; i < numLines; i++)
+    result = PyTuple_New(arraysize);
+    for (i = 0; i < arraysize; i++)
         PyTuple_SetItem(result, i, Py_BuildValue("s#", pmk_buffer[i].e1, 32));
 
-    free(pmk_buffer);
+    Py_DECREF(passwd_seq);
+    PyMem_Free(pmk_buffer);
 
     return result;
 }

@@ -125,7 +125,8 @@ cudadev_dealloc(CUDADevice *self)
     PyObject_Del(self);
 }
 
-PyObject* cpyrit_listDevices(PyObject* self, PyObject* args)
+PyObject*
+cpyrit_listDevices(PyObject* self, PyObject* args)
 {
     int i;
     PyObject* result;
@@ -143,7 +144,8 @@ PyObject* cpyrit_listDevices(PyObject* self, PyObject* args)
     return result;
 }
 
-CUresult calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
+CUresult
+calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
 {
     CUdeviceptr g_inbuffer, g_outbuffer;
     CUresult ret;
@@ -182,103 +184,130 @@ errout:
 
 PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
 {
-    char *essid_pre, *key, essid[33+4];
+    char *essid_pre, essid[33+4], *passwd;
     unsigned char pad[64], temp[32];
-    int i, j, numLines, slen, ret;
-    PyObject *passwdList, *resultList;
-    gpu_inbuffer* c_inbuffer;
-    gpu_outbuffer* c_outbuffer;
+    int i, arraysize, slen;
+    PyObject *passwd_seq, *passwd_obj, *result;
+    gpu_inbuffer *c_inbuffer, *t;
+    gpu_outbuffer *c_outbuffer;
     SHA_CTX ctx_pad;
 
-    if (!PyArg_ParseTuple(args, "sO!", &essid_pre, &PyList_Type, &passwdList))
-        return NULL;
+    if (!PyArg_ParseTuple(args, "sO", &essid_pre, &passwd_seq)) return NULL;
+    passwd_seq = PyObject_GetIter(passwd_seq);
+    if (!passwd_seq) return NULL;
     
-    numLines = PyList_Size(passwdList);
-    if (numLines <= 0)
-        return PyTuple_New(0);
-
-    c_inbuffer = (gpu_inbuffer *)malloc(numLines*sizeof(gpu_inbuffer));
-    if (c_inbuffer == NULL)
-        return PyErr_NoMemory();
-    
-    c_outbuffer = (gpu_outbuffer *)malloc(numLines*sizeof(gpu_outbuffer));
-    if (c_outbuffer == NULL)
-    {
-        free(c_inbuffer);
-        return PyErr_NoMemory();
-    }
-
     memset( essid, 0, sizeof(essid) );
     slen = strlen(essid_pre);
     slen = slen <= 32 ? slen : 32;
     memcpy(essid, essid_pre, slen);
     slen = strlen(essid)+4;
 
-    for (i = 0; i < numLines; i++)
+    arraysize = 0;
+    c_inbuffer = NULL;
+    c_outbuffer = NULL;    
+    while ((passwd_obj = PyIter_Next(passwd_seq)))
     {
-        key = PyString_AsString(PyList_GetItem(passwdList, i));
-
-        strncpy((char*)pad, key, sizeof(pad));
-        for (j = 0; j < 16; j++)
-            ((unsigned int*)pad)[j] ^= 0x36363636;
+        if (arraysize % 1000 == 0)
+        {
+            t = PyMem_Realloc(c_inbuffer, sizeof(gpu_inbuffer)*(arraysize+1000));
+            if (!t)
+            {
+                Py_DECREF(passwd_seq);
+                PyMem_Free(c_inbuffer);
+                PyErr_NoMemory();
+                return NULL;
+            }
+            c_inbuffer = t;
+        }                
+        passwd = PyString_AsString(passwd_obj);
+        if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
+        {
+            Py_DECREF(passwd_seq);
+            PyMem_Free(c_inbuffer);
+            PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
+            return NULL;
+        }
+        
+        strncpy((char*)pad, passwd, sizeof(pad));
+        for (i = 0; i < 16; i++)
+            ((unsigned int*)pad)[i] ^= 0x36363636;
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
-        CPY_DEVCTX(ctx_pad, c_inbuffer[i].ctx_ipad);
-
-        for (j = 0; j < 16; j++)
-            ((unsigned int*)pad)[j] ^= 0x6A6A6A6A;
+        CPY_DEVCTX(ctx_pad, c_inbuffer[arraysize].ctx_ipad);
+        for (i = 0; i < 16; i++)
+            ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
-        CPY_DEVCTX(ctx_pad, c_inbuffer[i].ctx_opad);
-
+        CPY_DEVCTX(ctx_pad, c_inbuffer[arraysize].ctx_opad);
+        
         essid[slen - 1] = '\1';
-        HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
-        GET_BE(c_inbuffer[i].e1.h0, temp, 0); GET_BE(c_inbuffer[i].e1.h1, temp, 4);
-        GET_BE(c_inbuffer[i].e1.h2, temp, 8); GET_BE(c_inbuffer[i].e1.h3, temp, 12);
-        GET_BE(c_inbuffer[i].e1.h4, temp, 16);
+        HMAC(EVP_sha1(), (unsigned char *)passwd, strlen(passwd), (unsigned char*)essid, slen, temp, NULL);
+        GET_BE(c_inbuffer[arraysize].e1.h0, temp, 0);
+        GET_BE(c_inbuffer[arraysize].e1.h1, temp, 4);
+        GET_BE(c_inbuffer[arraysize].e1.h2, temp, 8);
+        GET_BE(c_inbuffer[arraysize].e1.h3, temp, 12);
+        GET_BE(c_inbuffer[arraysize].e1.h4, temp, 16);
 
         essid[slen - 1] = '\2';
-        HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, temp, NULL);
-        GET_BE(c_inbuffer[i].e2.h0, temp, 0); GET_BE(c_inbuffer[i].e2.h1, temp, 4);
-        GET_BE(c_inbuffer[i].e2.h2, temp, 8); GET_BE(c_inbuffer[i].e2.h3, temp, 12);
-        GET_BE(c_inbuffer[i].e2.h4, temp, 16);
+        HMAC(EVP_sha1(), (unsigned char *)passwd, strlen(passwd), (unsigned char*)essid, slen, temp, NULL);
+        GET_BE(c_inbuffer[arraysize].e2.h0, temp, 0);
+        GET_BE(c_inbuffer[arraysize].e2.h1, temp, 4);
+        GET_BE(c_inbuffer[arraysize].e2.h2, temp, 8);
+        GET_BE(c_inbuffer[arraysize].e2.h3, temp, 12);
+        GET_BE(c_inbuffer[arraysize].e2.h4, temp, 16);
+
+        arraysize++;
+    }
+    Py_DECREF(passwd_seq);
+    
+    if (arraysize == 0)
+    {
+        PyMem_Free(c_inbuffer);
+        return PyTuple_New(0);
     }
     
-    ret = cuCtxPushCurrent(self->dev_ctx);
-    if (ret != CUDA_SUCCESS)
+    c_outbuffer = PyMem_New(gpu_outbuffer, arraysize);
+    if (c_outbuffer == NULL)
     {
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
-        free(c_inbuffer);
-        free(c_outbuffer);
+        PyMem_Free(c_inbuffer);
+        return PyErr_NoMemory();
+    }
+
+    i = cuCtxPushCurrent(self->dev_ctx);
+    if (i != CUDA_SUCCESS)
+    {
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(i));
+        PyMem_Free(c_inbuffer);
+        PyMem_Free(c_outbuffer);
         return NULL;
     }
 
     Py_BEGIN_ALLOW_THREADS;
-    ret = calc_pmklist(self, c_inbuffer, c_outbuffer, numLines);
+    i = calc_pmklist(self, c_inbuffer, c_outbuffer, arraysize);
     Py_END_ALLOW_THREADS;
     cuCtxPopCurrent(NULL);
-    free(c_inbuffer);
+    PyMem_Free(c_inbuffer);
 
-    if (ret != CUDA_SUCCESS)
+    if (i != CUDA_SUCCESS)
     {
-        free(c_outbuffer);
-        PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
+        PyMem_Free(c_outbuffer);
+        PyErr_SetString(PyExc_SystemError, getCUresultMsg(i));
         return NULL;
     }
 
-    resultList = PyTuple_New(numLines);
-    for (i = 0; i < numLines; i++)
+    result = PyTuple_New(arraysize);
+    for (i = 0; i < arraysize; i++)
     {
         PUT_BE(c_outbuffer[i].pmk1.h0, temp, 0); PUT_BE(c_outbuffer[i].pmk1.h1, temp, 4);
         PUT_BE(c_outbuffer[i].pmk1.h2, temp, 8); PUT_BE(c_outbuffer[i].pmk1.h3, temp, 12); 
         PUT_BE(c_outbuffer[i].pmk1.h4, temp, 16);PUT_BE(c_outbuffer[i].pmk2.h0, temp, 20); 
         PUT_BE(c_outbuffer[i].pmk2.h1, temp, 24);PUT_BE(c_outbuffer[i].pmk2.h2, temp, 28); 
-        PyTuple_SetItem(resultList, i, Py_BuildValue("s#", temp, 32));
+        PyTuple_SetItem(result, i, Py_BuildValue("s#", temp, 32));
     }
     
-    free(c_outbuffer);
+    PyMem_Free(c_outbuffer);
 
-    return resultList;
+    return result;
 }
 
 
@@ -348,12 +377,12 @@ init_cpyrit_cuda(void)
         PyErr_SetString(PyExc_ImportError, "CUDA seems to be unavailable or no device reported.");
         return;
     }
-
+    
     CUDADevice_type.tp_getattro = PyObject_GenericGetAttr;
     CUDADevice_type.tp_setattro = PyObject_GenericSetAttr;
     CUDADevice_type.tp_alloc  = PyType_GenericAlloc;
     CUDADevice_type.tp_new = PyType_GenericNew;
-    CUDADevice_type.tp_free = _PyObject_Del;    
+    CUDADevice_type.tp_free = _PyObject_Del;  
     if (PyType_Ready(&CUDADevice_type) < 0)
 	    return;
 
