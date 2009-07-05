@@ -38,6 +38,13 @@
     #endif
 #endif
 
+static PyTypeObject CUDADevice_type;
+
+typedef struct
+{
+    PyObject_HEAD
+} CPUDevice;
+
 struct pmk_ctr
 {
     SHA_CTX ctx_ipad;
@@ -321,19 +328,19 @@ cpyrit_getPlatform(PyObject *self, PyObject *args)
     #ifdef COMPILE_PADLOCK
         if (padlock_available())
         {
-            return Py_BuildValue("s", "VIA Padlock");
+            return PyString_FromString("VIA Padlock");
         } else {
-            return Py_BuildValue("s", "x86");
+            return PyString_FromString("x86");
         }
 	#elif defined(__x86_64__)
-		return Py_BuildValue("s", "x86_64");
+		return PyString_FromString("x86_64");
 	#else
-		return Py_BuildValue("s", "unknown");
+		return PyString_FromString("unknown");
     #endif
 }
 
 static PyObject *
-cpyrit_pmklist(PyObject *self, PyObject *args)
+cpyrit_solve(PyObject *self, PyObject *args)
 {
     char *essid, *passwd;
     PyObject *passwd_seq, *passwd_obj, *result;
@@ -387,16 +394,67 @@ cpyrit_pmklist(PyObject *self, PyObject *args)
     return result;
 }
 
+static PyMethodDef CPUDevice_methods[] =
+{
+    {"solve", (PyCFunction)cpyrit_solve, METH_VARARGS, "Calculate PMKs from ESSID and iterable of strings."},
+    {NULL, NULL}
+};
+
+static PyTypeObject CPUDevice_type = {
+    PyObject_HEAD_INIT(NULL)
+    0,                          /*ob_size*/
+    "_cpyrit_cpu.CPUDevice",    /*tp_name*/
+    sizeof(CPUDevice),          /*tp_basicsize*/
+    0,                          /*tp_itemsize*/
+    0,                          /*tp_dealloc*/
+    0,                          /*tp_print*/
+    0,                          /*tp_getattr*/
+    0,                          /*tp_setattr*/
+    0,                          /*tp_compare*/
+    0,                          /*tp_repr*/
+    0,                          /*tp_as_number*/
+    0,                          /*tp_as_sequence*/
+    0,                          /*tp_as_mapping*/
+    0,                          /*tp_hash*/
+    0,                          /*tp_call*/
+    0,                          /*tp_str*/
+    0,                          /*tp_getattro*/
+    0,                          /*tp_setattro*/
+    0,                          /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+     | Py_TPFLAGS_BASETYPE,
+    0,                          /*tp_doc*/
+    0,                          /*tp_traverse*/
+    0,                          /*tp_clear*/
+    0,                          /*tp_richcompare*/
+    0,                          /*tp_weaklistoffset*/
+    0,                          /*tp_iter*/
+    0,                          /*tp_iternext*/
+    CPUDevice_methods,          /*tp_methods*/
+    0,                          /*tp_members*/
+    0,                          /*tp_getset*/
+    0,                          /*tp_base*/
+    0,                          /*tp_dict*/
+    0,                          /*tp_descr_get*/
+    0,                          /*tp_descr_set*/
+    0,                          /*tp_dictoffset*/
+    0,                          /*tp_init*/
+    0,                          /*tp_alloc*/
+    0,                          /*tp_new*/
+    0,                          /*tp_free*/
+    0,                          /*tp_is_gc*/
+};
 
 static PyMethodDef CPyritCPUMethods[] = {
-    {"calc_pmklist", cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings"},
-    {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine if VIA Padlock support is available"},
+    {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine CPU-type/name"},
     {NULL, NULL, 0, NULL}
 };
 
 PyMODINIT_FUNC
 init_cpyrit_cpu(void)
 {
+    PyObject *m;
+
     #ifdef COMPILE_PADLOCK
         if (padlock_available())
         {
@@ -410,16 +468,18 @@ init_cpyrit_cpu(void)
         prepare_pmk = prepare_pmk_openssl;
         finalize_pmk = finalize_pmk_openssl;
     #endif
+
+    CPUDevice_type.tp_getattro = PyObject_GenericGetAttr;
+    CPUDevice_type.tp_setattro = PyObject_GenericSetAttr;
+    CPUDevice_type.tp_alloc  = PyType_GenericAlloc;
+    CPUDevice_type.tp_new = PyType_GenericNew;
+    CPUDevice_type.tp_free = _PyObject_Del;  
+    if (PyType_Ready(&CPUDevice_type) < 0)
+	    return;
     
-    (void) Py_InitModule("_cpyrit_cpu", CPyritCPUMethods);
+    m = Py_InitModule("_cpyrit_cpu", CPyritCPUMethods);
+
+    Py_INCREF(&CPUDevice_type);
+    PyModule_AddObject(m, "CPUDevice", (PyObject*)&CPUDevice_type);
 }
 
-int
-main(int argc, char *argv[])
-{
-    Py_Initialize();
-
-    init_cpyrit_cpu();
-
-    return -1;
-}

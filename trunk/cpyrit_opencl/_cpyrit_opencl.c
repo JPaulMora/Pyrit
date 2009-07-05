@@ -19,6 +19,7 @@
 */
 
 #include <Python.h>
+#include <structmember.h>
 #include <CL/cl.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
@@ -34,6 +35,7 @@ typedef struct
 {
     PyObject_HEAD
     int dev_idx;
+    PyObject* dev_name;
     size_t lWorksize;
     cl_context dev_ctx;
     cl_program dev_prog;
@@ -105,6 +107,7 @@ static int
 opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
 {
     int dev_idx;
+    char dev_name[64];
     cl_int errcode;
 
     if (!PyArg_ParseTuple(args, "i:OpenCLDevice", &dev_idx))
@@ -116,12 +119,25 @@ opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
         return -1;
     }
     self->dev_idx = dev_idx;
-    
+    self->dev_name = NULL;
     self->dev_ctx = NULL;
     self->dev_prog = NULL;
     self->dev_kernel = NULL;
     self->dev_queue = NULL;
     self->lWorksize = WORKGROUP_SIZE; // make this depend on the device?
+
+    errcode = clGetDeviceInfo(OpenCLDevices[dev_idx], CL_DEVICE_NAME, sizeof(dev_name), &dev_name, NULL);
+    if (errcode != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to get device-name (%s)", getCLresultMsg(errcode));
+        return -1;
+    }
+    self->dev_name = PyString_FromString(dev_name);
+    if (!self->dev_name)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
     
     self->dev_ctx = clCreateContext(NULL, 1, &OpenCLDevices[dev_idx], NULL, NULL, &errcode);
     if (errcode != CL_SUCCESS)
@@ -175,15 +191,16 @@ opencldev_dealloc(OpenCLDevice *self)
         clReleaseProgram(self->dev_prog);
     if (self->dev_ctx)
         clReleaseContext(self->dev_ctx);
+    Py_XDECREF(self->dev_name);
     PyObject_Del(self);
 }
 
-PyObject*
+static PyObject*
 cpyrit_listDevices(PyObject* self, PyObject* args)
 {
     int i;
     PyObject* result;
-    char dev_name[128];
+    char dev_name[64];
     char vendor_name[128];
     
     if (!PyArg_ParseTuple(args, "")) return NULL;
@@ -199,7 +216,7 @@ cpyrit_listDevices(PyObject* self, PyObject* args)
     return result;
 }
 
-cl_int
+static cl_int
 calc_pmklist(OpenCLDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
 {
     cl_mem g_inbuffer, g_outbuffer;
@@ -246,7 +263,8 @@ out:
     return errcode;
 }
 
-PyObject *cpyrit_pmklist(OpenCLDevice *self, PyObject *args)
+PyObject*
+cpyrit_solve(OpenCLDevice *self, PyObject *args)
 {
     char *essid_pre, essid[33+4], *passwd;
     unsigned char pad[64], temp[32];
@@ -366,10 +384,15 @@ PyObject *cpyrit_pmklist(OpenCLDevice *self, PyObject *args)
     return result;
 }
 
+static PyMemberDef OpenCLDevice_members[] =
+{
+    {"deviceName", T_OBJECT, offsetof(OpenCLDevice, dev_name), 0},
+    {NULL}
+};
 
 static PyMethodDef OpenCLDevice_methods[] =
 {
-    {"calc_pmklist", (PyCFunction)cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
+    {"solve", (PyCFunction)cpyrit_solve, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
     {NULL, NULL}
 };
 
@@ -394,7 +417,8 @@ static PyTypeObject OpenCLDevice_type = {
     0,                          /*tp_getattro*/
     0,                          /*tp_setattro*/
     0,                          /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT,         /*tp_flags*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+     | Py_TPFLAGS_BASETYPE,
     0,                          /*tp_doc*/
     0,                          /*tp_traverse*/
     0,                          /*tp_clear*/
@@ -403,7 +427,7 @@ static PyTypeObject OpenCLDevice_type = {
     0,                          /*tp_iter*/
     0,                          /*tp_iternext*/
     OpenCLDevice_methods,       /*tp_methods*/
-    0,                          /*tp_members*/
+    OpenCLDevice_members,       /*tp_members*/
     0,                          /*tp_getset*/
     0,                          /*tp_base*/
     0,                          /*tp_dict*/

@@ -19,6 +19,7 @@
 */
 
 #include <Python.h>
+#include <structmember.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include "_cpyrit_cuda.h"
@@ -32,7 +33,7 @@ typedef struct
 {
     PyObject_HEAD
     int dev_idx;
-    char dev_name[64];
+    PyObject* dev_name;
     CUmodule mod;
     CUfunction kernel;
     CUcontext dev_ctx;
@@ -81,6 +82,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
 {
     int dev_idx;
     CUresult ret;
+    char dev_name[64];
 
     if (!PyArg_ParseTuple(args, "i:CUDADevice", &dev_idx))
         return -1;
@@ -90,12 +92,18 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
         PyErr_SetString(PyExc_SystemError, "Invalid device number");
         return -1;
     }
-    
     self->dev_idx = dev_idx;
+    self->dev_name = NULL;
     self->mod = NULL;
     self->dev_ctx = NULL;
     
-    CUSAFECALL(cuDeviceGetName(self->dev_name, sizeof(self->dev_name), self->dev_idx));
+    CUSAFECALL(cuDeviceGetName(dev_name, sizeof(dev_name), self->dev_idx));
+    self->dev_name = PyString_FromString(dev_name);
+    if (!self->dev_name)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
     
     CUSAFECALL(cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_YIELD, self->dev_idx));
     
@@ -122,10 +130,11 @@ cudadev_dealloc(CUDADevice *self)
         cuModuleUnload(self->mod);
     if (self->dev_ctx)
         cuCtxDestroy(self->dev_ctx);
+    Py_XDECREF(self->dev_name);
     PyObject_Del(self);
 }
 
-PyObject*
+static PyObject*
 cpyrit_listDevices(PyObject* self, PyObject* args)
 {
     int i;
@@ -144,7 +153,7 @@ cpyrit_listDevices(PyObject* self, PyObject* args)
     return result;
 }
 
-CUresult
+static CUresult
 calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
 {
     CUdeviceptr g_inbuffer, g_outbuffer;
@@ -182,7 +191,8 @@ errout:
     return ret;
 }
 
-PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
+static PyObject*
+cpyrit_solve(CUDADevice *self, PyObject *args)
 {
     char *essid_pre, essid[33+4], *passwd;
     unsigned char pad[64], temp[32];
@@ -310,10 +320,15 @@ PyObject *cpyrit_pmklist(CUDADevice *self, PyObject *args)
     return result;
 }
 
+static PyMemberDef CUDADevice_members[] =
+{
+    {"deviceName", T_OBJECT, offsetof(CUDADevice, dev_name), 0},
+    {NULL}
+};
 
 static PyMethodDef CUDADevice_methods[] =
 {
-    {"calc_pmklist", (PyCFunction)cpyrit_pmklist, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
+    {"solve", (PyCFunction)cpyrit_solve, METH_VARARGS, "Calculate PMKs from ESSID and iterable of strings."},
     {NULL, NULL}
 };
 
@@ -338,7 +353,8 @@ static PyTypeObject CUDADevice_type = {
     0,                          /*tp_getattro*/
     0,                          /*tp_setattro*/
     0,                          /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT,         /*tp_flags*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+     | Py_TPFLAGS_BASETYPE,
     0,                          /*tp_doc*/
     0,                          /*tp_traverse*/
     0,                          /*tp_clear*/
@@ -347,7 +363,7 @@ static PyTypeObject CUDADevice_type = {
     0,                          /*tp_iter*/
     0,                          /*tp_iternext*/
     CUDADevice_methods,         /*tp_methods*/
-    0,                          /*tp_members*/
+    CUDADevice_members,         /*tp_members*/
     0,                          /*tp_getset*/
     0,                          /*tp_base*/
     0,                          /*tp_dict*/
@@ -389,5 +405,6 @@ init_cpyrit_cuda(void)
     m = Py_InitModule("_cpyrit_cuda", CPyritCUDA_methods);
     
     Py_INCREF(&CUDADevice_type);
-    PyModule_AddObject(m, "CUDADevice", (PyObject *)&CUDADevice_type);
+    PyModule_AddObject(m, "CUDADevice", (PyObject*)&CUDADevice_type);
 }
+

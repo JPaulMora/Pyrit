@@ -26,8 +26,6 @@ import time
 import threading
 import urllib2
 
-import _cpyrit
-
 # Snippet taken from ParallelPython
 def _detect_ncpus():
     """Detect the number of effective CPUs in the system"""
@@ -91,15 +89,13 @@ try:
 except:
     print >>sys.stderr, "Failed to load Pyrit's CPU-driven core; this module should always be available. Sorry, we can't continue."
     raise
-class CPUCore(Core):
+class CPUCore(Core, _cpyrit_cpu.CPUDevice):
     def __init__(self, queue):
         Core.__init__(self, queue)
+        _cpyrit_cpu.CPUDevice.__init__(self)
         self.buffersize = 512
         self.name = "CPU-Core (%s)" % _cpyrit_cpu.getPlatform()
         self.start()
-        
-    def solve(self, essid, pwlist):
-        return _cpyrit_cpu.calc_pmklist(essid, pwlist)
 
 
 ## CUDA
@@ -109,16 +105,14 @@ except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
-class CUDACore(Core):
-    def __init__(self, queue, dev_idx):
-        Core.__init__(self, queue)
-        self.name = "CUDA-Device #%i '%s'" % (dev_idx+1, _cpyrit_cuda.listDevices()[dev_idx][0])
-        self.CUDADev = _cpyrit_cuda.CUDADevice(dev_idx)
-        self.buffersize = 4096
-        self.start()
-        
-    def solve(self, essid, pwlist):
-        return self.CUDADev.calc_pmklist(essid, pwlist)
+else:
+    class CUDACore(Core, _cpyrit_cuda.CUDADevice):
+        def __init__(self, queue, dev_idx):
+            Core.__init__(self, queue)
+            _cpyrit_cuda.CUDADevice.__init__(self, dev_idx)
+            self.name = "CUDA-Device #%i '%s'" % (dev_idx+1, self.deviceName)
+            self.buffersize = 4096
+            self.start()
 
 
 ## OpenCL
@@ -128,16 +122,14 @@ except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
-class OpenCLCore(Core):
-    def __init__(self, queue, dev_idx):
-        Core.__init__(self, queue)
-        self.name = "OpenCL-Device #%i '%s'" % (dev_idx+1, _cpyrit_opencl.listDevices()[dev_idx][0])
-        self.OpenCLDev = _cpyrit_opencl.OpenCLDevice(dev_idx)
-        self.buffersize = 4096
-        self.start()
-        
-    def solve(self, essid, pwlist):
-        return self.OpenCLDev.calc_pmklist(essid, pwlist)
+else:
+    class OpenCLCore(Core, _cpyrit_opencl.OpenCLDevice):
+        def __init__(self, queue, dev_idx):
+            Core.__init__(self, queue)
+            _cpyrit_opencl.OpenCLDevice.__init__(self, dev_idx)
+            self.name = "OpenCL-Device #%i '%s'" % (dev_idx+1, self.deviceName)
+            self.buffersize = 4096
+            self.start()
 
 
 ## Stream
@@ -147,27 +139,25 @@ except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
-class StreamCore(Core):
-    def __init__(self, queue, dev_idx):
-        Core.__init__(self, queue)
-        self.name = "ATI-Stream device %i" % dev_idx+1
-        self.dev_idx = dev_idx
-        self.start()
+else:
+    class StreamCore(Core, _cpyrit_opencl.StreamDevice):
+        def __init__(self, queue, dev_idx):
+            Core.__init__(self, queue)
+            _cpyrit_opencl.StreamDevice(self)
+            self.name = "ATI-Stream device %i" % (dev_idx+1)
+            self.dev_idx = dev_idx
+            self.start()
 
-    def run(self):
-        _cpyrit_stream.setDevice(self.dev_idx)
-        self._testComputeFunction(101)
-        while True:
-            essid, pwlist = self.queue._gather(8192)
-            t = time.time()
-            res = self.solve(essid, pwlist)
-            self.compTime += time.time() - t
-            self.resCount += len(res)
-            self.queue._scatter(essid, pwlist, res)
-
-    def solve(self, essid, pwlist):
-        assert len(pwlist) <= 8192
-        return _cpyrit_stream.calc_pmklist(essid, pwlist)
+        def run(self):
+            _cpyrit_stream.setDevice(self.dev_idx)
+            self._testComputeFunction(101)
+            while True:
+                essid, pwlist = self.queue._gather(8192)
+                t = time.time()
+                res = self.solve(essid, pwlist)
+                self.compTime += time.time() - t
+                self.resCount += len(res)
+                self.queue._scatter(essid, pwlist, res)
 
 
 ## Network
@@ -231,11 +221,8 @@ class NetworkCore(Core):
         server_queue_length = 0
         while True:
             if server_queue_length < 50000:
-                essid, worklist = self.queue._gather(8192)
-                workbuffer.append(worklist)
-                pwlist = []
-                for r, pwslice in worklist:
-                    pwlist.extend(pwslice)
+                essid, pwlist = self.queue._gather(8192)
+                workbuffer.append((essid, pwlist))
                 server_queue_length = self._enqueue_on_host(essid, pwlist)
             t = time.time()
             results = self._dequeue_from_host()
@@ -243,7 +230,8 @@ class NetworkCore(Core):
             if results is not None:
                 server_queue_length -= len(results)
                 self.resCount += len(results)
-                self.queue._scatter(workbuffer.pop(0), results)
+                essid, pwlist = workbuffer.pop(0)
+                self.queue._scatter(essid, pwlist, results)
 
 
 class CPyrit(object):
@@ -345,8 +333,8 @@ class CPyrit(object):
                 return
             while True:
                 wu_length = self.workunits[0]
-                print [(idx, len(pwlen)) for idx, pwlen in self.outqueue.iteritems()]
                 if self.out_idx not in self.outqueue or len(self.outqueue[self.out_idx]) < wu_length:
+                    self._check_cores()
                     if block:
                         if timeout:
                             while time.time() - t > timeout:
@@ -356,7 +344,7 @@ class CPyrit(object):
                             else:
                                 return None
                         else:
-                            self.cv.wait()
+                            self.cv.wait(3)
                     else:
                         return None
                 else:
@@ -366,6 +354,7 @@ class CPyrit(object):
                     self.out_idx += wu_length
                     self.outqueue[self.out_idx] = reslist[wu_length:]
                     self.workunits.pop(0)
+                    self.cv.notifyAll()
                     return tuple(results)
         finally:
             self.cv.release()
@@ -378,6 +367,7 @@ class CPyrit(object):
             cur_essid = None
             restsize = desired_size
             while True:
+                self._check_cores()
                 for essid, pwdict in self.inqueue:
                     for idx, pwslice in sorted(pwdict.items()):
                         if len(pwslice) > 0:
@@ -404,9 +394,10 @@ class CPyrit(object):
                         self.slices[wu].append(pwslices)
                     except KeyError:
                         self.slices[wu] = [pwslices]
+                    self.cv.notifyAll()
                     return wu
                 else:
-                    self.cv.wait()
+                    self.cv.wait(3)
         finally:
             self.cv.release()
 

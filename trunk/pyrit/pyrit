@@ -1012,7 +1012,6 @@ class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
         BaseHTTPServer.HTTPServer.__init__(self, ('', 19935), PyritServer.PyritHandler)
         import cpyrit
         self.cp = cpyrit.CPyrit()
-        self.cp._autoconfig()
         self.started = time.time()
         self.clients = {}
         self.wu_clients = []
