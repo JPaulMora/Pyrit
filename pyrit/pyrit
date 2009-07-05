@@ -103,7 +103,9 @@ class AsyncFileWriter(threading.Thread):
         if self.excp:
             e = self.excp
             self.excp = None
-            raise type(e)(e.message)
+            self.shallstop = True
+            self.cv.notifyAll()
+            raise type(e)(str(e))
 
     def run(self):
         try:
@@ -335,9 +337,9 @@ class Pyrit_CLI(object):
             f = sys.stdout
         else:
             f = open(self.options.file, "wb")
-        awriter = AsyncFileWriter(f)
         lines = 0
         self.tell("Exporting to '%s'..." % self.options.file)
+        awriter = AsyncFileWriter(f)
         try:
             for l, buf in self._genCowpatty(self.essidstore[self.options.essid]):
                 awriter.write(buf)
@@ -353,8 +355,6 @@ class Pyrit_CLI(object):
     def passthrough(self):
         import cpyrit
         cp = cpyrit.CPyrit()
-        awriter = AsyncFileWriter(sys.stdout)
-        
         if self.options.essid is None:
             self.tell("Specifiy a ESSID using the -e option. See 'help'", stream=sys.stderr)
             return
@@ -365,6 +365,7 @@ class Pyrit_CLI(object):
             f = sys.stdin
         else:
             f = open(self.options.file, "r")
+        awriter = AsyncFileWriter(sys.stdout)       
         try:
             awriter.write(self._genCowpHeader(self.options.essid))
             workunits = []
@@ -461,8 +462,7 @@ class Pyrit_CLI(object):
     def batchprocess(self):
         import cpyrit
         cp = cpyrit.CPyrit()
-        awriter = AsyncFileWriter(sys.stdout)
-        
+
         def _writeCowpatty(out, resFile):
             if self.options.file == '-':
                 try:
@@ -486,6 +486,7 @@ class Pyrit_CLI(object):
         totalResCount = 0
         startTime = time.time()
         workunits = []
+        awriter = AsyncFileWriter(sys.stdout) 
         try: 
             for essid in essids:
                 essid_object = self.essidstore[essid]

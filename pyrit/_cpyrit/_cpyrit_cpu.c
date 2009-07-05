@@ -38,7 +38,7 @@
     #endif
 #endif
 
-static PyTypeObject CUDADevice_type;
+static PyTypeObject CPUDevice_type;
 
 typedef struct
 {
@@ -129,7 +129,6 @@ void (*finalize_pmk)(struct pmk_ctr*) = NULL;
     {
         ucontext_t *uctx = uctxp;
         MCTX_EIP(uctx) += 4;
-        //uctx->uc_mcontext.gregs[REG_EIP] += 4;
         return;
     }
 
@@ -155,7 +154,6 @@ void (*finalize_pmk)(struct pmk_ctr*) = NULL;
         cnt = inputbuffer + page_size - (64*2);
         memcpy(cnt, input, 64);
         memset(&act, 0, sizeof(act));
-
         act.sa_sigaction = segv_action;
         act.sa_flags = SA_SIGINFO;
         sigaction(SIGSEGV, &act, &oldact);
