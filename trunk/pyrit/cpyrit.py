@@ -140,10 +140,10 @@ except ImportError:
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
 else:
-    class StreamCore(Core, _cpyrit_opencl.StreamDevice):
+    class StreamCore(Core, _cpyrit_stream.StreamDevice):
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
-            _cpyrit_opencl.StreamDevice(self)
+            _cpyrit_stream.StreamDevice(self)
             self.name = "ATI-Stream device %i" % (dev_idx+1)
             self.dev_idx = dev_idx
             self.start()
