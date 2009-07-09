@@ -3,4 +3,6 @@ pyrit
 setup.py
 _cpyrit/__init__.py
 _cpyrit/_cpyrit_cpu.c
+_cpyrit/_cpyrit_cpu.h
+_cpyrit/_cpyrit_cpu_sse2.S
 MANIFEST

@@ -19,25 +19,13 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
 from distutils.core import setup, Extension
-from distutils.command.build_ext import build_ext
-from distutils.command.clean import clean
-import distutils.util
-import os
-import re
-import subprocess
-import sys
+from distutils.unixccompiler import UnixCCompiler
 
-EXTRA_COMPILE_ARGS = ['-O2']
-LIBRARY_DIRS = []
-INCLUDE_DIRS = []
-LIBRARIES = ['ssl']
+UnixCCompiler.src_extensions.append('.S')
 
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
-                    sources = ['_cpyrit/_cpyrit_cpu.c'],
-                    libraries = LIBRARIES,
-                    extra_compile_args = EXTRA_COMPILE_ARGS,
-                    include_dirs = INCLUDE_DIRS,
-                    library_dirs = LIBRARY_DIRS)
+                    sources = ['_cpyrit/_cpyrit_cpu.c','_cpyrit/_cpyrit_cpu_sse2.S'],
+                    libraries = ['ssl'])
 
 setup_args = dict(
         name = 'Pyrit',
@@ -56,3 +44,4 @@ setup_args = dict(
 
 if __name__ == "__main__":
     setup(**setup_args)
+
