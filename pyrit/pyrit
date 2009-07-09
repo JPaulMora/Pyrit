@@ -193,7 +193,6 @@ class Pyrit_CLI(object):
         }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)()
 
     def print_help(self):
-        self.tell("Psyco-acceleration " + ("enabled.\n" if "psyco" in sys.modules else "not used.\n"))
         self.tell("Usage: pyrit [options] command " \
             "\n\nRecognized options:" \
             "\n  -e    : ESSID for the command" \
@@ -560,7 +559,10 @@ class Pyrit_CLI(object):
     def selftest(self):
         import cpyrit
         cp = cpyrit.CPyrit(maxBufferSize=10000)
-        self.tell("Running selftest for at least 60 seconds...\n")
+        self.tell("Cores incorporated in the test:")
+        for i, core in enumerate(cp.cores):
+            self.tell("#%i:  '%s'" % (i+1, core))
+        self.tell("\nRunning selftest for at least 60 seconds...")
         workunits = []
         t = time.time()
         err = False
@@ -585,12 +587,12 @@ class Pyrit_CLI(object):
                     err = True
                     break
         if err or len(workunits) != 0 or len(cp) != 0:
-            self.tell("!!! WARNING !!!\n"\
+            self.tell("\n!!! WARNING !!!\n"\
                       "At least some results are definitly invalid."\
                       "This may be caused by a bug in Pyrit, faulty hardware or malicious network clients. Do not trust this installation...\n",
                       stream=sys.stderr)
         else:
-            self.tell("All results verified. Your installation seems OK.")
+            self.tell("\nAll results verified. Your installation seems OK.")
     
     def verify(self):
         import cpyrit
@@ -1083,11 +1085,5 @@ class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
             self.cv.release()
 
 if __name__ == "__main__":
-    try:
-        import psyco
-    except ImportError:
-        pass
-    else:
-        psyco.full()
     Pyrit_CLI().init()
 

@@ -58,12 +58,12 @@ class Core(threading.Thread):
         self.queue = queue
         self.compTime = 0
         self.resCount = 0
+        self.name = "Unnamed Core"
         self.setDaemon(True)
 
     def _testComputeFunction(self, i):
-        return
         if any((tuple(map(ord, pmk)) != Core.TV_PMK for pmk in self.solve(Core.TV_ESSID, [Core.TV_PASSWD]*i))):
-            raise Exception, "Test-vector does not result in correct result."
+            raise SystemError, "Test-vector does not result in correct result."
             
     def run(self):
         self._testComputeFunction(101)
@@ -143,7 +143,7 @@ else:
     class StreamCore(Core, _cpyrit_stream.StreamDevice):
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
-            _cpyrit_stream.StreamDevice(self)
+            _cpyrit_stream.StreamDevice.__init__(self)
             self.name = "ATI-Stream device %i" % (dev_idx+1)
             self.dev_idx = dev_idx
             self.start()
