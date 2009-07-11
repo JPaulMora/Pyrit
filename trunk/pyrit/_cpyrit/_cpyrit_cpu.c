@@ -250,12 +250,8 @@ finalize_pmk_sse2(struct pmk_ctr *ctr)
 
     memset(e1_buffer, 0, sizeof(e1_buffer));
     memset(e2_buffer, 0, sizeof(e2_buffer));
-    e1_buffer[20] = e1_buffer[21] = e1_buffer[22] = e1_buffer[23] = 
-    e2_buffer[20] = e2_buffer[21] = e2_buffer[22] = e2_buffer[23] = 0x80; // Terminator bit
-    e1_buffer[60] = e1_buffer[61] = e1_buffer[62] = e1_buffer[63] =
-    e2_buffer[60] = e2_buffer[61] = e2_buffer[62] = e2_buffer[63] = 0xA0020000; // size = (64+20)*8
 
-    // Interleave four ipads and opads from ctr to ctx
+    // Interleave four ipads, opads and first-round-PMKs to local buffers
     for (i = 0; i < 4; i++)
     {
         ctx_ipad[i+ 0] = ctr[i].ctx_ipad.h0;
@@ -269,18 +265,16 @@ finalize_pmk_sse2(struct pmk_ctr *ctr)
         ctx_opad[i+ 8] = ctr[i].ctx_opad.h2;
         ctx_opad[i+12] = ctr[i].ctx_opad.h3;
         ctx_opad[i+16] = ctr[i].ctx_opad.h4;
-    }
-    
-    // Interleave four first-round-PMKs to e1/e2_buffer
-    for (i = 0; i < 4; i++)
-    {
+
+        e1_buffer[20+i] = e2_buffer[20+i] = 0x80; // Terminator bit
+        e1_buffer[60+i] = e2_buffer[60+i] = 0xA0020000; // size = (64+20)*8
         for (j = 0; j < 5; j++)
         {
             e1_buffer[j*4 + i] = ctr[i].e1[j];
             e2_buffer[j*4 + i] = ctr[i].e2[j];
         }
     }
-
+    
     // Process through SSE2 and de-interleave back to ctr
     for (i = 0; i < 4096-1; i++)
     {
@@ -436,6 +430,7 @@ cpyrit_solve(PyObject *self, PyObject *args)
             return NULL;
         }
         prepare_pmk(essid, passwd, &pmk_buffer[arraysize]);
+        Py_DECREF(passwd_obj);
         arraysize++;
     }
     Py_DECREF(passwd_seq);

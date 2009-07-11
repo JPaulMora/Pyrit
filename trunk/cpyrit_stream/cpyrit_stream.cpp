@@ -66,6 +66,7 @@ cpyrit_solve(PyObject * self, PyObject * args)
     {
         if (arraysize > 8192)
         {
+            Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
             PyMem_Free(dbuf);
             PyErr_SetString(PyExc_ValueError, "Sequence must not be longer than 8192 elements.");
@@ -74,6 +75,7 @@ cpyrit_solve(PyObject * self, PyObject * args)
         passwd = PyString_AsString(passwd_obj);
         if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
         {
+            Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
             PyMem_Free(dbuf);
             PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
@@ -117,6 +119,7 @@ cpyrit_solve(PyObject * self, PyObject * args)
         dbuf[(8192 * 2 * 13) + (arraysize * 2) + 1] = ctx_pad.h3;
         dbuf[(8192 * 2 * 14) + (arraysize * 2) + 1] = ctx_pad.h4;
         
+        Py_DECREF(passw_obj);
         arraysize++;
     }
     Py_DECREF(passwd_seq);

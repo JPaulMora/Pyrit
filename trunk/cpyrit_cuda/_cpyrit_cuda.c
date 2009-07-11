@@ -222,6 +222,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
             t = PyMem_Realloc(c_inbuffer, sizeof(gpu_inbuffer)*(arraysize+1000));
             if (!t)
             {
+                Py_DECREF(passwd_obj);
                 Py_DECREF(passwd_seq);
                 PyMem_Free(c_inbuffer);
                 PyErr_NoMemory();
@@ -232,6 +233,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
         passwd = PyString_AsString(passwd_obj);
         if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
         {
+            Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
             PyMem_Free(c_inbuffer);
             PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
@@ -266,6 +268,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
         GET_BE(c_inbuffer[arraysize].e2.h3, temp, 12);
         GET_BE(c_inbuffer[arraysize].e2.h4, temp, 16);
 
+        Py_DECREF(passwd_obj);
         arraysize++;
     }
     Py_DECREF(passwd_seq);
