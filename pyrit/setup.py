@@ -27,6 +27,9 @@ cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
                     sources = ['_cpyrit/_cpyrit_cpu.c','_cpyrit/_cpyrit_cpu_sse2.S'],
                     libraries = ['ssl'])
 
+util_extension = Extension(name='_cpyrit._cpyrit_util',
+                    sources = ['_cpyrit/_cpyrit_util.c'])
+
 setup_args = dict(
         name = 'Pyrit',
         version = '0.2.3',
@@ -38,7 +41,7 @@ setup_args = dict(
         packages = ['_cpyrit'],
         py_modules = ['cpyrit'],
         scripts = ['pyrit'],
-        ext_modules = [cpu_extension],
+        ext_modules = [cpu_extension, util_extension],
         options = {'install':{'optimize':1}}
         )
 

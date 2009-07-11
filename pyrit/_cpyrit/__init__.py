@@ -1,1 +1,1 @@
-__all__ = ['_cpyrit_cpu']
+__all__ = ['_cpyrit_cpu', '_cpyrit_util']
