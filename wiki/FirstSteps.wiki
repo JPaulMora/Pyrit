@@ -16,7 +16,7 @@ The commandline-client _pyrit_ and the basic CPU-cores are required for everyone
 ==== Compiling from source ====
 
   * Pyrit (required): [http://pyrit.googlecode.com/files/Pyrit-0.2.2.tar.gz Version 0.2.2]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/file/CPyrit-CUDA-0.2.2.tar.gz Version 0.2.2]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.2.tar.gz Version 0.2.2]
   * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.2.tar.gz Version 0.2.2]
 
 ==== Binary packages ====
