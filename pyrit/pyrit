@@ -38,6 +38,7 @@ import urlparse
 import zlib
 
 from _cpyrit import _cpyrit_util as util
+from _cpyrit import VERSION
 
 PMK_TESTVECTORS = {
     'foo': {
@@ -170,8 +171,8 @@ class Pyrit_CLI(object):
         self.essidstore = EssidStore(self.options.essidstore_path)
         self.passwdstore = PasswordStore(self.options.passwdstore_path)
 
-        self.tell("Pyrit 0.2.3-dev (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
-                "\nThis code is distributed under the GNU General Public License v3\n")
+        self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
+                "\nThis code is distributed under the GNU General Public License v3\n" % VERSION)
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
             self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
 
@@ -952,7 +953,7 @@ class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
         self.clients = {}
         self.wu_clients = []
         self.cv = threading.Condition()
-        self.name = "Pyrit 0.2.3-dev"
+        self.name = "Pyrit %s" % VERSION
         self.cleaner = PyritServer.PyritServerCleaner(self)
 
     def registerClient(self, host):

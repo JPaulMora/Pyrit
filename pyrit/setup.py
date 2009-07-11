@@ -20,8 +20,21 @@
 
 from distutils.core import setup, Extension
 from distutils.unixccompiler import UnixCCompiler
+import subprocess
+import re
 
 UnixCCompiler.src_extensions.append('.S')
+
+
+try:
+    svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
+    version_string = "0.2.3-dev (svn r%i)" % int(re.compile(r"Revision: ([0-9]*)").findall(svn_info)[0])
+except:
+    version_string = "0.2.3"
+f = open('_cpyrit/__init__.py', 'wb')
+f.write("__all__ = ['_cpyrit_cpu', '_cpyrit_util']\n")
+f.write("VERSION = '%s'\n" % version_string)
+f.close()
 
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
                     sources = ['_cpyrit/_cpyrit_cpu.c','_cpyrit/_cpyrit_cpu_sse2.S'],
