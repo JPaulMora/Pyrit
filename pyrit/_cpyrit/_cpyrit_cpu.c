@@ -414,6 +414,7 @@ cpyrit_solve(PyObject *self, PyObject *args)
             t = PyMem_Realloc(pmk_buffer, sizeof(struct pmk_ctr) * (arraysize+100));
             if (!t)
             {
+                Py_DECREF(passwd_obj);
                 Py_DECREF(passwd_seq);
                 PyMem_Free(pmk_buffer);
                 PyErr_NoMemory();
@@ -424,6 +425,7 @@ cpyrit_solve(PyObject *self, PyObject *args)
         passwd = PyString_AsString(passwd_obj);
         if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
         {
+            Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
             PyMem_Free(pmk_buffer);
             PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");

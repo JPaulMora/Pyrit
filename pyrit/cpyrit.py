@@ -17,6 +17,16 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
+"""The cpyrit module provides means to moderate hardware-access.
+   
+   Core is the base-class for standard-driven hardware modules.
+   
+   CPUCore, CUDACore, StreamCore, OpenCLCore and NetworkCore are subclasses of
+   Core and provide access to their respective hardware-platforms. 
+   
+   CPyrit enumerates the available cores and schedules workunits among them.
+"""
+
 import httplib
 import hashlib
 import os
@@ -49,11 +59,18 @@ def _detect_ncpus():
 
 
 class Core(threading.Thread):
+    """Core provides threaded scheduling and testing. It should not be used directly.
+       
+       Subclasses must mix-in a .solve()-function and the .buffersize
+       attribute. The default .run() provided here calibrates itself to pull work
+       from the queue worth 3 seconds of execution time in .solve() 
+    """ 
     TV_ESSID = 'foo'
     TV_PASSWD = 'barbarbar'
-    TV_PMK = (6,56,101,54,204,94,253,3,243,250,132,170,142,162,204,132,8,
-            151,61,243,75,216, 75,83,128,110,237,48,35,205,166,126)
+    TV_PMK = ''.join(map(chr, (6,56,101,54,204,94,253,3,243,250,132,170,142,162,204,132,8,
+            151,61,243,75,216, 75,83,128,110,237,48,35,205,166,126)))
     def __init__(self, queue):
+        """Create a new Core that pulls work from the given CPyrit instance."""
         threading.Thread.__init__(self)
         self.queue = queue
         self.compTime = 0
@@ -62,8 +79,8 @@ class Core(threading.Thread):
         self.setDaemon(True)
 
     def _testComputeFunction(self, i):
-        if any((tuple(map(ord, pmk)) != Core.TV_PMK for pmk in self.solve(Core.TV_ESSID, [Core.TV_PASSWD]*i))):
-            raise SystemError, "Test-vector does not result in correct result."
+        if any((pmk != Core.TV_PMK for pmk in self.solve(Core.TV_ESSID, [Core.TV_PASSWD]*i))):
+            raise ValueError, "Test-vector does not result in correct PMK."
             
     def run(self):
         self._testComputeFunction(101)
@@ -80,6 +97,7 @@ class Core(threading.Thread):
         return self.name
         
     def getStats(self):
+        """Returns the number of results and the time spent computing results."""
         return (self.resCount, self.compTime)
 
 
@@ -90,6 +108,8 @@ except:
     print >>sys.stderr, "Failed to load Pyrit's CPU-driven core; this module should always be available. Sorry, we can't continue."
     raise
 class CPUCore(Core, _cpyrit_cpu.CPUDevice):
+    """Standard-CPU implementation. The underlying C-code may use VIA Padlock,
+       SSE2 or a generic OpenSSL-interface to compute results."""
     def __init__(self, queue):
         Core.__init__(self, queue)
         _cpyrit_cpu.CPUDevice.__init__(self)
@@ -107,6 +127,7 @@ except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
 else:
     class CUDACore(Core, _cpyrit_cuda.CUDADevice):
+        """Computes results on Nvidia-CUDA capable devices."""
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
             _cpyrit_cuda.CUDADevice.__init__(self, dev_idx)
@@ -124,6 +145,7 @@ except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
 else:
     class OpenCLCore(Core, _cpyrit_opencl.OpenCLDevice):
+        """Computes results on OpenCL-capable devices."""
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
             _cpyrit_opencl.OpenCLDevice.__init__(self, dev_idx)
@@ -141,6 +163,11 @@ except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
 else:
     class StreamCore(Core, _cpyrit_stream.StreamDevice):
+        """Computes results on ATI-Stream devices.
+        
+           Comes with it's own scheduling as the underlying implementation is
+           fixed to a maximum input size. Computes work in fixed blocks of 8192 passwords.
+        """
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
             _cpyrit_stream.StreamDevice.__init__(self)
@@ -235,7 +262,19 @@ class NetworkCore(Core):
 
 
 class CPyrit(object):
+    """Enumerates and manages all available hardware resources provided in
+       the module and does most of the scheduling-magic.
+       
+       The class provides FIFO-scheduling of workunits towards the caller
+       who can use .enqueue() and corresponding calls to .dequeue().
+       Scheduling towards the hardware is provided by _gather(), _scatter() and
+       _revoke().
+    """
     def __init__(self, maxBufferSize=50000):
+        """Create a new instance that blocks calls to .enqueue() when more than
+           the given amount of passwords are currently waiting to be scheduled
+           to the hardware.
+        """
         self.inqueue = []
         self.outqueue = {}
         self.workunits = []
@@ -290,6 +329,8 @@ class CPyrit(object):
         return sum((sum((len(pwlist) for pwlist in pwdict.itervalues())) for essid, pwdict in self.inqueue))
 
     def __len__(self):
+        """Returns the number of passwords that currently wait to be transfered
+           to an instance of Core."""
         self.cv.acquire()
         try:
             return self._len()
@@ -297,17 +338,23 @@ class CPyrit(object):
             self.cv.release()
 
     def __iter__(self):
+        """Iterates over all pending results. Blocks until no further workunits
+           or results are currently queued.
+        """
         while True:
             r = self.dequeue(block=True)
             if r is None:
                 break
             yield r
 
-    def availableCores(self):
-        self._check_cores()
-        return tuple([core.name for core in self.cores])
-
     def enqueue(self, essid, passwords, block=False):
+        """Enqueues the given ESSID and iterable of passwords for processing.
+           
+           The call may block if block is True and the number of passwords
+           currently waiting for being processed is higher than allowed for
+           this instance.
+           Calls to .dequeue() correspond in a FIFO-manner.
+        """ 
         self.cv.acquire()
         try:
             if self.maxBufferSize and block:
@@ -326,6 +373,14 @@ class CPyrit(object):
             self.cv.release()
         
     def dequeue(self, block=True, timeout=None):
+        """Receives the results corresponding to previous calls to .enqueue().
+           
+           The function returns None if block is False and the respective results
+           have not yet been completed. Otherwise the call blocks.
+           The function may return None if block is True and the call waited longer
+           than timeout.
+           Calls to .enqueue() correspond in a FIFO-manner.
+        """
         self.cv.acquire()
         t = time.time()
         try:
@@ -360,6 +415,15 @@ class CPyrit(object):
             self.cv.release()
         
     def _gather(self, desired_size):
+        """Try to accumulate the given number of passwords for a single ESSID
+           in one workunit. Return a tuple containing the ESSID and a tuple of
+           passwords.
+           
+           The call blocks if no work is available and may return less than the
+           desired number of passwords. The caller should compute the corresponding
+           results and call _scatter() or _revoke() with the (ESSID,passwords)-tuple
+           returned by this call as parameters.
+        """
         self.cv.acquire()
         try:
             passwords = []
@@ -402,6 +466,11 @@ class CPyrit(object):
             self.cv.release()
 
     def _scatter(self, essid, passwords, results):
+        """Spray the given results back to their corresponding workunits.
+           
+           The caller must use the (ESSID,passwords)-tuple returned by _gather()
+           to indicate which workunit it is returning results for.
+        """
         assert len(results) == len(passwords)
         self.cv.acquire()
         try:
@@ -424,6 +493,13 @@ class CPyrit(object):
             self.cv.release()
 
     def _revoke(self, essid, passwords):
+        """Re-insert the given workunit back into the global queue so it may
+           be processed by other Cores.
+           
+           Should be used if the Core that pulled the workunit is unable to
+           process it. It is the Core's responsibility to ensure that it stops
+           pulling work from the queue in such situations.
+        """
         self.cv.acquire()
         try:
             wu = (essid, passwords)
