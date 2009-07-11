@@ -25,7 +25,6 @@ import re
 
 UnixCCompiler.src_extensions.append('.S')
 
-
 try:
     svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
     version_string = "0.2.3-dev (svn r%i)" % int(re.compile(r"Revision: ([0-9]*)").findall(svn_info)[0])
@@ -52,7 +51,7 @@ setup_args = dict(
         author_email = 'knabberknusperhaus@yahoo.de',
         url = 'http://pyrit.googlecode.com',
         packages = ['_cpyrit'],
-        py_modules = ['cpyrit'],
+        py_modules = ['cpyrit', 'cpyrit_util'],
         scripts = ['pyrit'],
         ext_modules = [cpu_extension, util_extension],
         options = {'install':{'optimize':1}}
