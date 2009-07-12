@@ -35,6 +35,7 @@
 import cStringIO
 import hashlib
 import itertools
+import operator
 import os
 import struct
 import threading
@@ -55,6 +56,7 @@ class AsyncFileWriter(threading.Thread):
            maxsize before blocking."""
         threading.Thread.__init__(self)
         self.shallstop = False
+        self.hasstopped = False
         self.filehndl = filehndl
         self.maxsize = maxsize
         self.excp = None
@@ -66,66 +68,98 @@ class AsyncFileWriter(threading.Thread):
         """Stop the writer and wait for it to finish.
         
            It is the caller's responsibility to close the file handle that was
-           used for initialization. Exceptions in the writer-thread are re-raised
-           in the caller's thread after closing.
+           used for initialization. Exceptions in the writer-thread are
+           not re-raised.
         """
         self.cv.acquire()
         try:
             self.shallstop = True
             self.cv.notifyAll()
-            while self.isAlive():
+            while not self.hasstopped:
                 self.cv.wait()
-            self._raise
+            self._raise()
         finally:
             self.cv.release()
 
     def write(self, data):
         """Write data to the buffer, block if necessary.
         
-           Exceptions in the writer-thread are re-raised
-           in the caller's thread before the data is written.
+           Exceptions in the writer-thread are re-raised in the caller's thread
+           before the data is written.
         """
         self.cv.acquire()
         try:
             self._raise()
-            while self.buf.tell() > self.maxsize and not self.shallstop:
+            while self.buf.tell() > self.maxsize:
                 self.cv.wait()
                 if self.shallstop:
-                    raise Exception, "Writer has already been closed."
+                    raise IOError, "Writer has already been closed."
             self.buf.write(data)
             self.cv.notifyAll()
         finally:
             self.cv.release()
+            
+    def closeAsync(self):
+        """Signal the writer to stop and return to caller immediately.
+        
+           It is the caller's responsibility to close the file handle that was
+           used for initialization. Exceptions are not re-raised.
+        """
+        self.cv.acquire()
+        try:
+            self.shallstop = True
+            self.cv.notifyAll()
+        finally:
+            self.cv.release()
+    
+    def join(self):
+        """Wait for the writer to stop.
+        
+           Exceptions in the writer-thread are re-raised in the caller's thread
+           after writer has stopped.
+        """
+        self.cv.acquire()
+        try:
+            while not self.hasstopped:
+                self.cv.wait()
+            self._raise()
+        finally:
+            self.cv.release()
 
     def _raise(self):
-        # Re-create a 'trans-thread-safe' instance of self.excp and raise it 
         # Assumes we hold self.cv
         if self.excp:
             e = self.excp
             self.excp = None
             self.shallstop = True
             self.cv.notifyAll()
-            raise type(e)(str(e))
+            raise e
 
     def run(self):
         try:
-            while self.buf.tell() > 0 or not self.shallstop:
+            while True:
                 self.cv.acquire()
                 try:
-                    while self.buf.tell() == 0 and not self.shallstop:
-                        self.cv.wait()
-                    data = self.buf.getvalue()
-                    self.buf = cStringIO.StringIO()
-                    self.cv.notifyAll()
+                    data = None
+                    if self.buf.tell() == 0:
+                        if self.shallstop:
+                            break
+                        else:
+                            self.cv.wait()
+                    else:
+                        data = self.buf.getvalue()
+                        self.buf = cStringIO.StringIO()
+                        self.cv.notifyAll()
                 finally:
                     self.cv.release()
-                self.filehndl.write(data)
-                self.filehndl.flush()
+                if data:
+                    self.filehndl.write(data)
+            self.filehndl.flush()
         except Exception, e:
-            self.shallstop = True
-            self.excp = e
+            self.excp = type(e)(str(e)) # Re-create a 'trans-thread-safe' instance
         finally:
             self.cv.acquire()
+            self.shallstop = self.hasstopped = True
             self.cv.notifyAll()
             self.cv.release()
 
@@ -143,14 +177,22 @@ class EssidStore(object):
         self.basepath = basepath
         if not os.path.exists(self.basepath):
             os.makedirs(self.basepath)
+        self.asyncwriters = []
 
     def _getessidroot(self, essid):
         return os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8])
+
+    def _syncwriters(self):
+        while len(self.asyncwriters) > 0:
+            f, writer = self.asyncwriters.pop()
+            writer.join()
+            f.close()
 
     def __getitem__(self, (essid, key)):
         """Receive a dictionary of password:PMK combinations stored under
            the given ESSID and key.
         """
+        self._syncwriters()
         essidpath = self._getessidroot(essid)
         if not os.path.exists(essidpath):
             raise KeyError, "ESSID not in store."
@@ -187,12 +229,12 @@ class EssidStore(object):
         return results
     
     def __setitem__(self, (essid, key), results):
-        """Store the given results under the given ESSID and key."""
+        """Store a iterable of password:PMK tuples under the given ESSID and key."""
         essidpath = self._getessidroot(essid)
         if not os.path.exists(essidpath):
             raise KeyError, "ESSID not in store."
-        filename = os.path.join(essidpath, key) + '.pyr'        
-        pws, pmks = itertools.izip(*sorted(results.iteritems()))
+        filename = os.path.join(essidpath, key) + '.pyr'
+        pws, pmks = zip(*results)
         pwbuffer = zlib.compress('\n'.join(pws), 1)
         if hashlib.md5(pwbuffer).hexdigest() != key:
             raise ValueError, "Results and key mismatch."
@@ -200,12 +242,16 @@ class EssidStore(object):
         md = hashlib.md5()
         md.update(essid)
         md.update(pmkbuffer)
-        md.update(pwbuffer)
+        md.update(pwbuffer)        
         f = open(filename, 'wb')
-        f.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
-        f.write(pmkbuffer)
-        f.write(pwbuffer)
-        f.close()
+        writer = AsyncFileWriter(f)
+        try:
+            writer.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
+            writer.write(pmkbuffer)
+            writer.write(pwbuffer)
+        finally:
+            writer.closeAsync()
+        self.asyncwriters.append((f, writer))
         
     def __len__(self):
         return len([x for x in self])
@@ -222,20 +268,22 @@ class EssidStore(object):
                 print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
         return sorted(essids).__iter__()
             
-    def __contains__(self, key):
+    def __contains__(self, essid):
         """Returns true of the given ESSID is currently stored."""
-        essid_root = self._getessidroot(key)
+        essid_root = self._getessidroot(essid)
         if os.path.exists(essid_root):
             f = open(os.path.join(essid_root, 'essid'), 'rb')
-            essid = f.read()
+            e = f.read()
             f.close()
-            return essid == key
+            return e == essid
         else:
             return False
 
     def iterkeys(self, essid):
         """Iterate over all keys that can currently be used to receive results
-           for the given ESSID."""
+           for the given ESSID.
+        """
+        self._syncwriters()
         essidpath = self._getessidroot(essid)
         if not os.path.exists(essidpath):
             raise KeyError, "ESSID not in store."
@@ -280,7 +328,7 @@ class EssidStore(object):
 class PasswordStore(object):
     """Storage-class responsible for passwords.
     
-       Passwords can be received by key and are returned as frozensets.
+       Passwords can be received by key and are returned as lists.
        The iterator cycles over all available keys.
     """
     h1_list = ["%02.2X" % i for i in xrange(256)]
@@ -309,7 +357,7 @@ class PasswordStore(object):
         return self.pwfiles.__iter__()
 
     def __getitem__(self, key):
-        """Returns of frozenset of password indexed by the given key.""" 
+        """Returns of list of password indexed by the given key.""" 
         if key not in self:
             raise KeyError, "Key not in storage."
         filename = os.path.join(self.pwfiles[key], key) + ".pw"
@@ -317,7 +365,7 @@ class PasswordStore(object):
         buf = f.read()
         f.close()
         if len(buf) == 0:
-            return frozenset()
+            return []
         else:
             if buf[:4] == "PAW2":
                 md = hashlib.md5()
@@ -326,7 +374,7 @@ class PasswordStore(object):
                     raise Exception, "Digest check failed for %s" % filename
                 if md.hexdigest() != key:
                     raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
-                return frozenset(zlib.decompress(buf[4+md.digest_size:]).split('\n'))
+                return zlib.decompress(buf[4+md.digest_size:]).split('\n')
             else:
                 raise Exception, "'%s' is not a PasswordFile." % filename
 
@@ -348,11 +396,20 @@ class PasswordStore(object):
             f.write(b)
             f.close()
             self.pwfiles[md.hexdigest()] = pwpath
+
+    def iterkeys(self):
+        """Iterate over all keys that can be used to receive password-sets."""
+        return self.__iter__()
             
     def iterpasswords(self):
-        """Iterates over all available passwords-sets."""
+        """Iterate over all available passwords-sets."""
         for key in self:
             yield self[key]
+
+    def iteritems(self):
+        """Iterate over all keys and password-sets."""
+        for key in self:
+            yield (key, self[key])
 
     def flush_buffer(self):
         """Flush all passwords currently buffered to the storage.
