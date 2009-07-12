@@ -48,17 +48,15 @@ cpyrit_solve(PyObject * self, PyObject * args)
     passwd_seq = PyObject_GetIter(passwd_seq);
     if (!passwd_seq) return NULL;
 
-    memset(essid, 0, sizeof (essid));
-    slen = strlen(essid_pre);
-    slen = slen <= 32 ? slen : 32;
-    memcpy(essid, essid_pre, slen);
-    slen = strlen (essid) + 4;
+    strncpy(essid, essid_pre, sizeof(essid));
+    slen = strlen(essid)+4;
     
     dbuf = (unsigned int*)PyMem_Malloc(8192 * 2 * 4 * (5 * 3));
-    if (dbuf == NULL)
+    if (!dbuf)
     {
         Py_DECREF(passwd_seq);
-        return PyErr_NoMemory();
+        PyErr_NoMemory();
+        return NULL;
     }
 
     arraysize = 0;
@@ -119,7 +117,7 @@ cpyrit_solve(PyObject * self, PyObject * args)
         dbuf[(8192 * 2 * 13) + (arraysize * 2) + 1] = ctx_pad.h3;
         dbuf[(8192 * 2 * 14) + (arraysize * 2) + 1] = ctx_pad.h4;
         
-        Py_DECREF(passw_obj);
+        Py_DECREF(passwd_obj);
         arraysize++;
     }
     Py_DECREF(passwd_seq);
@@ -172,18 +170,18 @@ cpyrit_solve(PyObject * self, PyObject * args)
         opad_D, opad_E, pmk_in0, pmk_in1, pmk_in2, pmk_in3, pmk_in4,
         pmk_out0, pmk_out1, pmk_out2, pmk_out3, pmk_out4, uint2 (0x80000000, 0x80000000));
 
-    pmk_out0.write (dbuf + (8192 * 2 * 0));
-    pmk_out1.write (dbuf + (8192 * 2 * 1));
-    pmk_out2.write (dbuf + (8192 * 2 * 2));
-    pmk_out3.write (dbuf + (8192 * 2 * 3));
-    pmk_out4.write (dbuf + (8192 * 2 * 4));
+    pmk_out0.write(dbuf + (8192 * 2 * 0));
+    pmk_out1.write(dbuf + (8192 * 2 * 1));
+    pmk_out2.write(dbuf + (8192 * 2 * 2));
+    pmk_out3.write(dbuf + (8192 * 2 * 3));
+    pmk_out4.write(dbuf + (8192 * 2 * 4));
 
     i = 0;
-    if ((pmk_out0.error () !=::brook::BR_NO_ERROR)
-        || (pmk_out1.error () !=::brook::BR_NO_ERROR)
-        || (pmk_out2.error () !=::brook::BR_NO_ERROR)
-        || (pmk_out3.error () !=::brook::BR_NO_ERROR)
-        || (pmk_out4.error () !=::brook::BR_NO_ERROR))
+    if ((pmk_out0.error() != ::brook::BR_NO_ERROR)
+        || (pmk_out1.error() != ::brook::BR_NO_ERROR)
+        || (pmk_out2.error() != ::brook::BR_NO_ERROR)
+        || (pmk_out3.error() != ::brook::BR_NO_ERROR)
+        || (pmk_out4.error() != ::brook::BR_NO_ERROR))
             i = -1;
 
     Py_END_ALLOW_THREADS;
@@ -198,16 +196,16 @@ cpyrit_solve(PyObject * self, PyObject * args)
     result = PyTuple_New(arraysize);
     for (i = 0; i < (int)arraysize * 2; i++)
     {
-        temp[0] = dbuf[(0 * 8192 * 2) + i];
-        temp[1] = dbuf[(1 * 8192 * 2) + i];
-        temp[2] = dbuf[(2 * 8192 * 2) + i];
-        temp[3] = dbuf[(3 * 8192 * 2) + i];
-        temp[4] = dbuf[(4 * 8192 * 2) + i];
+        ((unsigned int*)temp)[0] = dbuf[(0 * 8192 * 2) + i];
+        ((unsigned int*)temp)[1] = dbuf[(1 * 8192 * 2) + i];
+        ((unsigned int*)temp)[2] = dbuf[(2 * 8192 * 2) + i];
+        ((unsigned int*)temp)[3] = dbuf[(3 * 8192 * 2) + i];
+        ((unsigned int*)temp)[4] = dbuf[(4 * 8192 * 2) + i];
         i++;
-        temp[5] = dbuf[(0 * 8192 * 2) + i];
-        temp[6] = dbuf[(1 * 8192 * 2) + i];
-        temp[7] = dbuf[(2 * 8192 * 2) + i];
-        PyTuple_SetItem(result, i / 2, Py_BuildValue ("s#", temp, 32));
+        ((unsigned int*)temp)[5] = dbuf[(0 * 8192 * 2) + i];
+        ((unsigned int*)temp)[6] = dbuf[(1 * 8192 * 2) + i];
+        ((unsigned int*)temp)[7] = dbuf[(2 * 8192 * 2) + i];
+        PyTuple_SetItem(result, i / 2, Py_BuildValue("s#", temp, 32));
     }
 
     PyMem_Free(dbuf);
