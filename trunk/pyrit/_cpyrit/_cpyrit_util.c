@@ -131,9 +131,8 @@ cpyrit_gencowpentries(PyObject *self, PyObject *args)
     return NULL;
 }
 
-
 static PyMethodDef CPyritUtilMethods[] = {
-    {"genCowpEntries", cpyrit_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from iterable of key:value tuples."},
+    {"genCowpEntries", cpyrit_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from a iterable of password:PMK tuples."},
     {"genCowpHeader", cpyrit_gencowpheader, METH_VARARGS, "Generate a header-string in cowpatty-like format from a given ESSID."},
     {NULL, NULL, 0, NULL}
 };

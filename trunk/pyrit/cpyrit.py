@@ -117,7 +117,6 @@ class CPUCore(Core, _cpyrit_cpu.CPUDevice):
         self.name = "CPU-Core (%s)" % _cpyrit_cpu.getPlatform()
         self.start()
 
-
 ## CUDA
 try:
     from _cpyrit import _cpyrit_cuda
@@ -242,7 +241,7 @@ class NetworkCore(Core):
             res = self._dequeue_from_host()
             if res is not None:
                 break
-        if any((tuple(map(ord, pmk)) != Core.TV_PMK for pmk in res)):
+        if any((pmk != Core.TV_PMK for pmk in res)):
             raise Exception, "Test-vector does not result in correct result."
 
         server_queue_length = 0
