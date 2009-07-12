@@ -22,7 +22,6 @@ import BaseHTTPServer
 import getopt
 import hashlib
 import httplib
-import itertools
 import os
 import random
 import sys
@@ -157,8 +156,8 @@ class Pyrit_CLI(object):
     def eval_results(self):
         essid_results = dict.fromkeys(self.essidstore, 0)
         pwcount = 0
-        for key in self.passwdstore:
-            pwcount += len(self.passwdstore[key])
+        for key, passwords in self.passwdstore.iteritems():
+            pwcount += len(passwords)
             self.tell("Passwords available:\t%i\r" % pwcount, end=None, sep=None)
             for essid in essid_results:
                 essid_results[essid] += len(self.essidstore[essid, key])
@@ -206,7 +205,7 @@ class Pyrit_CLI(object):
                 self.tell("%i lines written\r" % lines, end=None, sep=None)
             self.tell("\nAll done")
         finally:
-            awriter.close()
+            awriter.closeAsync()
             f.close()
     
     def export_cowpatty(self):
@@ -234,7 +233,7 @@ class Pyrit_CLI(object):
         except IOError:
             self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
         finally:
-            awriter.close()
+            awriter.closeAsync()
             f.close()
 
     def passthrough(self):
@@ -263,18 +262,18 @@ class Pyrit_CLI(object):
                     while True:
                         solvedPMKs = cp.dequeue(block=False)
                         if solvedPMKs is not None:
-                            awriter.write(util.genCowpEntries(itertools.izip(workunits.pop(0), solvedPMKs)))
+                            awriter.write(util.genCowpEntries(zip(workunits.pop(0), solvedPMKs)))
                         else:
                             break
             if len(pwbuffer) > 0:
                 workunits.append(pwbuffer)
                 cp.enqueue(self.options.essid, workunits[-1], True)
             for solvedPMKs in cp:
-                awriter.write(util.genCowpEntries(itertools.izip(workunits.pop(0), solvedPMKs)))
+                awriter.write(util.genCowpEntries(zip(workunits.pop(0), solvedPMKs)))
         except IOError:
             self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
         finally:
-            awriter.close()
+            awriter.closeAsync()
             f.close()
 
     def export_hashdb(self):
@@ -347,7 +346,7 @@ class Pyrit_CLI(object):
         def _writeCowpatty(out, results):
             if self.options.file == '-':
                 try:
-                    out.write(util.genCowpEntries(results.iteritems()))
+                    out.write(util.genCowpEntries(results))
                 except IOError:
                     self.tell("IOError while writing to stdout. Batchprocessing continues silently...", stream=sys.stderr)
                     self.options.file = ''                        
@@ -368,23 +367,22 @@ class Pyrit_CLI(object):
         startTime = time.time()
         workunits = []
         awriter = util.AsyncFileWriter(sys.stdout) 
-        try: 
+        try:
             for essid in essids:
                 self.tell("Working on ESSID '%s'" % essid)
                 if self.options.file == "-":
                     awriter.write(util.genCowpHeader(essid))
-                for key in self.passwdstore:
-                    passwords = self.passwdstore[key]
+                for key, passwords in self.passwdstore.iteritems():
                     results = self.essidstore[essid, key]
                     if len(results) < len(passwords):
                         workunits.append((essid, key, passwords))
-                        cp.enqueue(essid, passwords, True)
+                        cp.enqueue(essid, passwords, block=True)
                     else:
-                        _writeCowpatty(awriter, results)
+                        _writeCowpatty(awriter, results.items())
                     solvedPMKs = cp.dequeue(block=False)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
-                        solvedResults = dict(itertools.izip(solvedPasswords, solvedPMKs))
+                        solvedResults = zip(solvedPasswords, solvedPMKs)
                         self.essidstore[solvedEssid, solvedKey] = solvedResults
                         totalResCount += len(solvedResults)
                         _writeCowpatty(awriter, solvedResults)
@@ -394,14 +392,14 @@ class Pyrit_CLI(object):
             self.tell("Stopped reading workunits...")
             for solvedPMKs in cp:
                 solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
-                solvedResults = dict(itertools.izip(solvedPasswords, solvedPMKs))
+                solvedResults = zip(solvedPasswords, solvedPMKs)
                 self.essidstore[solvedEssid, solvedKey] = solvedResults
                 totalResCount += len(solvedResults)
                 _writeCowpatty(awriter, solvedResults)
         except (KeyboardInterrupt, SystemExit):
             self.tell("Exiting...")
         finally:
-            awriter.close()
+            awriter.closeAsync()
             if totalResCount > 0:   
                 tdiff = time.time() - startTime
                 self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))

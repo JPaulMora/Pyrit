@@ -359,7 +359,7 @@ class CPyrit(object):
         try:
             if self.maxBufferSize and block:
                 while self._len() > self.maxBufferSize:
-                    self.cv.wait(5)
+                    self.cv.wait(2)
                     self._check_cores()
             passwordlist = list(passwords)
             if len(self.inqueue) > 0 and self.inqueue[-1][0] == essid:
