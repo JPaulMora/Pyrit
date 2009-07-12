@@ -35,7 +35,6 @@
 import cStringIO
 import hashlib
 import itertools
-import operator
 import os
 import struct
 import threading
@@ -178,32 +177,27 @@ class EssidStore(object):
         if not os.path.exists(self.basepath):
             os.makedirs(self.basepath)
         self.asyncwriters = []
+        self.essidrootcache = {}
 
     def _getessidroot(self, essid):
-        return os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8])
+        return self.essidrootcache.setdefault(essid, os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8]))
 
     def _syncwriters(self):
         while len(self.asyncwriters) > 0:
-            f, writer = self.asyncwriters.pop()
+            essid, key, f, writer = self.asyncwriters.pop()
             writer.join()
             f.close()
 
     def __getitem__(self, (essid, key)):
-        """Receive a dictionary of password:PMK combinations stored under
+        """Receive a tuple of (password,PMK)-tuples stored under
            the given ESSID and key.
         """
-        self._syncwriters()
-        essidpath = self._getessidroot(essid)
-        if not os.path.exists(essidpath):
-            raise KeyError, "ESSID not in store."
-        filename = os.path.join(essidpath, key) + '.pyr'
-        if not os.path.exists(filename):
-            return {}
+        if not self.containskey(essid, key):
+            return ()
+        filename = os.path.join(self._getessidroot(essid), key) + '.pyr'
         f = open(filename, 'rb')
         buf = f.read()
         f.close()
-        if len(buf) == 0:
-            return {}
         md = hashlib.md5()
         magic, essidlen = struct.unpack(EssidStore._pyr_preheadfmt, buf[:EssidStore._pyr_preheadfmt_size])
         if magic == 'PYR2':
@@ -218,10 +212,8 @@ class EssidStore(object):
             md.update(buf[pmkoffset:])
             if md.digest() != digest:
                 raise IOError, "Digest check failed on result-file '%s'." % filename
-            results = dict(itertools.izip(
-                           zlib.decompress(buf[pwoffset:]).split('\n'),
-                           [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]
-                           ))
+            results = tuple(zip(zlib.decompress(buf[pwoffset:]).split('\n'),
+                          [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]))
         else:
             raise IOError, "Not a PYR2-file."
         if len(results) != numElems:
@@ -251,7 +243,11 @@ class EssidStore(object):
             writer.write(pwbuffer)
         finally:
             writer.closeAsync()
-        self.asyncwriters.append((f, writer))
+        self.asyncwriters.append((essid, key, f, writer))
+        for essid, key, f, writer in self.asyncwriters:
+            if not writer.isAlive():
+                f.close()
+                self.asyncwriters.remove((essid, key, f, writer))
         
     def __len__(self):
         return len([x for x in self])
@@ -259,7 +255,7 @@ class EssidStore(object):
     def __iter__(self):
         essids = set()
         for essid_hash in os.listdir(self.basepath):
-            f = open(os.path.join(self.basepath, essid_hash, 'essid'), "rb")
+            f = open(os.path.join(self.basepath, essid_hash, 'essid'), 'rb')
             essid = f.read()
             f.close()
             if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
@@ -269,7 +265,7 @@ class EssidStore(object):
         return sorted(essids).__iter__()
             
     def __contains__(self, essid):
-        """Returns true of the given ESSID is currently stored."""
+        """Return True if the given ESSID is currently stored."""
         essid_root = self._getessidroot(essid)
         if os.path.exists(essid_root):
             f = open(os.path.join(essid_root, 'essid'), 'rb')
@@ -278,6 +274,18 @@ class EssidStore(object):
             return e == essid
         else:
             return False
+
+    def containskey(self, essid, key):
+        """Return True if the given ESSID:key combination is stored.""" 
+        for newessid, newkey, f, writer in self.asyncwriters:
+            if newkey == key and newessid == essid:
+                # We assume that the file will make it to the disk.
+                return True
+        essidpath = self._getessidroot(essid)
+        if not os.path.exists(essidpath):
+            raise KeyError, "ESSID not in store."
+        filename = os.path.join(essidpath, key) + '.pyr'
+        return os.path.exists(filename)
 
     def iterkeys(self, essid):
         """Iterate over all keys that can currently be used to receive results
@@ -298,6 +306,11 @@ class EssidStore(object):
         """Iterate over all results currently stored for the given ESSID."""
         for key in self.iterkeys(essid):
             yield self[essid, key]
+
+    def iteritems(self, essid):
+        """Iterate over all keys and results currently stored for the given ESSID."""
+        for key in self.iterkeys(essid):
+            yield (key, self[essid, key])
 
     def create_essid(self, essid):
         """Create the given ESSID in the storage.
@@ -357,45 +370,43 @@ class PasswordStore(object):
         return self.pwfiles.__iter__()
 
     def __getitem__(self, key):
-        """Returns of list of password indexed by the given key.""" 
-        if key not in self:
-            raise KeyError, "Key not in storage."
-        filename = os.path.join(self.pwfiles[key], key) + ".pw"
-        f = open(filename, "rb")
+        """Returns the collection of passwords indexed by the given key.""" 
+        filename = os.path.join(self.pwfiles[key], key) + '.pw'
+        f = open(filename, 'rb')
         buf = f.read()
         f.close()
-        if len(buf) == 0:
-            return []
+        if buf[:4] == "PAW2":
+            md = hashlib.md5()
+            md.update(buf[4+md.digest_size:])
+            if md.digest() != buf[4:4+md.digest_size]:
+                raise IOError, "Digest check failed for %s" % filename
+            if md.hexdigest() != key:
+                raise IOError, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
+            return tuple(zlib.decompress(buf[4+md.digest_size:]).split('\n'))
         else:
-            if buf[:4] == "PAW2":
-                md = hashlib.md5()
-                md.update(buf[4+md.digest_size:])
-                if md.digest() != buf[4:4+md.digest_size]:
-                    raise Exception, "Digest check failed for %s" % filename
-                if md.hexdigest() != key:
-                    raise Exception, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
-                return zlib.decompress(buf[4+md.digest_size:]).split('\n')
-            else:
-                raise Exception, "'%s' is not a PasswordFile." % filename
+            raise IOError, "'%s' is not a PasswordFile." % filename
 
     def _flush_bucket(self, pw_h1, bucket):
         if len(bucket) == 0:
             return
-        for pwset in self:
-            bucket.difference_update(pwset)
-        if len(bucket) > 0:
-            pwpath = os.path.join(self.basepath, pw_h1)
-            if not os.path.exists(pwpath):
-                os.makedirs(pwpath)
-            md = hashlib.md5()
-            b = zlib.compress('\n'.join(sorted(bucket)), 1)
-            md.update(b)
-            f = open(os.path.join(pwpath, md.hexdigest()) + '.pw', 'wb')
-            f.write('PAW2')
-            f.write(md.digest())
-            f.write(b)
-            f.close()
-            self.pwfiles[md.hexdigest()] = pwpath
+        for key, pwpath in self.pwfiles.iteritems():
+            if pwpath.endswith(pw_h1):
+                bucket.difference_update(self[key])
+                if len(bucket) == 0:
+                    return
+        pwpath = os.path.join(self.basepath, pw_h1)
+        if not os.path.exists(pwpath):
+            os.makedirs(pwpath)
+        md = hashlib.md5()
+        b = zlib.compress('\n'.join(sorted(bucket)), 1)
+        md.update(b)
+        key = md.hexdigest()
+        f = open(os.path.join(pwpath, key) + '.pw', 'wb')
+        f.write('PAW2')
+        f.write(md.digest())
+        f.write(b)
+        f.close()
+        self.pwfiles[key] = pwpath
 
     def iterkeys(self):
         """Iterate over all keys that can be used to receive password-sets."""
@@ -435,7 +446,7 @@ class PasswordStore(object):
         pw_h1 = PasswordStore.h1_list[hash(passwd) & 0xFF]
         pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
         pw_bucket.add(passwd)
-        if len(pw_bucket) >= 10000:
+        if len(pw_bucket) >= 20000:
             self._flush_bucket(pw_h1, pw_bucket)
             self.pwbuffer[pw_h1] = set()
 
@@ -471,3 +482,4 @@ for essid in PMK_TESTVECTORS:
         PMK_TESTVECTORS[essid][pw] = ''.join(map(chr, PMK_TESTVECTORS[essid][pw]))
 del essid
 del pw
+

@@ -226,7 +226,7 @@ class Pyrit_CLI(object):
         try:
             awriter.write(util.genCowpHeader(self.options.essid))
             for results in self.essidstore.iterresults(self.options.essid):
-                awriter.write(util.genCowpEntries(results.items()))
+                awriter.write(util.genCowpEntries(results))
                 lines += len(results)
                 self.tell("\r%i entries written..." % lines, end=None, sep=None)
             self.tell("\r%i entries written. All done." % lines)
@@ -372,23 +372,23 @@ class Pyrit_CLI(object):
                 self.tell("Working on ESSID '%s'" % essid)
                 if self.options.file == "-":
                     awriter.write(util.genCowpHeader(essid))
-                for key, passwords in self.passwdstore.iteritems():
-                    results = self.essidstore[essid, key]
-                    if len(results) < len(passwords):
+                for key in self.passwdstore:
+                    if self.essidstore.containskey(essid, key):
+                        _writeCowpatty(awriter, self.essidstore[essid, key])
+                    else:
+                        passwords = self.passwdstore[key]
                         workunits.append((essid, key, passwords))
                         cp.enqueue(essid, passwords, block=True)
-                    else:
-                        _writeCowpatty(awriter, results.items())
-                    solvedPMKs = cp.dequeue(block=False)
-                    if solvedPMKs is not None:
-                        solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
-                        solvedResults = zip(solvedPasswords, solvedPMKs)
-                        self.essidstore[solvedEssid, solvedKey] = solvedResults
-                        totalResCount += len(solvedResults)
-                        _writeCowpatty(awriter, solvedResults)
+                        solvedPMKs = cp.dequeue(block=False)
+                        if solvedPMKs is not None:
+                            solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
+                            solvedResults = zip(solvedPasswords, solvedPMKs)
+                            self.essidstore[solvedEssid, solvedKey] = solvedResults
+                            totalResCount += len(solvedResults)
+                            _writeCowpatty(awriter, solvedResults)
                     tdiff = time.time() - startTime
                     self.tell("Computed %i PMKs in %i seconds; %i PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
-                self.tell("")
+                self.tell('')
             self.tell("Stopped reading workunits...")
             for solvedPMKs in cp:
                 solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
@@ -463,7 +463,7 @@ class Pyrit_CLI(object):
                     break
         if err or len(workunits) != 0 or len(cp) != 0:
             self.tell("\n!!! WARNING !!!\n"\
-                      "At least some results are definitly invalid."\
+                      "At least some results are definitly invalid. "\
                       "This may be caused by a bug in Pyrit, faulty hardware or malicious network clients. Do not trust this installation...\n",
                       stream=sys.stderr)
         else:
@@ -487,19 +487,19 @@ class Pyrit_CLI(object):
         try: 
             for essid in essids:
                 self.tell("Verifying ESSID '%s'" % essid)
-                for key in self.essidstore.iterkeys(essid):
-                    results = self.essidstore[essid, key]
-                    pws = random.sample(results, int(len(results) * 0.1))
-                    if len(pws) > 0:
-                        workunits.append((essid, key, tuple([results[pw] for pw in pws])))
+                for key, results in self.essidstore.iteritems(essid):
+                    sample = random.sample(results, int(len(results) * 0.1))
+                    if len(sample) > 0:
+                        pws, pmks = zip(*sample)
+                        workunits.append((essid, key, tuple(pmks)))
                         cp.enqueue(essid, pws, True)
-                    solvedPMKs = cp.dequeue(block=False)
-                    if solvedPMKs is not None:
-                        totalResCount += len(solvedPMKs)
-                        testedEssid, testedKey, testedPMKs = workunits.pop(0)
-                        if testedPMKs != solvedPMKs:
-                            self.tell("Workunit %s for ESSID '%s' seems corrupted." % (testedKey, testedEssid), stream=sys.stderr)
-                            err = True
+                        solvedPMKs = cp.dequeue(block=False)
+                        if solvedPMKs is not None:
+                            totalResCount += len(solvedPMKs)
+                            testedEssid, testedKey, testedPMKs = workunits.pop(0)
+                            if testedPMKs != solvedPMKs:
+                                self.tell("Workunit %s for ESSID '%s' seems corrupted." % (testedKey, testedEssid), stream=sys.stderr)
+                                err = True
                     tdiff = time.time() - startTime
                     self.tell("Computed %i PMKs in %i seconds; %i PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
                 for solvedPMKs in cp:
