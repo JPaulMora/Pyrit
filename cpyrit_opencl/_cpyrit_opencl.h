@@ -1,6 +1,6 @@
 /*
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #

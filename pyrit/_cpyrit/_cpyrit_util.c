@@ -1,6 +1,6 @@
 /*
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -19,35 +19,6 @@
 */
 
 #include <Python.h>
-
-
-/*
-def _genCowpHeader(self, essid):
-    return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
-*/
-static PyObject *
-cpyrit_gencowpheader(PyObject *self, PyObject *args)
-{
-    char *essid, header[4+3+1+32];
-    int essid_length;
-    if (!PyArg_ParseTuple(args, "s", &essid))
-        return NULL;
-        
-    essid_length = strlen(essid);
-    if (essid_length < 1 || essid_length > 32)
-    {
-        PyErr_SetString(PyExc_ValueError, "ESSID must be a string between 1 and 32 bytes.");
-        return NULL;
-    }
-
-    memset(header, 0, sizeof(header));
-    memcpy(&header[0], "AWPC", 4);             // CPWA-Magic
-    header[7] = (char)essid_length;            // length of ESSID
-    memcpy(&header[8], essid, essid_length);   // ESSID
-    
-    return Py_BuildValue("s#", header, sizeof(header));
-
-}
 
 /*
 def _genCowpEntries(self, res):
@@ -78,7 +49,7 @@ cpyrit_gencowpentries(PyObject *self, PyObject *args)
     {
         if (buffersize - buffer_offset < 1+63+32)
         {
-            buffersize += 1024*1024;
+            buffersize += 1024*10;
             t = PyMem_Realloc(cowpbuffer, buffersize);
             if (!t)
                 goto errout;
@@ -133,7 +104,6 @@ cpyrit_gencowpentries(PyObject *self, PyObject *args)
 
 static PyMethodDef CPyritUtilMethods[] = {
     {"genCowpEntries", cpyrit_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from a iterable of password:PMK tuples."},
-    {"genCowpHeader", cpyrit_gencowpheader, METH_VARARGS, "Generate a header-string in cowpatty-like format from a given ESSID."},
     {NULL, NULL, 0, NULL}
 };
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -114,7 +114,7 @@ setup_args = dict(
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
-        author_email = 'knabberknusperhaus@yahoo.de',
+        author_email = 'lukas.lueg@gmail.com',
         url = 'http://pyrit.googlecode.com',
         ext_modules = [cuda_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},

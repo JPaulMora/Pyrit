@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -27,9 +27,9 @@ UnixCCompiler.src_extensions.append('.S')
 
 try:
     svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
-    version_string = "0.2.3-dev (svn r%i)" % int(re.compile(r"Revision: ([0-9]*)").findall(svn_info)[0])
+    version_string = '0.2.3-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = "0.2.3"
+    version_string = '0.2.3-dev'
 f = open('_cpyrit/__init__.py', 'wb')
 f.write("__all__ = ['_cpyrit_cpu', '_cpyrit_util']\n")
 f.write("VERSION = '%s'\n" % version_string)
@@ -48,7 +48,7 @@ setup_args = dict(
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
-        author_email = 'knabberknusperhaus@yahoo.de',
+        author_email = 'lukas.lueg@gmail.com',
         url = 'http://pyrit.googlecode.com',
         packages = ['_cpyrit'],
         py_modules = ['cpyrit', 'cpyrit_util'],
@@ -57,6 +57,6 @@ setup_args = dict(
         options = {'install':{'optimize':1}}
         )
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     setup(**setup_args)
 
