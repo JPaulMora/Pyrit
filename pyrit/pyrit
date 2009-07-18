@@ -96,7 +96,7 @@ class Pyrit_CLI(object):
         self.tell('Usage: pyrit [options] command'  \
             '\n\nRecognized options:' \
             '\n  -e    : ESSID for the command' \
-            '\n  -f    : filename for the command ('-' is stdin/stdout)' \
+            "\n  -f    : filename for the command ('-' is stdin/stdout)" \
             '\n\nRecognized commands:' \
             '\n  batch            : Batchprocess' \
             '\n  benchmark        : Determine performance of available cores' \
