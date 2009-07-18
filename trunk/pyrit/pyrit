@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -18,7 +18,6 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-import BaseHTTPServer
 import getopt
 import hashlib
 import httplib
@@ -26,11 +25,8 @@ import os
 import random
 import sys
 import sqlite3
-import SocketServer
 import threading
 import time
-import uuid
-import urlparse
 import cpyrit_util as util
 
 class Pyrit_CLI(object):
@@ -58,7 +54,7 @@ class Pyrit_CLI(object):
                 stream.flush()
         
     def init(self):
-        options, commands = getopt.getopt(sys.argv[1:], "u:v:c:e:f:")
+        options, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:f:')
         for option, value in dict(options).items():
             if option == '-e':
                 self.options.essid = value
@@ -66,16 +62,16 @@ class Pyrit_CLI(object):
                 self.options.file = value
             else:
                 self.tell("Option '%s' not known. Ignoring..." % option)
-        if self.options.file == "-" or 'passthrough' in commands:
+        if self.options.file == '-' or 'passthrough' in commands:
             self.options.verbose = False
 
         self.essidstore = util.EssidStore(self.options.essidstore_path)
         self.passwdstore = util.PasswordStore(self.options.passwdstore_path)
 
-        self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com" \
-                "\nThis code is distributed under the GNU General Public License v3\n" % util.VERSION)
-        if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != "create_essid":
-            self.tell("The ESSID-blobspace seems to be empty; you should create an ESSID...\n", stream=sys.stderr)
+        self.tell('Pyrit %s (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com' \
+                '\nThis code is distributed under the GNU General Public License v3\n' % util.VERSION)
+        if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != 'create_essid':
+            self.tell('The ESSID-blobspace seems to be empty; you should create an ESSID...\n', stream=sys.stderr)
 
         {'export_cowpatty': self.export_cowpatty,
         'export_hashdb': self.export_hashdb,
@@ -97,26 +93,26 @@ class Pyrit_CLI(object):
         }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)()
 
     def print_help(self):
-        self.tell("Usage: pyrit [options] command " \
-            "\n\nRecognized options:" \
-            "\n  -e    : ESSID for the command" \
-            "\n  -f    : filename for the command ('-' is stdin/stdout)" \
-            "\n\nRecognized commands:" \
-            "\n  batch            : Batchprocess" \
-            "\n  benchmark        : Determine performance of available cores" \
-            "\n  create_essid     : Create a new ESSID" \
-            "\n  delete_essid     : Delete a ESSID and corresponding results" \
-            "\n  eval             : Count the available passwords and matching results" \
-            "\n  export_cowpatty  : Export into a new cowpatty file" \
-            "\n  export_hashdb    : Export into an airolib database" \
-            "\n  import_passwords : Import passwords" \
-            "\n  list_cores       : List available cores" \
+        self.tell('Usage: pyrit [options] command'  \
+            '\n\nRecognized options:' \
+            '\n  -e    : ESSID for the command' \
+            '\n  -f    : filename for the command ('-' is stdin/stdout)' \
+            '\n\nRecognized commands:' \
+            '\n  batch            : Batchprocess' \
+            '\n  benchmark        : Determine performance of available cores' \
+            '\n  create_essid     : Create a new ESSID' \
+            '\n  delete_essid     : Delete a ESSID and corresponding results' \
+            '\n  eval             : Count the available passwords and matching results' \
+            '\n  export_cowpatty  : Export into a new cowpatty file' \
+            '\n  export_hashdb    : Export into an airolib database' \
+            '\n  import_passwords : Import passwords' \
+            '\n  list_cores       : List available cores' \
             "\n  list_essids      : List all ESSIDs but don't count matching results" \
-            "\n  passthrough      : Compute PMKs on the fly and write to stdout" \
-            "\n  serve            : Serve requests from clients on the network" \
-            "\n  selftest         : Test all cores for computing correct results" \
-            "\n  verify           : Verify 10% of the results through recomputation" \
-            "\n")
+            '\n  passthrough      : Compute PMKs on the fly and write to stdout' \
+            '\n  serve            : Serve requests from clients on the network' \
+            '\n  selftest         : Test all cores for computing correct results' \
+            '\n  verify           : Verify 10% of the results through recomputation' \
+            '\n')
 
     def create_essid(self):
         if self.options.essid is None:
@@ -170,13 +166,13 @@ class Pyrit_CLI(object):
         if self.options.file is None:
             self.tell("One must specify a filename using the -f option. See 'help'", stream=sys.stderr)
         else:
-            self.tell("Importing from ", end=None)
+            self.tell("Importing from", end=None)
             if self.options.file == "-":
                 self.tell("stdin.")
                 f = sys.stdin
             else:
                 self.tell("'%s'" % self.options.file)
-                f = open(self.options.file, "r")
+                f = open(self.options.file, 'r')
             for i, line in enumerate(f):
                 self.passwdstore.store_password(line)
                 if i % 100000 == 0:
@@ -184,7 +180,7 @@ class Pyrit_CLI(object):
             f.close()
             self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
             self.passwdstore.flush_buffer()
-            self.tell("All done.")
+            self.tell('All done.')
 
     def export_passwords(self):
         if self.options.file is None:
@@ -219,6 +215,9 @@ class Pyrit_CLI(object):
             else:
                 self.tell("The cowpatty-format only supports one ESSID per file. Please specify one using the -e option.", stream=sys.stderr)
                 return
+        if self.options.essid not in self.essidstore:
+            self.tell("The ESSID you specified can't be found in the storage.", stream=sys.stderr)
+            return
         f = sys.stdout if self.options.file == '-' else open(self.options.file, 'wb')
         lines = 0
         self.tell("Exporting to '%s'..." % self.options.file)
@@ -326,7 +325,7 @@ class Pyrit_CLI(object):
                 for results in self.essidstore.iterresults(essid):
                     i += len(results)
                     cur.executemany('INSERT OR IGNORE INTO pmk (essid_id, passwd_id, pmk) SELECT ?, passwd_id, ? FROM passwd WHERE passwd = ?',
-                                    ((essid_id, buffer(pmk), pw) for pw, pmk in results.iteritems()))
+                                    ((essid_id, buffer(pmk), pw) for pw, pmk in results))
                     self.tell("Wrote %i lines...\r" % i, end=None, sep=None)
             print "\nAll done."
         except:
@@ -522,7 +521,8 @@ class Pyrit_CLI(object):
 
     def serve(self):
         self.tell('Booting...', end=None)
-        httpd = PyritServer()
+        import cpyrit
+        httpd = cpyrit.PyritServer()
         self.tell('%s, %i cores:' % (httpd.name, len(httpd.cp.cores)))
         for i, core in enumerate(httpd.cp.cores):
             self.tell("#%i '%s'" % (i+1, core))
@@ -530,180 +530,6 @@ class Pyrit_CLI(object):
             httpd.serve_forever()
         except (KeyboardInterrupt, SystemExit):
             self.tell("Exiting...")
-
-
-class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
-    class PyritHandler(BaseHTTPServer.BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.parsed_path = urlparse.urlparse(self.path)
-            self.params = {}
-            if len(self.parsed_path.query) > 0:
-                self.params.update([x.split('=') for x in self.parsed_path.query.split("&")])
-
-            if self.parsed_path.path == "/":
-                self.send_response(httplib.OK)
-                self.end_headers()
-                self.wfile.write('%s, started %s\n\nActive cores:\n' % (self.server.name, time.ctime(self.server.started)))
-                for i, core in enumerate(self.server.cp.cores):
-                    self.wfile.write(" #%i '%s', did %i PMKs so far\n" % (i, core, core.getStats()[0]))
-                self.wfile.write('\nActive clients:\n')
-                for i, (name, joined, lastseen, inCount, outCount) in enumerate(self.server.getClientStats()):
-                    self.wfile.write(" #%i '%s'\n  Joined %s, last seen %s\n  %i passwords queued, %i processed\n\n" %
-                                        (i, name, time.ctime(joined), time.ctime(lastseen), inCount, outCount))
-
-            elif self.parsed_path.path == "/ENQUEUE":
-                if 'client' not in self.params or self.params['client'] not in self.server.clients:
-                    self.send_response(httplib.FORBIDDEN)
-                    self.end_headers()
-                else:
-                    buf = self.rfile.read(int(self.headers.getheader('Content-Length')))
-                    digest = hashlib.sha1()
-                    essid, pwbuffer = buf[digest.digest_size:].split('\n', 1)
-                    digest.update(essid)
-                    digest.update(pwbuffer)
-                    if digest.digest() != buf[:digest.digest_size]:
-                        raise Exception, "Digest check failed."
-                    self.server.enqueue(self.params['client'], essid, pwbuffer.split('\n'))
-                    self.send_response(httplib.OK)
-                    self.end_headers()
-                    self.wfile.write(str(len(self.server)))
-
-            elif self.parsed_path.path == "/DEQUEUE":
-                if 'client' not in self.params or self.params['client'] not in self.server.clients:
-                    self.send_response(httplib.FORBIDDEN)
-                    self.end_headers()
-                else:
-                    t = time.time()
-                    while True:
-                        res = self.server.dequeue(self.params['client'])
-                        if res is not None or time.time() - t > 3.0:
-                            break
-                        else:
-                            time.sleep(0.1)
-                    if res is None:
-                        self.send_response(httplib.PROCESSING)
-                        self.end_headers()
-                    else:
-                        buf = ''.join(res)
-                        digest = hashlib.sha1()
-                        digest.update(buf)
-                        self.send_response(httplib.OK)
-                        self.end_headers()
-                        self.wfile.write(digest.digest())
-                        self.wfile.write(buf)
-
-            elif self.parsed_path.path == "/REGISTER":
-                client = self.server.registerClient(self.client_address[0])
-                self.send_response(httplib.OK)
-                self.end_headers()
-                self.wfile.write(client.uuid)
-
-            else:
-                self.send_response(httplib.NOT_FOUND)
-                self.end_headers()
-        do_POST = do_GET
-
-    class PyritServerCleaner(threading.Thread):
-        def __init__(self, server):
-            threading.Thread.__init__(self)
-            self.server = server
-            self.setDaemon(True)
-            self.start()
-            
-        def run(self):
-            while True:
-                self.server.cv.acquire()
-                try:
-                    for client_uuid, client in self.server.clients.items():
-                        if time.time() - client.lastseen > 60:
-                            del self.server.clients[client_uuid]
-                finally:
-                    self.server.cv.release()
-                time.sleep(15)
-
-    class PyritClient(object):
-        def __init__(self, host):
-            self.host = host
-            self.uuid = str(uuid.uuid4())
-            self.joined = self.lastseen = time.time()
-            self.inCount = self.outCount = 0
-            self.outQueue = []
-            
-        def __repr__(self):
-            return '%s@%s' % (self.host, self.uuid)
-
-    def __init__(self):
-        BaseHTTPServer.HTTPServer.__init__(self, ('', 19935), PyritServer.PyritHandler)
-        import cpyrit
-        self.cp = cpyrit.CPyrit()
-        self.started = time.time()
-        self.clients = {}
-        self.wu_clients = []
-        self.cv = threading.Condition()
-        self.name = "Pyrit %s" % util.VERSION
-        self.cleaner = PyritServer.PyritServerCleaner(self)
-
-    def registerClient(self, host):
-        self.cv.acquire()
-        try:
-            client = PyritServer.PyritClient(host)
-            self.clients[client.uuid] = client
-            return client
-        finally:
-            self.cv.release()
-    
-    def getClientStats(self):
-        self.cv.acquire()
-        try:
-            return tuple([(str(c), c.joined, c.lastseen, c.inCount, c.outCount) for c in self.clients.itervalues()])
-        finally:
-            self.cv.release()
-
-    def enqueue(self, client_uuid, essid, passwordlist):
-        assert self.cleaner.isAlive()
-        self.cv.acquire()
-        try:
-            if client_uuid not in self.clients:
-                raise KeyError, "Client not registered"
-            client = self.clients[client_uuid]
-            self.cp.enqueue(essid, passwordlist, block=False)
-            self.wu_clients.append(client_uuid)
-            client.lastseen = time.time()
-            client.inCount += len(passwordlist)
-        finally:
-            self.cv.release()
-        
-    def dequeue(self, client_uuid):
-        assert self.cleaner.isAlive()
-        self.cv.acquire()
-        try:
-            if client_uuid not in self.clients:
-                raise KeyError, "Client not registered"
-            while True:
-                results = self.cp.dequeue(block=False)
-                if results is None:
-                    break
-                else:
-                    wu_client_uuid = self.wu_clients.pop(0)
-                    if wu_client_uuid in self.clients:
-                        wu_client = self.clients[wu_client_uuid]
-                        wu_client.outQueue.append(results)
-                        wu_client.outCount += len(results)
-            client = self.clients[client_uuid]
-            client.lastseen = time.time()
-            if len(client.outQueue) > 0:
-                return client.outQueue.pop(0)
-            else:
-                return None
-        finally:
-            self.cv.release() 
-
-    def __len__(self):
-        self.cv.acquire()
-        try:
-            return len(self.cp)
-        finally:
-            self.cv.release()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -40,8 +40,13 @@ import struct
 import threading
 import zlib
 
-from _cpyrit._cpyrit_util import genCowpHeader, genCowpEntries
+from _cpyrit._cpyrit_util import genCowpEntries
 from _cpyrit import VERSION
+
+
+def genCowpHeader(essid):
+    return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
+
 
 class AsyncFileWriter(threading.Thread):
     """A buffered, asynchronous file-like object to be wrapped around an already
@@ -68,7 +73,7 @@ class AsyncFileWriter(threading.Thread):
         
            It is the caller's responsibility to close the file handle that was
            used for initialization. Exceptions in the writer-thread are
-           not re-raised.
+           re-raised after the writer is closed.
         """
         self.cv.acquire()
         try:
@@ -167,8 +172,8 @@ class EssidStore(object):
     """Storage-class responsible for ESSID and PMKs.
     
        Callers should use the default-iterator to cycle over available ESSIDs.
-       Results are returned as dictionaries and indexed by keys. The Keys may be
-       received from .iterkeys() or from other storage sources (PasswordStore).
+       Results are returned as tuples of tuples and indexed by keys. The Keys may be
+       received from .iterkeys() or from PasswordStore.
     """
     _pyr_preheadfmt = '<4sH'
     _pyr_preheadfmt_size = struct.calcsize(_pyr_preheadfmt)
@@ -176,17 +181,10 @@ class EssidStore(object):
         self.basepath = basepath
         if not os.path.exists(self.basepath):
             os.makedirs(self.basepath)
-        self.asyncwriters = []
         self.essidrootcache = {}
 
     def _getessidroot(self, essid):
         return self.essidrootcache.setdefault(essid, os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8]))
-
-    def _syncwriters(self):
-        while len(self.asyncwriters) > 0:
-            essid, key, f, writer = self.asyncwriters.pop()
-            writer.join()
-            f.close()
 
     def __getitem__(self, (essid, key)):
         """Receive a tuple of (password,PMK)-tuples stored under
@@ -236,18 +234,10 @@ class EssidStore(object):
         md.update(pmkbuffer)
         md.update(pwbuffer)        
         f = open(filename, 'wb')
-        writer = AsyncFileWriter(f)
-        try:
-            writer.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
-            writer.write(pmkbuffer)
-            writer.write(pwbuffer)
-        finally:
-            writer.closeAsync()
-        self.asyncwriters.append((essid, key, f, writer))
-        for essid, key, f, writer in self.asyncwriters:
-            if not writer.isAlive():
-                f.close()
-                self.asyncwriters.remove((essid, key, f, writer))
+        f.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
+        f.write(pmkbuffer)
+        f.write(pwbuffer)
+        f.close()
         
     def __len__(self):
         return len([x for x in self])
@@ -277,10 +267,6 @@ class EssidStore(object):
 
     def containskey(self, essid, key):
         """Return True if the given ESSID:key combination is stored.""" 
-        for newessid, newkey, f, writer in self.asyncwriters:
-            if newkey == key and newessid == essid:
-                # We assume that the file will make it to the disk.
-                return True
         essidpath = self._getessidroot(essid)
         if not os.path.exists(essidpath):
             raise KeyError, "ESSID not in store."
@@ -291,7 +277,6 @@ class EssidStore(object):
         """Iterate over all keys that can currently be used to receive results
            for the given ESSID.
         """
-        self._syncwriters()
         essidpath = self._getessidroot(essid)
         if not os.path.exists(essidpath):
             raise KeyError, "ESSID not in store."
@@ -386,28 +371,6 @@ class PasswordStore(object):
         else:
             raise IOError, "'%s' is not a PasswordFile." % filename
 
-    def _flush_bucket(self, pw_h1, bucket):
-        if len(bucket) == 0:
-            return
-        for key, pwpath in self.pwfiles.iteritems():
-            if pwpath.endswith(pw_h1):
-                bucket.difference_update(self[key])
-                if len(bucket) == 0:
-                    return
-        pwpath = os.path.join(self.basepath, pw_h1)
-        if not os.path.exists(pwpath):
-            os.makedirs(pwpath)
-        md = hashlib.md5()
-        b = zlib.compress('\n'.join(sorted(bucket)), 1)
-        md.update(b)
-        key = md.hexdigest()
-        f = open(os.path.join(pwpath, key) + '.pw', 'wb')
-        f.write('PAW2')
-        f.write(md.digest())
-        f.write(b)
-        f.close()
-        self.pwfiles[key] = pwpath
-
     def iterkeys(self):
         """Iterate over all keys that can be used to receive password-sets."""
         return self.__iter__()
@@ -421,6 +384,27 @@ class PasswordStore(object):
         """Iterate over all keys and password-sets."""
         for key in self:
             yield (key, self[key])
+
+    def _flush_bucket(self, pw_h1, bucket):
+        if len(bucket) == 0:
+            return
+        for key, pwpath in self.pwfiles.iteritems():
+            if pwpath.endswith(pw_h1):
+                bucket.difference_update(self[key])
+                if len(bucket) == 0:
+                    return
+        pwpath = os.path.join(self.basepath, pw_h1)
+        if not os.path.exists(pwpath):
+            os.makedirs(pwpath)
+        b = zlib.compress('\n'.join(sorted(bucket)), 1)
+        md = hashlib.md5(b)
+        key = md.hexdigest()
+        f = open(os.path.join(pwpath, key) + '.pw', 'wb')
+        f.write('PAW2')
+        f.write(md.digest())
+        f.write(b)
+        f.close()
+        self.pwfiles[key] = pwpath
 
     def flush_buffer(self):
         """Flush all passwords currently buffered to the storage.

@@ -1,6 +1,6 @@
 /*
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -436,17 +436,22 @@ cpyrit_solve(PyObject *self, PyObject *args)
         arraysize++;
     }
     Py_DECREF(passwd_seq);
+    
+    if (arraysize > 0)
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        i = 0;
+        do
+            i += finalize_pmk(&pmk_buffer[i]);
+        while (i < arraysize);
+        Py_END_ALLOW_THREADS;
 
-    Py_BEGIN_ALLOW_THREADS;
-    i = 0;
-    do
-        i += finalize_pmk(&pmk_buffer[i]);
-    while (i < arraysize);
-    Py_END_ALLOW_THREADS;
-
-    result = PyTuple_New(arraysize);
-    for (i = 0; i < arraysize; i++)
-        PyTuple_SetItem(result, i, Py_BuildValue("s#", pmk_buffer[i].e1, 32));
+        result = PyTuple_New(arraysize);
+        for (i = 0; i < arraysize; i++)
+            PyTuple_SetItem(result, i, Py_BuildValue("s#", pmk_buffer[i].e1, 32));
+    } else {
+        result = PyTuple_New(0);
+    }
 
     PyMem_Free(pmk_buffer);
 

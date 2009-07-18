@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, knabberknusperhaus@yahoo.de
+#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -27,14 +27,19 @@
    CPyrit enumerates the available cores and schedules workunits among them.
 """
 
-import httplib
+import BaseHTTPServer
 import hashlib
+import httplib
 import os
-import sys
 import Queue
+import SocketServer
+import sys
 import time
 import threading
+import uuid
+import urlparse
 import urllib2
+import cpyrit_util as util
 
 # Snippet taken from ParallelPython
 def _detect_ncpus():
@@ -117,6 +122,7 @@ class CPUCore(Core, _cpyrit_cpu.CPUDevice):
         self.name = "CPU-Core (%s)" % _cpyrit_cpu.getPlatform()
         self.start()
 
+
 ## CUDA
 try:
     from _cpyrit import _cpyrit_cuda
@@ -165,7 +171,7 @@ else:
         """Computes results on ATI-Stream devices.
         
            Comes with it's own scheduling as the underlying implementation is
-           fixed to a maximum input size. Computes work in fixed blocks of 8192 passwords.
+           fixed to a maximum input size; computes with fixed blocks of 8192 passwords.
         """
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
@@ -264,8 +270,8 @@ class CPyrit(object):
     """Enumerates and manages all available hardware resources provided in
        the module and does most of the scheduling-magic.
        
-       The class provides FIFO-scheduling of workunits towards the caller
-       who can use .enqueue() and corresponding calls to .dequeue().
+       The class provides FIFO-scheduling of workunits towards the 'host'
+       which can use .enqueue() and corresponding calls to .dequeue().
        Scheduling towards the hardware is provided by _gather(), _scatter() and
        _revoke().
     """
@@ -289,32 +295,35 @@ class CPyrit(object):
         if '_cpyrit._cpyrit_cuda' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
                 self.cores.append(CUDACore(queue=self, dev_idx=dev_idx))
+                ncpus -= 1
         # OpenCL
         if '_cpyrit._cpyrit_opencl' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_opencl.listDevices()):
                 if device[1] != 'NVIDIA Corporation' or '_cpyrit._cpyrit_cuda' not in sys.modules:
                     self.cores.append(OpenCLCore(queue=self, dev_idx=dev_idx))
+                    ncpus -= 1
         # ATI
         if '_cpyrit._cpyrit_stream' in sys.modules:
             for dev_idx in xrange(_cpyrit_stream.getDeviceCount()):
                 self.cores.append(StreamCore(queue=self, dev_idx=dev_idx))
+                ncpus -= 1
         #CPUs
-        for i in xrange(ncpus - (1 if len(self.cores) > 0 else 0)):
+        for i in xrange(ncpus):
             self.cores.append(CPUCore(queue=self))
         #Network
         configpath = os.path.expanduser(os.path.join('~','.pyrit'))
         if not os.path.exists(configpath):
             os.makedirs(configpath)
-        hostfile = os.path.join(configpath, "hosts")
+        hostfile = os.path.join(configpath, 'hosts')
         if os.path.exists(hostfile):
             hosts = set()
-            for host in open(hostfile, "r"):
+            for host in open(hostfile, 'r'):
                 if not host.startswith('#') and len(host.strip()) > 0:
                     hosts.add(host.strip())
             for host in hosts:
                 self.cores.append(NetworkCore(queue=self, host=host))
         else:
-            f = open(hostfile, "w")
+            f = open(hostfile, 'w')
             f.write('## List of known Pyrit-servers; one IP/hostname per line...\n'
                     '## lines that start with # are ignored.\n')
             f.close()
@@ -329,7 +338,7 @@ class CPyrit(object):
 
     def __len__(self):
         """Returns the number of passwords that currently wait to be transfered
-           to an instance of Core."""
+           to the hardware."""
         self.cv.acquire()
         try:
             return self._len()
@@ -516,6 +525,181 @@ class CPyrit(object):
                 d[idx] = passwordlist[ptr:ptr+length]
                 ptr += length
             self.cv.notifyAll()
+        finally:
+            self.cv.release()
+
+class PyritHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.parsed_path = urlparse.urlparse(self.path)
+        self.params = {}
+        if len(self.parsed_path.query) > 0:
+            self.params.update([x.split('=') for x in self.parsed_path.query.split("&")])
+
+        if self.parsed_path.path == "/":
+            self.send_response(httplib.OK)
+            self.end_headers()
+            self.wfile.write('%s, started %s\n\nActive cores:\n' % (self.server.name, time.ctime(self.server.started)))
+            for i, core in enumerate(self.server.cp.cores):
+                self.wfile.write(" #%i '%s', did %i PMKs so far\n" % (i, core, core.getStats()[0]))
+            self.wfile.write('\nActive clients:\n')
+            for i, (name, joined, lastseen, inCount, outCount) in enumerate(self.server.getClientStats()):
+                self.wfile.write(" #%i '%s'\n  Joined %s, last seen %s\n  %i passwords queued, %i processed\n\n" %
+                                    (i, name, time.ctime(joined), time.ctime(lastseen), inCount, outCount))
+
+        elif self.parsed_path.path == "/ENQUEUE":
+            if 'client' not in self.params or self.params['client'] not in self.server.clients:
+                self.send_response(httplib.FORBIDDEN)
+                self.end_headers()
+            else:
+                buf = self.rfile.read(int(self.headers.getheader('Content-Length')))
+                digest = hashlib.sha1()
+                essid, pwbuffer = buf[digest.digest_size:].split('\n', 1)
+                digest.update(essid)
+                digest.update(pwbuffer)
+                if digest.digest() != buf[:digest.digest_size]:
+                    raise Exception, "Digest check failed."
+                self.server.enqueue(self.params['client'], essid, pwbuffer.split('\n'))
+                self.send_response(httplib.OK)
+                self.end_headers()
+                self.wfile.write(str(len(self.server)))
+
+        elif self.parsed_path.path == "/DEQUEUE":
+            if 'client' not in self.params or self.params['client'] not in self.server.clients:
+                self.send_response(httplib.FORBIDDEN)
+                self.end_headers()
+            else:
+                t = time.time()
+                while True:
+                    res = self.server.dequeue(self.params['client'])
+                    if res is not None or time.time() - t > 3.0:
+                        break
+                    else:
+                        time.sleep(0.1)
+                if res is None:
+                    self.send_response(httplib.PROCESSING)
+                    self.end_headers()
+                else:
+                    buf = ''.join(res)
+                    digest = hashlib.sha1()
+                    digest.update(buf)
+                    self.send_response(httplib.OK)
+                    self.end_headers()
+                    self.wfile.write(digest.digest())
+                    self.wfile.write(buf)
+
+        elif self.parsed_path.path == "/REGISTER":
+            client = self.server.registerClient(self.client_address[0])
+            self.send_response(httplib.OK)
+            self.end_headers()
+            self.wfile.write(client.uuid)
+
+        else:
+            self.send_response(httplib.NOT_FOUND)
+            self.end_headers()
+    do_POST = do_GET
+
+
+class PyritServerCleaner(threading.Thread):
+    def __init__(self, server):
+        threading.Thread.__init__(self)
+        self.server = server
+        self.setDaemon(True)
+        self.start()
+        
+    def run(self):
+        while True:
+            self.server.cv.acquire()
+            try:
+                for client_uuid, client in self.server.clients.items():
+                    if time.time() - client.lastseen > 60:
+                        del self.server.clients[client_uuid]
+            finally:
+                self.server.cv.release()
+            time.sleep(15)
+
+
+class PyritClient(object):
+    def __init__(self, host):
+        self.host = host
+        self.uuid = str(uuid.uuid4())
+        self.joined = self.lastseen = time.time()
+        self.inCount = self.outCount = 0
+        self.outQueue = []
+        
+    def __repr__(self):
+        return '%s@%s' % (self.host, self.uuid)
+
+
+class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
+    def __init__(self):
+        BaseHTTPServer.HTTPServer.__init__(self, ('', 19935), PyritHandler)
+        self.cp = CPyrit()
+        self.started = time.time()
+        self.clients = {}
+        self.wu_clients = []
+        self.cv = threading.Condition()
+        self.name = "Pyrit %s" % util.VERSION
+        self.cleaner = PyritServerCleaner(self)
+
+    def registerClient(self, host):
+        self.cv.acquire()
+        try:
+            client = PyritClient(host)
+            self.clients[client.uuid] = client
+            return client
+        finally:
+            self.cv.release()
+    
+    def getClientStats(self):
+        self.cv.acquire()
+        try:
+            return tuple([(str(c), c.joined, c.lastseen, c.inCount, c.outCount) for c in self.clients.itervalues()])
+        finally:
+            self.cv.release()
+
+    def enqueue(self, client_uuid, essid, passwordlist):
+        assert self.cleaner.isAlive()
+        self.cv.acquire()
+        try:
+            if client_uuid not in self.clients:
+                raise KeyError, "Client not registered"
+            client = self.clients[client_uuid]
+            self.cp.enqueue(essid, passwordlist, block=False)
+            self.wu_clients.append(client_uuid)
+            client.lastseen = time.time()
+            client.inCount += len(passwordlist)
+        finally:
+            self.cv.release()
+        
+    def dequeue(self, client_uuid):
+        assert self.cleaner.isAlive()
+        self.cv.acquire()
+        try:
+            if client_uuid not in self.clients:
+                raise KeyError, "Client not registered"
+            while True:
+                results = self.cp.dequeue(block=False)
+                if results is None:
+                    break
+                else:
+                    wu_client_uuid = self.wu_clients.pop(0)
+                    if wu_client_uuid in self.clients:
+                        wu_client = self.clients[wu_client_uuid]
+                        wu_client.outQueue.append(results)
+                        wu_client.outCount += len(results)
+            client = self.clients[client_uuid]
+            client.lastseen = time.time()
+            if len(client.outQueue) > 0:
+                return client.outQueue.pop(0)
+            else:
+                return None
+        finally:
+            self.cv.release() 
+
+    def __len__(self):
+        self.cv.acquire()
+        try:
+            return len(self.cp)
         finally:
             self.cv.release()
 
