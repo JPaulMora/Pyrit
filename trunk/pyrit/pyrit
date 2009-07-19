@@ -110,8 +110,8 @@ class Pyrit_CLI(object):
             "\n  list_essids      : List all ESSIDs but don't count matching results" \
             '\n  passthrough      : Compute PMKs on the fly and write to stdout' \
             '\n  serve            : Serve requests from clients on the network' \
-            '\n  selftest         : Test all cores for computing correct results' \
-            '\n  verify           : Verify 10% of the results through recomputation' \
+            '\n  selftest         : Test all cores to ensure they compute correct results' \
+            '\n  verify           : Verify 10% of the results by recomputation' \
             '\n')
 
     def create_essid(self):
@@ -403,8 +403,7 @@ class Pyrit_CLI(object):
                 tdiff = time.time() - startTime
                 self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))
                 for core in cp.cores:
-                    resCount, compTime = core.getStats()
-                    self.tell("%s: %.2f PMKs/s, (%.2f%% occupancy)" % (core.name, (resCount / compTime) if compTime > 0 else 0 , compTime * 100.0 / tdiff))
+                    self.tell("%s: %.2f PMKs/s, (%.2f%% occupancy)" % (core.name, (core.resCount / core.compTime) if core.compTime > 0 else 0 , core.compTime * 100.0 / tdiff))
         self.tell("Batchprocessing done.")
 
     def benchmark(self):
@@ -423,10 +422,11 @@ class Pyrit_CLI(object):
             pass
         total = 0
         tdiff = time.time() - t
-        for core in cp.cores:
-            resCount, compTime = core.getStats()
-            perf = resCount / compTime if compTime > 0 else 0
-            self.tell("%s: %.2f PMKs/s (%.2f%% occupancy)" % (core.name, perf, compTime * 100.0 / tdiff))
+        for i, core in enumerate(cp.cores):
+            perf = core.resCount / core.compTime if core.compTime > 0 else 0
+            rtt = (core.resCount / core.callCount) / perf if core.callCount > 0 and perf > 0 else 0
+            self.tell("#%i: '%s': %.2f PMKs/s (Occupancy %.2f%%; RTT %.1f secs)" \
+                        % (i+1, core.name, perf, core.compTime * 100.0 / tdiff, rtt))
             total += perf
         self.tell("\nBenchmark done. %.2f PMKs/s total." % total)
 
@@ -442,7 +442,7 @@ class Pyrit_CLI(object):
         err = False
         while time.time() - t < 60 and not err:
             essid = random.choice(util.PMK_TESTVECTORS.keys())
-            pws = [random.choice(util.PMK_TESTVECTORS[essid].keys()) for i in xrange(random.randrange(10, 500))]
+            pws = [random.choice(util.PMK_TESTVECTORS[essid].keys()) for i in xrange(random.randrange(10, 1000))]
             workunits.append((essid, pws))
             cp.enqueue(essid, pws, block=True)
             while True:

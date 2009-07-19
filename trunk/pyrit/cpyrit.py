@@ -78,8 +78,7 @@ class Core(threading.Thread):
         """Create a new Core that pulls work from the given CPyrit instance."""
         threading.Thread.__init__(self)
         self.queue = queue
-        self.compTime = 0
-        self.resCount = 0
+        self.compTime = self.resCount = self.callCount = 0
         self.name = "Unnamed Core"
         self.setDaemon(True)
 
@@ -95,15 +94,13 @@ class Core(threading.Thread):
             res = self.solve(essid, pwlist)
             self.compTime += time.time() - t
             self.resCount += len(res)
+            self.callCount += 1
             self.buffersize = int(max(128, min(20480, (2 * self.buffersize + (self.resCount / self.compTime * 3.0)) / 3)))
             self.queue._scatter(essid, pwlist, res)
 
     def __str__(self):
         return self.name
-        
-    def getStats(self):
-        """Returns the number of results and the time spent computing results."""
-        return (self.resCount, self.compTime)
+
 
 
 ## CPU
@@ -189,6 +186,7 @@ else:
                 res = self.solve(essid, pwlist)
                 self.compTime += time.time() - t
                 self.resCount += len(res)
+                self.callCount += 1
                 self.queue._scatter(essid, pwlist, res)
 
 
@@ -256,6 +254,7 @@ class NetworkCore(Core):
                 essid, pwlist = self.queue._gather(8192)
                 workbuffer.append((essid, pwlist))
                 server_queue_length = self._enqueue_on_host(essid, pwlist)
+                self.callCount += 1
             t = time.time()
             results = self._dequeue_from_host()
             self.compTime += time.time() - t
@@ -354,6 +353,19 @@ class CPyrit(object):
             if r is None:
                 break
             yield r
+            
+    def waitForSchedule(self, maxBufferSize):
+        """Blocks until less than the given number of passwords wait to be scheduled
+           to the hardware.
+        """
+        assert maxBufferSize >= 0
+        self.cv.acquire()
+        try:
+            while self._len() > maxBufferSize:
+                self.cv.wait(2)
+                self._check_cores()
+        finally:
+            self.cv.release()
 
     def enqueue(self, essid, passwords, block=False):
         """Enqueues the given ESSID and iterable of passwords for processing.
@@ -540,7 +552,7 @@ class PyritHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write('%s, started %s\n\nActive cores:\n' % (self.server.name, time.ctime(self.server.started)))
             for i, core in enumerate(self.server.cp.cores):
-                self.wfile.write(" #%i '%s', did %i PMKs so far\n" % (i, core, core.getStats()[0]))
+                self.wfile.write(" #%i '%s', did %i PMKs so far\n" % (i, core, core.resCount))
             self.wfile.write('\nActive clients:\n')
             for i, (name, joined, lastseen, inCount, outCount) in enumerate(self.server.getClientStats()):
                 self.wfile.write(" #%i '%s'\n  Joined %s, last seen %s\n  %i passwords queued, %i processed\n\n" %

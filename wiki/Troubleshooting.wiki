@@ -1,21 +1,17 @@
 #summary FAQ and troubleshooting
 #labels Featured
 
-= Introduction =
-
-Here you should find relief for the most common problems with Pyrit.
-
 === Pyrit does not use SSE2 ===
 
 The CPU-core supports SSE2 since version '0.2.3-dev (r112)'. The code is currently only available by installing from [Installation#Adventurous:_Source-code_from_svn-trunk svn-trunk].
 
 
-=== Using CPyrit-CUDA with CUDA 2.2 causes the error message 'Failed to load CUDA-core (CUDA_ERROR_INVALID_IMAGE)' ===
+=== Using CPyrit-CUDA with CUDA 2.2 causes the error message '_Failed to load CUDA-core (CUDA_ERROR_INVALID_IMAGE)_' ===
 
 This error was fixed in version '0.2.3-dev (r99)'. You either have to use the code from [Installation#Adventurous:_Source-code_from_svn-trunk svn-trunk] or downgrade to CUDA 2.1.
 
 
-=== Compiling CPyrit-Stream throws an error message 'explicit template specialization cannot have a storage class' ===
+=== Compiling CPyrit-Stream throws an error message '_explicit template specialization cannot have a storage class_' ===
 
 The error usually refers to 'brtvector.hpp' and is caused by a bug in the ATI-Stream SDK. To fix it open '/usr/local/atibrook/sdk/include/brook/CPU/brtvector.hpp' and search for
 
@@ -35,7 +31,7 @@ Save the file and re-compile.
 
 This behaviour is intended. Pyrit keeps one CPU free for scheduling work with every GPU it uses.
 
-=== My GPU does not show up in 'list_cores' ===
+=== The GPU does not show up in '_list_cores_' ===
 
 Pyrit suppresses most errors that occur while loading the GPU-extensions as they are usually caused by simply not having compatible hardware installed. Open a terminal and try loading the offending module directly to get more information.
 
@@ -91,7 +87,11 @@ O rly ?
 
 Pyrit ignores passwords that have less than 8 or more than 63 characters as those can't be used for WPA anyway.
 
-=== The .pyrit directory has a size of only Y MB after importing a wordlist of X GB  ===
+=== The .pyrit directory has a size of only Y MBs after importing a wordlist of X GBs  ===
 
 Pyrit uses [http://www.zlib.net zlib]-compression to store the passwords.
+
+=== There is another problem with Pyrit ===
+
+Create a ticket in the [http://code.google.com/p/pyrit/issues/list Issue-Tracker] or write an e-mail to [lukas.lueg@gmail.com]
 
