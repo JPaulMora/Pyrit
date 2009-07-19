@@ -93,5 +93,5 @@ Pyrit uses [http://www.zlib.net zlib]-compression to store the passwords.
 
 === There is another problem with Pyrit ===
 
-Create a ticket in the [http://code.google.com/p/pyrit/issues/list Issue-Tracker] or write an e-mail to [lukas.lueg@gmail.com]
+Create a ticket in the [http://code.google.com/p/pyrit/issues/list Issue-Tracker] or write an e-mail to lukas.lueg@gmail.com
 

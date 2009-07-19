@@ -237,7 +237,8 @@ class EssidStore(object):
         filename = os.path.join(essidpath, key) + '.pyr'
         pws, pmks = zip(*results)
         pwbuffer = zlib.compress('\n'.join(pws), 1)
-        if hashlib.md5(pwbuffer).hexdigest() != key:
+        # Sanity check. Accept keys coming from PAWD- and PAW2-format.
+        if hashlib.md5(pwbuffer).hexdigest() != key and hashlib.md5(''.join(pws)).hexdigest() != key:
             raise ValueError, "Results and key mismatch."
         pmkbuffer = ''.join(pmks)
         md = hashlib.md5()
