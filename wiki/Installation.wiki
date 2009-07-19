@@ -19,7 +19,7 @@ You may want to take a look at [http://www.nvidia.com/object/cuda_learn_products
 
 Compiling from source-code is the preferred way of getting Pyrit onto your system. Linux users running a binary distribution may need to install the development packages for [http://www.python.org Python] (e.g. _python-devel_), [http://www.openssl.org/ OpenSSL] (e.g. _openssl-devel_ or _libssl-dev_) and [http://zlib.net/ Zlib] (e.g. _zlib-devel_). You also need a C-compiler like _gcc_. Users of MacOS probably only need to have [http://developer.apple.com/TOOLS/Xcode/ Xcode] installed.
 
-From time to time Pyrit get's packed into (hopefully) stable packages. In general you should download, compile and install these source-code packages from the [Download] area.
+From time to time Pyrit get's packed into (hopefully) stable packages. In general you should download, compile and install these source-code packages from the [http://code.google.com/p/pyrit/downloads/list Download] area.
 The more adventurous among you may instead want to try the latest source-code in Pyrit's [http://subversion.tigris.org/ repository]. The code in [http://pyrit.googlecode.com/svn/trunk/ svn-trunk] may include more features and provide better performance but also may cause random problems or even not compile at all. Use the fixed packages when in doubt.
 
 === Stable: Source-code from fixed packages ===
@@ -131,7 +131,7 @@ rpm -i CPyrit-CUDA-0.2.2-1.i386.rpm
 
 == Ubuntu 9.04 ==
 
-Festor Wailon Dacoba maintains packages for Pyrit in his [https://launchpad.net/~festor/+archive/ppa Personal Package Archive]. You need to create a third-party software repository and add Festor's public key to your keyring so you can install Pyrit and it's extension modules via _apt-get_. Click through _System_ -> _Administraton_ -> _Software Sources_ in GNOME's menu and add the following APT in the _Third-Party Software_ tab:
+Festor Wailon Dacoba maintains packages for Pyrit in his [https://launchpad.net/~festor/+archive/hack-tools Personal Package Archive]. You need to create a third-party software repository and add Festor's public key to your keyring so you can install Pyrit and it's extension modules via _apt-get_. Click through _System_ -> _Administraton_ -> _Software Sources_ in GNOME's menu and add the following APT in the _Third-Party Software_ tab:
 
 {{{ deb http://ppa.launchpad.net/festor/hack-tools/ubuntu jaunty main }}}
 
@@ -159,7 +159,7 @@ For example, to download and install support for [http://www.nvidia.com/object/c
 sudo apt-get install nvidia-glx-180 pyrit-cuda
 }}}
 
-*Please notice that [https://launchpad.net/~festor/+archive/ppa this third-party repository] is not maintained by the author of Pyrit.*
+*Please notice that [https://launchpad.net/~festor/+archive/hack-tools this third-party repository] is not maintained by the author of Pyrit.*
 
 
 
