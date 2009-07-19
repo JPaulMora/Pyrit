@@ -1,5 +1,5 @@
 #summary Getting started
-#labels Featured
+#labels Deprecated
 
 =Getting started=
 
