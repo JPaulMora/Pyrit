@@ -198,7 +198,7 @@ class EssidStore(object):
         f.close()
         md = hashlib.md5()
         magic, essidlen = struct.unpack(EssidStore._pyr_preheadfmt, buf[:EssidStore._pyr_preheadfmt_size])
-        if magic == 'PYR2':
+        if magic == 'PYR2' or magic == 'PYRT':
             headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
             headsize = struct.calcsize(headfmt)
             file_essid, numElems, digest = struct.unpack(headfmt, buf[EssidStore._pyr_preheadfmt_size:EssidStore._pyr_preheadfmt_size+headsize])
@@ -207,13 +207,24 @@ class EssidStore(object):
             pmkoffset = EssidStore._pyr_preheadfmt_size + headsize
             pwoffset = pmkoffset + numElems * 32
             md.update(file_essid)
-            md.update(buf[pmkoffset:])
-            if md.digest() != digest:
-                raise IOError, "Digest check failed on result-file '%s'." % filename
-            results = tuple(zip(zlib.decompress(buf[pwoffset:]).split('\n'),
-                          [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]))
+            if magic == 'PYR2':
+                md.update(buf[pmkoffset:])
+                if md.digest() != digest:
+                    raise IOError, "Digest check failed on PYR2-file '%s'." % filename
+                results = tuple(zip(zlib.decompress(buf[pwoffset:]).split('\n'),
+                              [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]))
+            elif magic == 'PYRT':
+                pmkbuffer = buf[pmkoffset:pwoffset]
+                assert len(pmkbuffer) % 32 == 0
+                md.update(pmkbuffer)
+                pwbuffer = zlib.decompress(buf[pwoffset:]).split('\00')
+                assert len(pwbuffer) == numElems
+                md.update(''.join(pwbuffer))
+                if md.digest() != digest:
+                    raise IOError, "Digest check failed on PYRT-file '%s'." % filename
+                results = tuple(zip(pwbuffer, [pmkbuffer[i*32:i*32+32] for i in xrange(numElems)]))
         else:
-            raise IOError, "Not a PYR2-file."
+            raise IOError, "File-format for '%s' unknown." % filename
         if len(results) != numElems:
             raise IOError, "Header announced %i results but %i unpacked" % (numElems, len(results))
         return results
@@ -368,6 +379,15 @@ class PasswordStore(object):
             if md.hexdigest() != key:
                 raise IOError, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
             return tuple(zlib.decompress(buf[4+md.digest_size:]).split('\n'))
+        elif buf[:4] == "PAWD":
+            md = hashlib.md5()
+            inp = tuple(buf[4+md.digest_size:].split('\00'))
+            md.update(''.join(inp))
+            if buf[4:4+md.digest_size] != md.digest():
+                raise IOError, "Digest check failed for %s" % filename
+            if filename[-3-md.digest_size*2:-3] != key:
+                raise IOError, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
+            return inp
         else:
             raise IOError, "'%s' is not a PasswordFile." % filename
 
