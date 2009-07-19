@@ -156,7 +156,8 @@ class Pyrit_CLI(object):
             pwcount += len(passwords)
             self.tell("Passwords available:\t%i\r" % pwcount, end=None, sep=None)
             for essid in essid_results:
-                essid_results[essid] += len(self.essidstore[essid, key])
+                # Let's assume that the presence of the key in the essidstore means that the file is valid and completed...
+                essid_results[essid] += len(passwords) if self.essidstore.containskey(essid, key) else 0
         self.tell("Passwords available:\t%i\n" % pwcount)
         for essid, rescount in sorted(essid_results.iteritems()):
             self.tell("ESSID '%s':\t%i (%.2f%%)" % (essid, rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
@@ -385,11 +386,13 @@ class Pyrit_CLI(object):
                             self.essidstore[solvedEssid, solvedKey] = solvedResults
                             totalResCount += len(solvedResults)
                             _writeCowpatty(awriter, solvedResults)
-                    tdiff = time.time() - startTime
-                    self.tell("Computed %i PMKs in %i seconds; %i PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
+                    self.tell("Computed %i PMKs so far; %i PMKs per second; %i passwords buffered.\r" % \
+                                (totalResCount, totalResCount / (time.time() - startTime), len(cp)), end=None, sep=None)
                 self.tell('')
             self.tell("Stopped reading workunits...")
             for solvedPMKs in cp:
+                self.tell("Computed %i PMKs so far; %i PMKs per second; %i passwords buffered.\r" % \
+                            (totalResCount, totalResCount / (time.time() - startTime), len(cp)), end=None, sep=None)
                 solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
                 solvedResults = zip(solvedPasswords, solvedPMKs)
                 self.essidstore[solvedEssid, solvedKey] = solvedResults
@@ -402,8 +405,11 @@ class Pyrit_CLI(object):
             if totalResCount > 0:   
                 tdiff = time.time() - startTime
                 self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))
-                for core in cp.cores:
-                    self.tell("%s: %.2f PMKs/s, (%.2f%% occupancy)" % (core.name, (core.resCount / core.compTime) if core.compTime > 0 else 0 , core.compTime * 100.0 / tdiff))
+                for i, core in enumerate(cp.cores):
+                   perf = core.resCount / core.compTime if core.compTime > 0 else 0
+                   rtt = (core.resCount / core.callCount) / perf if core.callCount > 0 and perf > 0 else 0
+                   self.tell("#%i: '%s': %.2f PMKs/s (Occupancy %.2f%%; RTT %.1f secs)" % \
+                                (i+1, core.name, perf, core.compTime * 100.0 / tdiff, rtt))
         self.tell("Batchprocessing done.")
 
     def benchmark(self):
