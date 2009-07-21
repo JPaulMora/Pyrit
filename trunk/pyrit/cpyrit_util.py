@@ -171,8 +171,8 @@ class AsyncFileWriter(threading.Thread):
 class EssidStore(object):
     """Storage-class responsible for ESSID and PMKs.
     
-       Callers should use the default-iterator to cycle over available ESSIDs.
-       Results are returned as tuples of tuples and indexed by keys. The Keys may be
+       Callers can use the iterator to cycle over available ESSIDs.
+       Results are returned as tuples of tuples and indexed by keys. The keys may be
        received from .iterkeys() or from PasswordStore.
     """
     _pyr_preheadfmt = '<4sH'
@@ -181,10 +181,18 @@ class EssidStore(object):
         self.basepath = basepath
         if not os.path.exists(self.basepath):
             os.makedirs(self.basepath)
-        self.essidrootcache = {}
-
-    def _getessidroot(self, essid):
-        return self.essidrootcache.setdefault(essid, os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8]))
+        self.essids = {}
+        for essid_hash in os.listdir(self.basepath):
+            essidpath = os.path.join(self.basepath, essid_hash)
+            f = open(os.path.join(essidpath, 'essid'), 'rb')
+            essid = f.read()
+            f.close()
+            if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
+                self.essids[essid] = (essidpath, {})
+                for pyrfile in [p for p in os.listdir(essidpath) if p[-4:] == '.pyr']:
+                    self.essids[essid][1][pyrfile[:len(pyrfile)-4]] = os.path.join(essidpath, pyrfile)
+            else:
+                print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
 
     def __getitem__(self, (essid, key)):
         """Receive a tuple of (password,PMK)-tuples stored under
@@ -192,8 +200,7 @@ class EssidStore(object):
         """
         if not self.containskey(essid, key):
             return ()
-        filename = os.path.join(self._getessidroot(essid), key) + '.pyr'
-        f = open(filename, 'rb')
+        f = open(self.essids[essid][1][key], 'rb')
         buf = f.read()
         f.close()
         md = hashlib.md5()
@@ -231,10 +238,8 @@ class EssidStore(object):
     
     def __setitem__(self, (essid, key), results):
         """Store a iterable of password:PMK tuples under the given ESSID and key."""
-        essidpath = self._getessidroot(essid)
-        if not os.path.exists(essidpath):
+        if essid not in self.essids:
             raise KeyError, "ESSID not in store."
-        filename = os.path.join(essidpath, key) + '.pyr'
         pws, pmks = zip(*results)
         pwbuffer = zlib.compress('\n'.join(pws), 1)
         # Sanity check. Accept keys coming from PAWD- and PAW2-format.
@@ -245,59 +250,39 @@ class EssidStore(object):
         md.update(essid)
         md.update(pmkbuffer)
         md.update(pwbuffer)        
+        filename = os.path.join(self.essids[essid][0], key) + '.pyr'
         f = open(filename, 'wb')
         f.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
         f.write(pmkbuffer)
         f.write(pwbuffer)
         f.close()
+        self.essids[essid][1][key] = filename
         
     def __len__(self):
-        return len([x for x in self])
+        """Return the number of ESSIDs currently stored."""
+        return len(self.essids)
 
     def __iter__(self):
-        essids = set()
-        for essid_hash in os.listdir(self.basepath):
-            f = open(os.path.join(self.basepath, essid_hash, 'essid'), 'rb')
-            essid = f.read()
-            f.close()
-            if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
-                essids.add(essid)
-            else:
-                print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
-        return sorted(essids).__iter__()
+        """Iterate over all essids currently stored."""
+        return sorted(self.essids).__iter__()
             
     def __contains__(self, essid):
         """Return True if the given ESSID is currently stored."""
-        essid_root = self._getessidroot(essid)
-        if os.path.exists(essid_root):
-            f = open(os.path.join(essid_root, 'essid'), 'rb')
-            e = f.read()
-            f.close()
-            return e == essid
-        else:
-            return False
+        return essid in self.essids
 
     def containskey(self, essid, key):
-        """Return True if the given ESSID:key combination is stored.""" 
-        essidpath = self._getessidroot(essid)
-        if not os.path.exists(essidpath):
+        """Return True if the given ESSID:key combination is stored."""
+        if essid not in self.essids:
             raise KeyError, "ESSID not in store."
-        filename = os.path.join(essidpath, key) + '.pyr'
-        return os.path.exists(filename)
+        return key in self.essids[essid][1]
 
     def iterkeys(self, essid):
         """Iterate over all keys that can currently be used to receive results
            for the given ESSID.
         """
-        essidpath = self._getessidroot(essid)
-        if not os.path.exists(essidpath):
+        if essid not in self.essids:
             raise KeyError, "ESSID not in store."
-        keys = set()
-        for pyrfile in os.listdir(essidpath):
-            if pyrfile[-4:] != '.pyr':
-                continue
-            keys.add(pyrfile[:len(pyrfile)-4])
-        return keys.__iter__()
+        return set(self.essids[essid][1]).__iter__()
         
     def iterresults(self, essid):
         """Iterate over all results currently stored for the given ESSID."""
@@ -314,23 +299,24 @@ class EssidStore(object):
         
            Re-creating a ESSID is a no-op.
         """
-        if len(essid) < 3 or len(essid) > 32:
+        if len(essid) < 1 or len(essid) > 32:
             raise ValueError, "ESSID invalid."
-        essid_root = self._getessidroot(essid)
+        essid_root = os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8])
         if not os.path.exists(essid_root):
             os.makedirs(essid_root)
-        f = open(os.path.join(essid_root, 'essid'), 'wb')
-        f.write(essid)
-        f.close()
+            f = open(os.path.join(essid_root, 'essid'), 'wb')
+            f.write(essid)
+            f.close()
+            self.essids[essid] = (essid_root, {})
 
     def delete_essid(self, essid):
         """Delete the given ESSID and all results from the storage."""
         if essid not in self:
             raise KeyError, "ESSID not in store."
-        essid_root = self._getessidroot(essid)
-        for fname in os.listdir(essid_root):
-            if fname[-4:] == '.pyr':
-                os.unlink(os.path.join(essid_root, fname))
+        essid_root, pyrfiles = self.essids[essid]
+        del self.essids[essid]
+        for fname in pyrfiles.itervalues():
+            os.unlink(fname)
         os.unlink(os.path.join(essid_root, 'essid'))
         os.rmdir(essid_root)
 
@@ -364,7 +350,7 @@ class PasswordStore(object):
 
     def __iter__(self):
         """Iterate over all keys that can be used to receive password-sets."""
-        return self.pwfiles.__iter__()
+        return set(self.pwfiles).__iter__()
 
     def __getitem__(self, key):
         """Returns the collection of passwords indexed by the given key.""" 

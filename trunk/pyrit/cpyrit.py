@@ -73,13 +73,15 @@ class Core(threading.Thread):
     TV_ESSID = 'foo'
     TV_PASSWD = 'barbarbar'
     TV_PMK = ''.join(map(chr, (6,56,101,54,204,94,253,3,243,250,132,170,142,162,204,132,8,
-            151,61,243,75,216, 75,83,128,110,237,48,35,205,166,126)))
+                                151,61,243,75,216, 75,83,128,110,237,48,35,205,166,126)))
     def __init__(self, queue):
         """Create a new Core that pulls work from the given CPyrit instance."""
         threading.Thread.__init__(self)
         self.queue = queue
         self.compTime = self.resCount = self.callCount = 0
-        self.name = "Unnamed Core"
+        self.buffersize = 4096
+        self.minBufferSize = 128
+        self.maxBufferSize = 20480
         self.setDaemon(True)
 
     def _testComputeFunction(self, i):
@@ -95,12 +97,11 @@ class Core(threading.Thread):
             self.compTime += time.time() - t
             self.resCount += len(res)
             self.callCount += 1
-            self.buffersize = int(max(128, min(20480, (2 * self.buffersize + (self.resCount / self.compTime * 3.0)) / 3)))
+            self.buffersize = int(max(self.minBufferSize, min(self.maxBufferSize, (2 * self.buffersize + (self.resCount / self.compTime * 3.0)) / 3)))
             self.queue._scatter(essid, pwlist, res)
 
     def __str__(self):
         return self.name
-
 
 
 ## CPU
@@ -134,7 +135,9 @@ else:
             Core.__init__(self, queue)
             _cpyrit_cuda.CUDADevice.__init__(self, dev_idx)
             self.name = "CUDA-Device #%i '%s'" % (dev_idx+1, self.deviceName)
+            self.minBufferSize = 1024
             self.buffersize = 4096
+            self.maxBufferSize = 40960
             self.start()
 
 
@@ -152,7 +155,9 @@ else:
             Core.__init__(self, queue)
             _cpyrit_opencl.OpenCLDevice.__init__(self, dev_idx)
             self.name = "OpenCL-Device #%i '%s'" % (dev_idx+1, self.deviceName)
+            self.minBufferSize = 1024
             self.buffersize = 4096
+            self.maxBufferSize = 40960
             self.start()
 
 
@@ -165,104 +170,18 @@ except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
 else:
     class StreamCore(Core, _cpyrit_stream.StreamDevice):
-        """Computes results on ATI-Stream devices.
-        
-           Comes with it's own scheduling as the underlying implementation is
-           fixed to a maximum input size; computes with fixed blocks of 8192 passwords.
-        """
+        """Computes results on ATI-Stream devices."""
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
             _cpyrit_stream.StreamDevice.__init__(self)
             self.name = "ATI-Stream device %i" % (dev_idx+1)
             self.dev_idx = dev_idx
+            self.maxBufferSize = 8192 # Capped by _cpyrit_stream
             self.start()
 
         def run(self):
             _cpyrit_stream.setDevice(self.dev_idx)
-            self._testComputeFunction(101)
-            while True:
-                essid, pwlist = self.queue._gather(8192)
-                t = time.time()
-                res = self.solve(essid, pwlist)
-                self.compTime += time.time() - t
-                self.resCount += len(res)
-                self.callCount += 1
-                self.queue._scatter(essid, pwlist, res)
-
-
-## Network
-class NetworkCore(Core):
-    def __init__(self, queue, host):
-        Core.__init__(self, queue)
-        self.name = "Network-Core @%s" % host
-        self.buffersize = 20480
-        self.host = host
-        self.uuid = None
-        self.start()
-    
-    def _enqueue_on_host(self, essid, pwlist):
-        pwbuffer = '\n'.join(pwlist)
-        digest = hashlib.sha1()
-        digest.update(essid)
-        digest.update(pwbuffer)
-        req = urllib2.urlopen('http://%s:19935/ENQUEUE?client=%s' % (self.host, self.uuid), digest.digest() + '\n'.join((essid, pwbuffer)))
-        if req.code != httplib.OK:
-            raise Exception, "Enqueue on host '%s' failed with status %s (%s)" % (self.host, req.code, req.msg)
-        return int(req.read())
-    
-    def _dequeue_from_host(self):
-        try:
-            req = urllib2.urlopen('http://%s:19935/DEQUEUE?client=%s' % (self.host, self.uuid))
-        except urllib2.HTTPError, e:
-            if e.code == httplib.PROCESSING:
-                return None
-            else:
-                raise
-        if req.code == httplib.OK:
-            buf = req.read()
-            digest = hashlib.sha1()
-            digest.update(buf[digest.digest_size:])
-            if buf[:digest.digest_size] != digest.digest():
-                raise Exception, "Digest check failed."
-            buf = buf[digest.digest_size:]
-            assert len(buf) % 32 == 0
-            return [buf[i*32:i*32 + 32] for i in xrange(len(buf) / 32)]
-        else:
-            raise Exception, "Dequeue from host '%s' failed with status %s (%s)" % (self.host, req.code, req.msg)
-    
-    def run(self):
-        workbuffer = []
-        while True:
-            try:
-                req = urllib2.urlopen('http://%s:19935/REGISTER' % self.host)
-            except urllib2.URLError, e:
-                time.sleep(5)
-            else:
-                self.uuid = req.read()
-                break
-        self._enqueue_on_host(Core.TV_ESSID, [Core.TV_PASSWD]*101)
-        while True:
-            res = self._dequeue_from_host()
-            if res is not None:
-                break
-        if any((pmk != Core.TV_PMK for pmk in res)):
-            raise Exception, "Test-vector does not result in correct result."
-
-        server_queue_length = 0
-        while True:
-            if server_queue_length < 50000:
-                essid, pwlist = self.queue._gather(8192)
-                workbuffer.append((essid, pwlist))
-                server_queue_length = self._enqueue_on_host(essid, pwlist)
-                self.callCount += 1
-            t = time.time()
-            results = self._dequeue_from_host()
-            self.compTime += time.time() - t
-            if results is not None:
-                server_queue_length -= len(results)
-                self.resCount += len(results)
-                essid, pwlist = workbuffer.pop(0)
-                self.queue._scatter(essid, pwlist, results)
+            Core.run(self)
 
 
 class CPyrit(object):
@@ -274,7 +193,7 @@ class CPyrit(object):
        Scheduling towards the hardware is provided by _gather(), _scatter() and
        _revoke().
     """
-    def __init__(self, maxBufferSize=50000):
+    def __init__(self):
         """Create a new instance that blocks calls to .enqueue() when more than
            the given amount of passwords are currently waiting to be scheduled
            to the hardware.
@@ -285,7 +204,6 @@ class CPyrit(object):
         self.slices = {}
         self.in_idx = 0
         self.out_idx = 0
-        self.maxBufferSize = maxBufferSize
         self.cores = []
         self.cv = threading.Condition()
 
@@ -309,23 +227,6 @@ class CPyrit(object):
         #CPUs
         for i in xrange(ncpus):
             self.cores.append(CPUCore(queue=self))
-        #Network
-        configpath = os.path.expanduser(os.path.join('~','.pyrit'))
-        if not os.path.exists(configpath):
-            os.makedirs(configpath)
-        hostfile = os.path.join(configpath, 'hosts')
-        if os.path.exists(hostfile):
-            hosts = set()
-            for host in open(hostfile, 'r'):
-                if not host.startswith('#') and len(host.strip()) > 0:
-                    hosts.add(host.strip())
-            for host in hosts:
-                self.cores.append(NetworkCore(queue=self, host=host))
-        else:
-            f = open(hostfile, 'w')
-            f.write('## List of known Pyrit-servers; one IP/hostname per line...\n'
-                    '## lines that start with # are ignored.\n')
-            f.close()
 
     def _check_cores(self):
         for core in self.cores:
@@ -336,7 +237,7 @@ class CPyrit(object):
         return sum((sum((len(pwlist) for pwlist in pwdict.itervalues())) for essid, pwdict in self.inqueue))
 
     def __len__(self):
-        """Returns the number of passwords that currently wait to be transfered
+        """Return the number of passwords that currently wait to be transfered
            to the hardware."""
         self.cv.acquire()
         try:
@@ -355,7 +256,7 @@ class CPyrit(object):
             yield r
             
     def waitForSchedule(self, maxBufferSize):
-        """Blocks until less than the given number of passwords wait to be scheduled
+        """Block until less than the given number of passwords wait for being scheduled
            to the hardware.
         """
         assert maxBufferSize >= 0
@@ -367,18 +268,27 @@ class CPyrit(object):
         finally:
             self.cv.release()
 
-    def enqueue(self, essid, passwords, block=False):
-        """Enqueues the given ESSID and iterable of passwords for processing.
+    def getPeakPerformance(self):
+        """Return the summed peak performance of all cores.
+        
+           The number returned is based on the performance all cores would have
+           with 100% occupancy. The real performance is lower if the caller fails
+           to keep the pipeline filled.
+        """
+        return sum([(core.resCount / core.compTime) for core in self.cores if core.compTime])
+
+    def enqueue(self, essid, passwords, block=True):
+        """Enqueue the given ESSID and iterable of passwords for processing.
            
            The call may block if block is True and the number of passwords
-           currently waiting for being processed is higher than allowed for
-           this instance.
+           currently waiting for being scheduled to the hardware is higher than
+           five times the current peak performance.
            Calls to .dequeue() correspond in a FIFO-manner.
         """ 
         self.cv.acquire()
         try:
-            if self.maxBufferSize and block:
-                while self._len() > self.maxBufferSize:
+            if self._len() > 0:
+                while self.getPeakPerformance() == 0 or self._len() > self.getPeakPerformance() * 5:
                     self.cv.wait(2)
                     self._check_cores()
             passwordlist = list(passwords)
@@ -393,7 +303,7 @@ class CPyrit(object):
             self.cv.release()
         
     def dequeue(self, block=True, timeout=None):
-        """Receives the results corresponding to previous calls to .enqueue().
+        """Receive the results corresponding to a previous call to .enqueue().
            
            The function returns None if block is False and the respective results
            have not yet been completed. Otherwise the call blocks.
@@ -537,181 +447,6 @@ class CPyrit(object):
                 d[idx] = passwordlist[ptr:ptr+length]
                 ptr += length
             self.cv.notifyAll()
-        finally:
-            self.cv.release()
-
-class PyritHandler(BaseHTTPServer.BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.parsed_path = urlparse.urlparse(self.path)
-        self.params = {}
-        if len(self.parsed_path.query) > 0:
-            self.params.update([x.split('=') for x in self.parsed_path.query.split("&")])
-
-        if self.parsed_path.path == "/":
-            self.send_response(httplib.OK)
-            self.end_headers()
-            self.wfile.write('%s, started %s\n\nActive cores:\n' % (self.server.name, time.ctime(self.server.started)))
-            for i, core in enumerate(self.server.cp.cores):
-                self.wfile.write(" #%i '%s', did %i PMKs so far\n" % (i, core, core.resCount))
-            self.wfile.write('\nActive clients:\n')
-            for i, (name, joined, lastseen, inCount, outCount) in enumerate(self.server.getClientStats()):
-                self.wfile.write(" #%i '%s'\n  Joined %s, last seen %s\n  %i passwords queued, %i processed\n\n" %
-                                    (i, name, time.ctime(joined), time.ctime(lastseen), inCount, outCount))
-
-        elif self.parsed_path.path == "/ENQUEUE":
-            if 'client' not in self.params or self.params['client'] not in self.server.clients:
-                self.send_response(httplib.FORBIDDEN)
-                self.end_headers()
-            else:
-                buf = self.rfile.read(int(self.headers.getheader('Content-Length')))
-                digest = hashlib.sha1()
-                essid, pwbuffer = buf[digest.digest_size:].split('\n', 1)
-                digest.update(essid)
-                digest.update(pwbuffer)
-                if digest.digest() != buf[:digest.digest_size]:
-                    raise Exception, "Digest check failed."
-                self.server.enqueue(self.params['client'], essid, pwbuffer.split('\n'))
-                self.send_response(httplib.OK)
-                self.end_headers()
-                self.wfile.write(str(len(self.server)))
-
-        elif self.parsed_path.path == "/DEQUEUE":
-            if 'client' not in self.params or self.params['client'] not in self.server.clients:
-                self.send_response(httplib.FORBIDDEN)
-                self.end_headers()
-            else:
-                t = time.time()
-                while True:
-                    res = self.server.dequeue(self.params['client'])
-                    if res is not None or time.time() - t > 3.0:
-                        break
-                    else:
-                        time.sleep(0.1)
-                if res is None:
-                    self.send_response(httplib.PROCESSING)
-                    self.end_headers()
-                else:
-                    buf = ''.join(res)
-                    digest = hashlib.sha1()
-                    digest.update(buf)
-                    self.send_response(httplib.OK)
-                    self.end_headers()
-                    self.wfile.write(digest.digest())
-                    self.wfile.write(buf)
-
-        elif self.parsed_path.path == "/REGISTER":
-            client = self.server.registerClient(self.client_address[0])
-            self.send_response(httplib.OK)
-            self.end_headers()
-            self.wfile.write(client.uuid)
-
-        else:
-            self.send_response(httplib.NOT_FOUND)
-            self.end_headers()
-    do_POST = do_GET
-
-
-class PyritServerCleaner(threading.Thread):
-    def __init__(self, server):
-        threading.Thread.__init__(self)
-        self.server = server
-        self.setDaemon(True)
-        self.start()
-        
-    def run(self):
-        while True:
-            self.server.cv.acquire()
-            try:
-                for client_uuid, client in self.server.clients.items():
-                    if time.time() - client.lastseen > 60:
-                        del self.server.clients[client_uuid]
-            finally:
-                self.server.cv.release()
-            time.sleep(15)
-
-
-class PyritClient(object):
-    def __init__(self, host):
-        self.host = host
-        self.uuid = str(uuid.uuid4())
-        self.joined = self.lastseen = time.time()
-        self.inCount = self.outCount = 0
-        self.outQueue = []
-        
-    def __repr__(self):
-        return '%s@%s' % (self.host, self.uuid)
-
-
-class PyritServer(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer):
-    def __init__(self):
-        BaseHTTPServer.HTTPServer.__init__(self, ('', 19935), PyritHandler)
-        self.cp = CPyrit()
-        self.started = time.time()
-        self.clients = {}
-        self.wu_clients = []
-        self.cv = threading.Condition()
-        self.name = "Pyrit %s" % util.VERSION
-        self.cleaner = PyritServerCleaner(self)
-
-    def registerClient(self, host):
-        self.cv.acquire()
-        try:
-            client = PyritClient(host)
-            self.clients[client.uuid] = client
-            return client
-        finally:
-            self.cv.release()
-    
-    def getClientStats(self):
-        self.cv.acquire()
-        try:
-            return tuple([(str(c), c.joined, c.lastseen, c.inCount, c.outCount) for c in self.clients.itervalues()])
-        finally:
-            self.cv.release()
-
-    def enqueue(self, client_uuid, essid, passwordlist):
-        assert self.cleaner.isAlive()
-        self.cv.acquire()
-        try:
-            if client_uuid not in self.clients:
-                raise KeyError, "Client not registered"
-            client = self.clients[client_uuid]
-            self.cp.enqueue(essid, passwordlist, block=False)
-            self.wu_clients.append(client_uuid)
-            client.lastseen = time.time()
-            client.inCount += len(passwordlist)
-        finally:
-            self.cv.release()
-        
-    def dequeue(self, client_uuid):
-        assert self.cleaner.isAlive()
-        self.cv.acquire()
-        try:
-            if client_uuid not in self.clients:
-                raise KeyError, "Client not registered"
-            while True:
-                results = self.cp.dequeue(block=False)
-                if results is None:
-                    break
-                else:
-                    wu_client_uuid = self.wu_clients.pop(0)
-                    if wu_client_uuid in self.clients:
-                        wu_client = self.clients[wu_client_uuid]
-                        wu_client.outQueue.append(results)
-                        wu_client.outCount += len(results)
-            client = self.clients[client_uuid]
-            client.lastseen = time.time()
-            if len(client.outQueue) > 0:
-                return client.outQueue.pop(0)
-            else:
-                return None
-        finally:
-            self.cv.release() 
-
-    def __len__(self):
-        self.cv.acquire()
-        try:
-            return len(self.cp)
         finally:
             self.cv.release()
 
