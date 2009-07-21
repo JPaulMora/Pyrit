@@ -1,0 +1,13 @@
+Changes since 0.2.2:
+ * Added docstrings
+ * Added CLI-function 'delete_essid'
+ * Added CLI-function 'verify'
+ * Added CLI-function 'selftest'
+ * Added Core for OpenCL
+ * Added SSE2-path to CPU-Core
+ * Fixed 'CUDA_ERROR_INVALID_IMAGE' when using CUDA 2.2
+ * Fixed process exit codes
+ * Improved scheduling between client and hardware
+ * Improved storage-code
+ * Improved performance for almost all CLI-functions
+ * Builds from SVN-directories now carry their revision-number
