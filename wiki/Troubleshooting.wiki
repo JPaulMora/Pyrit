@@ -5,6 +5,14 @@
 
 The CPU-core supports SSE2 since version '0.2.3-dev (r112)'. The code is currently only available by installing from [Installation#Adventurous:_Source-code_from_svn-trunk svn-trunk].
 
+=== '_ImportError: /usr/.../_cpyrit/_cpyrit_cpu.so: cannot restore segment prot after reloc: Permission denied_' ===
+
+This error may happen with SSE2-support compiled in and is caused by SELinux not trusting Pyrit's library. You can follow SELinux's guidelines on fixing that for your specific system. Or you can disable SELinux for the time being by executing (as root):
+
+{{{
+echo 0 > /selinux/enforce
+}}}
+
 
 === Using CPyrit-CUDA with CUDA 2.2 causes the error message '_Failed to load CUDA-core (CUDA_ERROR_INVALID_IMAGE)_' ===
 
@@ -94,4 +102,3 @@ Pyrit uses [http://www.zlib.net zlib]-compression to store the passwords.
 === There is another problem with Pyrit ===
 
 Create a ticket in the [http://code.google.com/p/pyrit/issues/list Issue-Tracker] or write an e-mail to lukas.lueg@gmail.com
-
