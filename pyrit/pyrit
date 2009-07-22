@@ -68,7 +68,7 @@ class Pyrit_CLI(object):
         self.essidstore = util.EssidStore(self.options.essidstore_path)
         self.passwdstore = util.PasswordStore(self.options.passwdstore_path)
 
-        self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com"\
+        self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com\n" \
                   "This code is distributed under the GNU General Public License v3\n" % util.VERSION)
         if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != 'create_essid':
             self.tell('The ESSID-blobspace seems to be empty; you should create an ESSID...\n', stream=sys.stderr)
@@ -104,9 +104,10 @@ class Pyrit_CLI(object):
             '\n  create_essid     : Create a new ESSID'
             '\n  delete_essid     : Delete a ESSID and corresponding results'
             '\n  eval             : Count the available passwords and matching results'
-            '\n  export_cowpatty  : Export into a new cowpatty file'
-            '\n  export_hashdb    : Export into an airolib database'
-            '\n  import_passwords : Import passwords'
+            '\n  export_cowpatty  : Export results to a new cowpatty file'
+            '\n  export_hashdb    : Export results to an airolib database'
+            '\n  export_passwords : Export passwords to a file'
+            '\n  import_passwords : Import passwords from a file'
             '\n  list_cores       : List available cores'
             "\n  list_essids      : List all ESSIDs but don't count matching results"
             '\n  passthrough      : Compute PMKs on the fly and write to stdout'
@@ -254,12 +255,9 @@ class Pyrit_CLI(object):
                     workunits.append(pwbuffer)
                     cp.enqueue(self.options.essid, workunits[-1])
                     pwbuffer = set()
-                    while True:
-                        solvedPMKs = cp.dequeue(block=False)
-                        if solvedPMKs is not None:
-                            awriter.write(util.genCowpEntries(zip(workunits.pop(0), solvedPMKs)))
-                        else:
-                            break
+                    solvedPMKs = cp.dequeue(block=False)
+                    if solvedPMKs is not None:
+                        awriter.write(util.genCowpEntries(zip(workunits.pop(0), solvedPMKs)))
             if len(pwbuffer) > 0:
                 workunits.append(pwbuffer)
                 cp.enqueue(self.options.essid, workunits[-1])
@@ -337,36 +335,36 @@ class Pyrit_CLI(object):
         import cpyrit
         cp = cpyrit.CPyrit()
 
-        def _writeCowpatty(out, results):
-            if self.options.file == '-':
-                try:
-                    out.write(util.genCowpEntries(results))
-                except IOError:
-                    self.tell("IOError while writing to stdout. Batchprocessing continues silently...", stream=sys.stderr)
-                    self.options.file = ''                        
-        
-        if self.options.file == "-" and self.options.essid is None:
-            return "Results will be written to stdout while batchprocessing. This requires to specify a ESSID."
+        if self.options.file and self.options.essid is None:
+            return "Results will be written to a file while batchprocessing. This requires to specify a single ESSID."
         if self.options.essid is not None:
             if self.options.essid not in self.essidstore:
-                return "The ESSID '%s' is not found in the repository" % self.options.essid
-            else:
-                essids = [self.options.essid]
+                self.essidstore.create_essid(self.options.essid)
+            essids = [self.options.essid]
         else:
             essids = list(self.essidstore)
         
         totalResCount = 0
         startTime = time.time()
         workunits = []
-        awriter = util.AsyncFileWriter(sys.stdout) 
+        if self.options.file:
+            if self.options.file == '-':
+                f = sys.stdout
+            else:
+                f = open(self.options.file, 'wb')
+            awriter = util.AsyncFileWriter(f)
+        else:
+            f = None
+        
         try:
             for essid in essids:
                 self.tell("Working on ESSID '%s'" % essid)
-                if self.options.file == "-":
+                if f:
                     awriter.write(util.genCowpHeader(essid))
                 for key in self.passwdstore:
                     if self.essidstore.containskey(essid, key):
-                        _writeCowpatty(awriter, self.essidstore[essid, key])
+                        if f:
+                            awriter.write(util.genCowpEntries(self.essidstore[essid, key]))
                     else:
                         passwords = self.passwdstore[key]
                         workunits.append((essid, key, passwords))
@@ -377,9 +375,10 @@ class Pyrit_CLI(object):
                             solvedResults = zip(solvedPasswords, solvedPMKs)
                             self.essidstore[solvedEssid, solvedKey] = solvedResults
                             totalResCount += len(solvedResults)
-                            _writeCowpatty(awriter, solvedResults)
-                    self.tell("Computed %i PMKs so far; %i PMKs per second; %i passwords buffered.\r" % \
-                                (totalResCount, totalResCount / (time.time() - startTime), len(cp)), end=None, sep=None)
+                            if f:
+                                awriter.write(util.genCowpEntries(solvedResults))
+                            self.tell("Computed %i PMKs so far; %i PMKs per second; %i passwords buffered.\r" % \
+                                            (totalResCount, totalResCount / (time.time() - startTime), len(cp)), end=None, sep=None)
                 self.tell('')
             self.tell("Stopped reading workunits...")
             for solvedPMKs in cp:
@@ -389,11 +388,16 @@ class Pyrit_CLI(object):
                 solvedResults = zip(solvedPasswords, solvedPMKs)
                 self.essidstore[solvedEssid, solvedKey] = solvedResults
                 totalResCount += len(solvedResults)
-                _writeCowpatty(awriter, solvedResults)
+                if f:
+                    awriter.write(util.genCowpEntries(solvedResults))
         except (KeyboardInterrupt, SystemExit):
             self.tell("Exiting...")
+        except IOError:
+            self.tell("IOError while batchprocessing. Exiting gracefully...")
         finally:
-            awriter.close()
+            if f:
+                awriter.close()
+                f.close()
             if totalResCount > 0:   
                 tdiff = time.time() - startTime
                 self.tell("\nAll done. %.2f PMKs/s total." % (totalResCount / tdiff))
@@ -407,15 +411,23 @@ class Pyrit_CLI(object):
     def benchmark(self):
         import cpyrit
         cp = cpyrit.CPyrit()
-        self.tell("Running benchmark for at least 60 seconds...\n")
+
+        # Burn-in so all modules are forced to load and buffers can calibrate to correct size        
+        self.tell("Calibrating...", end=None)
         t = time.time()
         pws = ['barbarbar']*3500
+        while time.time() - t < 10:
+            cp.enqueue('foo', pws)
+            cp.dequeue(block=False)
+        for r in cp:
+            pass
+        
+        self.tell("\rRunning benchmark for at least 60 seconds...\n")
+        cp.resetStatistics()
+        t = time.time()
         while time.time() - t < 60:
             cp.enqueue('foo', pws)
-            while True:
-                r = cp.dequeue(block=False)
-                if not r:
-                    break
+            cp.dequeue(block=False)
         for r in cp:
             pass
         total = 0
@@ -496,7 +508,7 @@ class Pyrit_CLI(object):
                                 self.tell("Workunit %s for ESSID '%s' seems corrupted." % (testedKey, testedEssid), stream=sys.stderr)
                                 err = True
                     tdiff = time.time() - startTime
-                    self.tell("Computed %i PMKs in %i seconds; %i PMKs per second.\r" % (totalResCount, tdiff, totalResCount / tdiff), end=None, sep=None)
+                    self.tell("Computed %i PMKs so far; %i PMKs per second.\r" % (totalResCount, totalResCount / tdiff), end=None, sep=None)
                 for solvedPMKs in cp:
                     totalResCount += len(solvedPMKs)
                     testedEssid, testedKey, testedPMKs = workunits.pop(0)
