@@ -267,6 +267,11 @@ class CPyrit(object):
                 self._check_cores()
         finally:
             self.cv.release()
+            
+    def resetStatistics(self):
+        """Reset the cores' statistics"""
+        for core in self.cores:
+            core.compTime = core.resCount = core.callCount = 0
 
     def getPeakPerformance(self):
         """Return the summed peak performance of all cores.

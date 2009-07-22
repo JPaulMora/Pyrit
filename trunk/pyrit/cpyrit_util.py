@@ -200,41 +200,45 @@ class EssidStore(object):
         """
         if not self.containskey(essid, key):
             return ()
-        f = open(self.essids[essid][1][key], 'rb')
-        buf = f.read()
-        f.close()
-        md = hashlib.md5()
-        magic, essidlen = struct.unpack(EssidStore._pyr_preheadfmt, buf[:EssidStore._pyr_preheadfmt_size])
-        if magic == 'PYR2' or magic == 'PYRT':
-            headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
-            headsize = struct.calcsize(headfmt)
-            file_essid, numElems, digest = struct.unpack(headfmt, buf[EssidStore._pyr_preheadfmt_size:EssidStore._pyr_preheadfmt_size+headsize])
-            if file_essid != essid:
-                raise IOError, "ESSID in result-file mismatches."
-            pmkoffset = EssidStore._pyr_preheadfmt_size + headsize
-            pwoffset = pmkoffset + numElems * 32
-            md.update(file_essid)
-            if magic == 'PYR2':
-                md.update(buf[pmkoffset:])
-                if md.digest() != digest:
-                    raise IOError, "Digest check failed on PYR2-file '%s'." % filename
-                results = tuple(zip(zlib.decompress(buf[pwoffset:]).split('\n'),
-                              [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]))
-            elif magic == 'PYRT':
-                pmkbuffer = buf[pmkoffset:pwoffset]
-                assert len(pmkbuffer) % 32 == 0
-                md.update(pmkbuffer)
-                pwbuffer = zlib.decompress(buf[pwoffset:]).split('\00')
-                assert len(pwbuffer) == numElems
-                md.update(''.join(pwbuffer))
-                if md.digest() != digest:
-                    raise IOError, "Digest check failed on PYRT-file '%s'." % filename
-                results = tuple(zip(pwbuffer, [pmkbuffer[i*32:i*32+32] for i in xrange(numElems)]))
-        else:
-            raise IOError, "File-format for '%s' unknown." % filename
-        if len(results) != numElems:
-            raise IOError, "Header announced %i results but %i unpacked" % (numElems, len(results))
-        return results
+        try:
+            f = open(self.essids[essid][1][key], 'rb')
+            buf = f.read()
+            f.close()
+            md = hashlib.md5()
+            magic, essidlen = struct.unpack(EssidStore._pyr_preheadfmt, buf[:EssidStore._pyr_preheadfmt_size])
+            if magic == 'PYR2' or magic == 'PYRT':
+                headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
+                headsize = struct.calcsize(headfmt)
+                file_essid, numElems, digest = struct.unpack(headfmt, buf[EssidStore._pyr_preheadfmt_size:EssidStore._pyr_preheadfmt_size+headsize])
+                if file_essid != essid:
+                    raise IOError, "ESSID in result-file mismatches."
+                pmkoffset = EssidStore._pyr_preheadfmt_size + headsize
+                pwoffset = pmkoffset + numElems * 32
+                md.update(file_essid)
+                if magic == 'PYR2':
+                    md.update(buf[pmkoffset:])
+                    if md.digest() != digest:
+                        raise IOError, "Digest check failed on PYR2-file '%s'." % filename
+                    results = tuple(zip(zlib.decompress(buf[pwoffset:]).split('\n'),
+                                  [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]))
+                elif magic == 'PYRT':
+                    pmkbuffer = buf[pmkoffset:pwoffset]
+                    assert len(pmkbuffer) % 32 == 0
+                    md.update(pmkbuffer)
+                    pwbuffer = zlib.decompress(buf[pwoffset:]).split('\00')
+                    assert len(pwbuffer) == numElems
+                    md.update(''.join(pwbuffer))
+                    if md.digest() != digest:
+                        raise IOError, "Digest check failed on PYRT-file '%s'." % filename
+                    results = tuple(zip(pwbuffer, [pmkbuffer[i*32:i*32+32] for i in xrange(numElems)]))
+            else:
+                raise IOError, "File-format for '%s' unknown." % filename
+            if len(results) != numElems:
+                raise IOError, "Header announced %i results but %i unpacked" % (numElems, len(results))
+            return results
+        except:
+            print "Error while loading results %s for ESSID '%s'" % (key, essid)
+            raise
     
     def __setitem__(self, (essid, key), results):
         """Store a iterable of password:PMK tuples under the given ESSID and key."""
