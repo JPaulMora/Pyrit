@@ -1,0 +1,100 @@
+#summary Reference manual for the commandline-client
+#labels Featured
+
+= Introduction =
+
+This document tries to describe and explain all functions the commandline-client _pyrit_ provides. Please notice that this document always refers to the latest stable versions so actual functionality might differ if you use code from svn-trunk.
+
+One or more _options_ may be given on the commandline to customize a _command_:
+    `pyrit [options] command`
+The exact behaviour of _options_ depends on the _command_ and is described in the specific section further below.
+
+If _command_ succeeds, _pyrit_'s process exit status is set to 0; otherwise it is set to 1 and (usually) an error message or a python-traceback is written to stderr. You may want to read the [Troubleshooting]-page in case you run into problems.
+
+
+=== Options ===
+
+Pyrit recognizes the following options:
+
+ * *-e*
+ Specifies the ESSID. Commands usually refer to all ESSIDs in the database when this option is omitted.
+ * *-f*
+ Specifies a filename. Beware that depending on the given _command_ this may be a file that is read from or written to. The special filename '-' can be used for _stdin_/_stdout_.
+
+=== Commands ===
+
+    * *batch*
+    Start to translate all passwords in the database into their respective PMKs and store the results in the database. The option *-e* may be used to restrict this command to a single ESSID; if it is ommitted, all ESSIDs are processed one after the other in undefined order. For example:
+        `pyrit -e NETGEAR batch`
+    
+    The option *-f* can be used to specify a filename the results should additionally be written to in _cowpatty_'s binary format. The option *-e* becomes mandatory and the ESSID is automatically created in the database if necessary. PMKs that previously have been computed and stored in the database are exported from there without further processing. _Pyrit_ stops and exits if an _IOError_ is raised while writing to the specified file but signals success on exit. This makes it very convenient to pipe results directly to other programs but also keep them for later use. For example:
+        `pyrit -e NETGEAR -f - batch | cowpatty -d - -r wpatestcapture.cap -s NETGEAR`
+
+
+    * *benchmark*
+    Determine the peak-performance of the available hardware by computing dummy-results. For example:
+        `pyrit benchmark`
+
+    The results given by *benchmark* include readings like "`Occ. 99.8%; RTT 2.9`". This means the core was occupied (computing and not e.g. waiting for more work) 99.8% of the time and had an average round-trip-time (execution time per call to hardware) of 2.9 seconds. _Pyrit_'s scheduling mechanisms target a RTT of 3.0 seconds and 100% occupancy.
+
+
+    * *create_essid*
+    Add the ESSID given by *-e* to the database. Re-creating an existing ESSID does not result in an error. For example:
+        `pyrit -e NETGEAR create_essid`
+
+
+    * *delete_essid*
+    Delete the ESSID given by *-e* from the database. This includes all results that may have been stored for that particular ESSID. For example:
+        `pyrit -e NETGEAR delete_essid`
+
+
+    * *eval*
+    Count all available passwords, all ESSIDs and their respective results in the database. For example:
+        `pyrit eval`
+
+
+    * *export_passwords*
+    Write all passwords that are currently stored in the database to a new file given by *-f*. Passwords are terminated by a single newline-character (`\n`). Existing files are overwritten without confirmation. For example:
+        `pyrit -f - export_passwords | gzip > mywords.gz`
+
+
+    * *export_cowpatty*
+    Write all results for the ESSID given by *-e* to the file given by *-f* in _cowpatty_'s binary format. Existing files are overwritten without confirmation. For example:
+        `pyrit -f NETGEAR.cow -e NETGEAR export_cowpatty`
+
+
+    * *export_hashdb*
+    Write all results currently stored in the database to the airolib-ng-database given by *-f*. The database is created with a default table layout if the file does not yet exist. The option *-e* can be used to limit the export to a single ESSID. For example:
+        `pyrit -f NETGEAR.db -e NETGEAR export_hashdb`
+
+
+    * *import_passwords*
+    Read the file given by *-f* and import one password per line to the database. The passwords may contain all characters (including NULL-bytes) apart from the terminating newline-character `\n`. Passwords that are not suitable for being used with WPA-/WPA2-PSK are ignored. _Pyrit_'s storage-implementation guarantees that all passwords remain unique throughout the entire database. For example:
+        `pyrit -f dirty_words.txt import_passwords`
+
+
+    * *list_cores*
+    Show a list of all available hardware modules _pyrit_ currently uses. For example:
+        `pyrit list_cores`
+
+
+    * *list_essids*
+    Show a list of all ESSIDs currently stored in the database. This function is faster than *eval* in case you don't need to know the number of computed results. For example:
+        `pyrit list_essids`
+
+
+    * *passthrough*
+    Read passwords from the file given by *-f* and compute their PMKs for the ESSID given by *-e*. The results are written to _stdout_ in _cowpatty_'s binary format and are not stored in the database for later use. This command therefor circumvents the entire database and should only be used if storage-space is a problem (e.g. when using _pyrit_ on a LiveCD). The *batch*-command provides exactly the same functionality as *passthrough* but can give much better performance as results may be read from the database instead of recomputing them. 
+    For example:
+        `pyrit -f dirty_words.txt -e NETGEAR passthrough | cowpatty -d - -r wpatestcapture.cap -s NETGEAR` 
+
+
+    * *selftest*
+    Run an extensive selftest for about 60 seconds. This test includes the entire scheduling-mechanism and all cores that are listed by *list_cores*. You can use this function to detect broken hardware-modules or malicious network-clients. For example:
+        `pyrit selftest`
+
+ 
+    * *verify*
+    Randomly pick 10% of the results stored in the database and verify their value by recomputation. You need this function if you suspect broken hardware or malicious network-clients. For example:
+        `pyrit -e NETGEAR verify`
+
