@@ -28,6 +28,8 @@
    genCowpHeader and genCowEntries are used to convert results to cowpatty's
    binary format.
    
+   detect_ncpus determines the number of CPUs in the system.
+   
    PMK_TESTVECTORS has two ESSIDs and ten password:PMK pairs each to verify
    local installations.
 """
@@ -45,7 +47,30 @@ from _cpyrit import VERSION
 
 
 def genCowpHeader(essid):
+    """Return a header-section in cowpatty's binary format for the given ESSID"""
     return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
+
+
+# Snippet taken from ParallelPython
+def detect_ncpus():
+    """Detect the number of effective CPUs in the system"""
+    # For Linux, Unix and MacOS
+    if hasattr(os, "sysconf"):
+        if "SC_NPROCESSORS_ONLN" in os.sysconf_names:
+            #Linux and Unix
+            ncpus = os.sysconf("SC_NPROCESSORS_ONLN")
+            if isinstance(ncpus, int) and ncpus > 0:
+                return ncpus
+        else:
+            #MacOS X
+            return int(os.popen2("sysctl -n hw.ncpu")[1].read())
+    #for Windows
+    if "NUMBER_OF_PROCESSORS" in os.environ:
+        ncpus = int(os.environ["NUMBER_OF_PROCESSORS"])
+        if ncpus > 0:
+            return ncpus
+    #return the default value
+    return 1
 
 
 class AsyncFileWriter(threading.Thread):
@@ -53,7 +78,7 @@ class AsyncFileWriter(threading.Thread):
        opened file handle.
     
        Writing to this object will only block if the internal buffer
-       exceeded it's maximum size. The call to .write() is done in a different thread.
+       exceeded it's maximum size. The call to .write() is done in a seperate thread.
     """ 
     def __init__(self, filehndl, maxsize=10*1024**2):
         """Create a instance writing to the given file-like-object and buffering
@@ -106,8 +131,9 @@ class AsyncFileWriter(threading.Thread):
     def closeAsync(self):
         """Signal the writer to stop and return to caller immediately.
         
-           It is the caller's responsibility to close the file handle that was
-           used for initialization. Exceptions are not re-raised.
+           The caller should not close the file handle given at initialization
+           to prevent this instance from writing to a closed file handle.
+           Exceptions are not re-raised.
         """
         self.cv.acquire()
         try:
@@ -172,7 +198,7 @@ class EssidStore(object):
     """Storage-class responsible for ESSID and PMKs.
     
        Callers can use the iterator to cycle over available ESSIDs.
-       Results are returned as tuples of tuples and indexed by keys. The keys may be
+       Results are indexed by keys and returned as iterables of tuples. The keys may be
        received from .iterkeys() or from PasswordStore.
     """
     _pyr_preheadfmt = '<4sH'
@@ -195,8 +221,11 @@ class EssidStore(object):
                 print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
 
     def __getitem__(self, (essid, key)):
-        """Receive a tuple of (password,PMK)-tuples stored under
+        """Receive a iterable of (password,PMK)-tuples stored under
            the given ESSID and key.
+           
+           Returns a empty iterable if the key is not stored. Raises a KeyError
+           if the ESSID is not stored.
         """
         if not self.containskey(essid, key):
             return ()
@@ -241,7 +270,7 @@ class EssidStore(object):
             raise
     
     def __setitem__(self, (essid, key), results):
-        """Store a iterable of password:PMK tuples under the given ESSID and key."""
+        """Store a iterable of (password,PMK)-tuples under the given ESSID and key."""
         if essid not in self.essids:
             raise KeyError, "ESSID not in store."
         pws, pmks = zip(*results)
@@ -274,8 +303,19 @@ class EssidStore(object):
         """Return True if the given ESSID is currently stored."""
         return essid in self.essids
 
+    def __delitem__(self, essid):
+        """Delete the given ESSID and all results from the storage."""
+        if essid not in self:
+            raise KeyError, "ESSID not in store."
+        essid_root, pyrfiles = self.essids[essid]
+        del self.essids[essid]
+        for fname in pyrfiles.itervalues():
+            os.unlink(fname)
+        os.unlink(os.path.join(essid_root, 'essid'))
+        os.rmdir(essid_root)
+
     def containskey(self, essid, key):
-        """Return True if the given ESSID:key combination is stored."""
+        """Return True if the given (ESSID,key) combination is stored."""
         if essid not in self.essids:
             raise KeyError, "ESSID not in store."
         return key in self.essids[essid][1]
@@ -313,22 +353,11 @@ class EssidStore(object):
             f.close()
             self.essids[essid] = (essid_root, {})
 
-    def delete_essid(self, essid):
-        """Delete the given ESSID and all results from the storage."""
-        if essid not in self:
-            raise KeyError, "ESSID not in store."
-        essid_root, pyrfiles = self.essids[essid]
-        del self.essids[essid]
-        for fname in pyrfiles.itervalues():
-            os.unlink(fname)
-        os.unlink(os.path.join(essid_root, 'essid'))
-        os.rmdir(essid_root)
-
 
 class PasswordStore(object):
     """Storage-class responsible for passwords.
     
-       Passwords can be received by key and are returned as lists.
+       Passwords are indexed by keys and are returned as iterables.
        The iterator cycles over all available keys.
     """
     h1_list = ["%02.2X" % i for i in xrange(256)]
@@ -383,7 +412,7 @@ class PasswordStore(object):
             raise IOError, "'%s' is not a PasswordFile." % filename
 
     def iterkeys(self):
-        """Iterate over all keys that can be used to receive password-sets."""
+        """Equivalent to self.__iter__"""
         return self.__iter__()
             
     def iterpasswords(self):

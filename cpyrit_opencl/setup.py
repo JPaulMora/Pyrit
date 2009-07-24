@@ -23,14 +23,8 @@ from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
 import os
-import re
 import sys
-import subprocess
 import zlib
-
-EXTRA_COMPILE_ARGS = ['-O2']
-LIBRARY_DIRS = []
-INCLUDE_DIRS = []
 
 OPENCL_INC_DIRS = []
 for path in ('/usr/local/opencl/OpenCL/common/inc','/opt/opencl/OpenCL/common/inc'):
@@ -42,15 +36,15 @@ else:
 
 class GPUBuilder(build_ext):
     def run(self):
-        f = open("_cpyrit_opencl.h", "rb")
+        f = open("_cpyrit_opencl.h", 'rb')
         header = f.read()
         f.close()
-        f = open("_cpyrit_oclkernel.cl", "rb")
+        f = open("_cpyrit_oclkernel.cl", 'rb')
         kernel = f.read()
         f.close()
-        oclkernel_program = header + "\n" + kernel + "\00"
+        oclkernel_program = header + '\n' + kernel + '\x00'
         oclkernel_packed = zlib.compress(oclkernel_program)        
-        f = open("_cpyrit_oclkernel.cl.h", "wb")
+        f = open("_cpyrit_oclkernel.cl.h", 'wb')
         f.write("unsigned char oclkernel_packedprogram[] = {")
         f.write(",".join(("0x%02X%s" % (ord(c), "\n" if i % 16 == 0 else "") for i, c in enumerate(oclkernel_packed))))
         f.write("};\nsize_t oclkernel_size = %i;\n" % len(oclkernel_program))
@@ -80,12 +74,10 @@ class GPUCleaner(clean):
         clean.run(self)
 
 
-cuda_extension = Extension('_cpyrit._cpyrit_opencl',
+opencl_extension = Extension('_cpyrit._cpyrit_opencl',
                     libraries = ['ssl', 'OpenCL', 'z'],
                     sources = ['_cpyrit_opencl.c'],
-                    extra_compile_args = EXTRA_COMPILE_ARGS,
-                    include_dirs = INCLUDE_DIRS + OPENCL_INC_DIRS,
-                    library_dirs = LIBRARY_DIRS)
+                    include_dirs = OPENCL_INC_DIRS)
 
 setup_args = dict(
         name = 'CPyrit-OpenCL',
@@ -95,7 +87,7 @@ setup_args = dict(
         author = 'Lukas Lueg',
         author_email = 'lukas.lueg@gmail.com',
         url = 'http://pyrit.googlecode.com',
-        ext_modules = [cuda_extension],
+        ext_modules = [opencl_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
         options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.3-1'}}
         )

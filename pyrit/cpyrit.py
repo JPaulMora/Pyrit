@@ -17,9 +17,9 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-"""The cpyrit module provides means to moderate hardware-access.
+"""This module provides abstracted hardware-access for Pyrit.
    
-   Core is the base-class for standard-driven hardware modules.
+   Core is a base-class to glue hardware-modules into python.
    
    CPUCore, CUDACore, StreamCore, OpenCLCore and NetworkCore are subclasses of
    Core and provide access to their respective hardware-platforms. 
@@ -27,48 +27,19 @@
    CPyrit enumerates the available cores and schedules workunits among them.
 """
 
-import BaseHTTPServer
-import hashlib
-import httplib
-import os
-import Queue
-import SocketServer
 import sys
 import time
 import threading
-import uuid
-import urlparse
-import urllib2
 import cpyrit_util as util
 
-# Snippet taken from ParallelPython
-def _detect_ncpus():
-    """Detect the number of effective CPUs in the system"""
-    # For Linux, Unix and MacOS
-    if hasattr(os, "sysconf"):
-        if "SC_NPROCESSORS_ONLN" in os.sysconf_names:
-            #Linux and Unix
-            ncpus = os.sysconf("SC_NPROCESSORS_ONLN")
-            if isinstance(ncpus, int) and ncpus > 0:
-                return ncpus
-        else:
-            #MacOS X
-            return int(os.popen2("sysctl -n hw.ncpu")[1].read())
-    #for Windows
-    if "NUMBER_OF_PROCESSORS" in os.environ:
-        ncpus = int(os.environ["NUMBER_OF_PROCESSORS"])
-        if ncpus > 0:
-            return ncpus
-    #return the default value
-    return 1
-
-
 class Core(threading.Thread):
-    """Core provides threaded scheduling and testing. It should not be used directly.
+    """The class Core provides basic scheduling and testing. It should not be used directly
+       but through sub-classes.
        
-       Subclasses must mix-in a .solve()-function and the .buffersize
-       attribute. The default .run() provided here calibrates itself to pull work
-       from the queue worth 3 seconds of execution time in .solve() 
+       Subclasses must mix-in a .solve()-function and should set the .buffersize-,
+       .minBufferSize- and .maxBufferSize-attributes. The default .run() provided
+       here calibrates itself to pull work from the queue worth 3 seconds of
+       execution time in .solve() 
     """ 
     TV_ESSID = 'foo'
     TV_PASSWD = 'barbarbar'
@@ -80,8 +51,14 @@ class Core(threading.Thread):
         self.queue = queue
         self.compTime = self.resCount = self.callCount = 0
         self.buffersize = 4096
+        """Number of passwords currently pulled by calls to _gather()
+           This number is dynamically adapted in run() but limited by .minBufferSize
+           and .maxBufferSize.
+        """
         self.minBufferSize = 128
+        """Minimum number of passwords that will get pulled in one call to _gather."""
         self.maxBufferSize = 20480
+        """Maximum number of passwords that will get pulled in one call to _gather."""
         self.setDaemon(True)
 
     def _testComputeFunction(self, i):
@@ -207,7 +184,7 @@ class CPyrit(object):
         self.cores = []
         self.cv = threading.Condition()
 
-        ncpus = _detect_ncpus()
+        ncpus = util.detect_ncpus()
         # CUDA
         if '_cpyrit._cpyrit_cuda' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):

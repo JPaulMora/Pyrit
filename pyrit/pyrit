@@ -134,7 +134,7 @@ class Pyrit_CLI(object):
             self.tell("All results for ESSID '%s' will be deleted! Continue? [y/N]" % self.options.essid, end=None)
             if sys.stdin.readline().strip() == 'y':
                 self.tell("deleting...")
-                self.essidstore.delete_essid(self.options.essid)
+                del self.essidstore[self.options.essid]
                 self.tell("Deleted ESSID '%s'." % self.options.essid)
             else:
                 self.tell("aborted.")
