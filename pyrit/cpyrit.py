@@ -17,7 +17,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-"""This module provides abstracted hardware-access for Pyrit.
+"""Abstracted hardware-access for Pyrit.
    
    Core is a base-class to glue hardware-modules into python.
    

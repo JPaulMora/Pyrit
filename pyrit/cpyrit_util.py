@@ -378,15 +378,19 @@ class PasswordStore(object):
                 self.pwfiles[pwfile[:len(pwfile)-3]] = pwpath
 
     def __contains__(self, key):
-        """Returns True if the given key is currently in the storage."""
+        """Return True if the given key is currently in the storage."""
         return key in self.pwfiles
 
     def __iter__(self):
         """Iterate over all keys that can be used to receive password-sets."""
         return set(self.pwfiles).__iter__()
 
+    def __len__(self):
+        """Return the number of keys that can be used to receive password-sets."""
+        return len(self.pwfiles)
+
     def __getitem__(self, key):
-        """Returns the collection of passwords indexed by the given key.""" 
+        """Return the collection of passwords indexed by the given key.""" 
         filename = os.path.join(self.pwfiles[key], key) + '.pw'
         f = open(filename, 'rb')
         buf = f.read()
