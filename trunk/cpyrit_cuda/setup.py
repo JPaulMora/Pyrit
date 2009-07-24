@@ -23,13 +23,8 @@ from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
 import os
-import re
 import subprocess
 import sys
-
-EXTRA_COMPILE_ARGS = ['-O2']
-LIBRARY_DIRS = []
-INCLUDE_DIRS = []
 
 NVIDIA_INC_DIRS = []
 NVCC = 'nvcc'
@@ -104,9 +99,7 @@ class GPUCleaner(clean):
 cuda_extension = Extension('_cpyrit._cpyrit_cuda',
                     libraries = ['ssl', 'cuda'],
                     sources = ['_cpyrit_cuda.c'],
-                    extra_compile_args = EXTRA_COMPILE_ARGS,
-                    include_dirs = INCLUDE_DIRS + NVIDIA_INC_DIRS,
-                    library_dirs = LIBRARY_DIRS)
+                    include_dirs = NVIDIA_INC_DIRS)
 
 setup_args = dict(
         name = 'CPyrit-CUDA',

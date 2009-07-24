@@ -20,20 +20,21 @@ You may want to take a look at [http://www.nvidia.com/object/cuda_learn_products
 Compiling from source-code is the preferred way of getting Pyrit onto your system. Linux users running a binary distribution may need to install the development packages for [http://www.python.org Python] (e.g. _python-devel_), [http://www.openssl.org/ OpenSSL] (e.g. _openssl-devel_ or _libssl-dev_) and [http://zlib.net/ Zlib] (e.g. _zlib-devel_). You also need a C-compiler like _gcc_. Users of MacOS probably only need to have [http://developer.apple.com/TOOLS/Xcode/ Xcode] installed.
 
 From time to time Pyrit get's packed into (hopefully) stable packages. In general you should download, compile and install these source-code packages from the [http://code.google.com/p/pyrit/downloads/list Download] area.
-The more adventurous among you may instead want to try the latest source-code in Pyrit's [http://subversion.tigris.org/ repository]. The code in [http://pyrit.googlecode.com/svn/trunk/ svn-trunk] may include more features and provide better performance but also may cause random problems or even not compile at all. Use the fixed packages when in doubt.
+The more adventurous among you may instead want to try the latest source-code in Pyrit's repository. The code in [http://pyrit.googlecode.com/svn/trunk/ svn-trunk] may include more features and provide better performance but also may cause random problems or even not compile at all. Use the fixed packages when in doubt.
 
 === Stable: Source-code from fixed packages ===
 
 Download the source-code package for Pyrit and (optionally) a extension-module.
 
-  * Pyrit (required): [http://pyrit.googlecode.com/files/Pyrit-0.2.2.tar.gz Version 0.2.2]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.2.tar.gz Version 0.2.2]
-  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.2.tar.gz Version 0.2.2]
+  * Pyrit (required): [http://pyrit.googlecode.com/files/Pyrit-0.2.3.tar.gz Version 0.2.3]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.3.tar.gz Version 0.2.3]
+  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.3.tar.gz Version 0.2.3]
+  * CPyrit-OpenCL (optional, for compatible hardware): [http://pyrit.googlecode.com/files/CPyrit-OpenCL-0.2.3.tar.gz Version 0.2.3]
 
 Now unpack the source-code into a new directory like this:
 {{{
-tar xvzf Pyrit-0.2.2.tar.gz
-tar xvzf CPyrit-CUDA-0.2.2.tar.gz
+tar xvzf Pyrit-0.2.3.tar.gz
+tar xvzf CPyrit-CUDA-0.2.3.tar.gz
 }}}
 
 Continue with the compiling as explained below.
@@ -51,10 +52,10 @@ This will create a new directory _'pyrit_svn'_ that holds all of Pyrit's latest 
 
 ==== ... the main module ====
 
-Switch to the main module's directory which should be 'Pyrit-0.2.2' (if you used a source-code package) or 'pyrit_svn/pyrit' (if you're on svn). We use Python's _distutils_ to compile and install the code:
+Switch to the main module's directory which should be 'Pyrit-0.2.3' (if you used a source-code package) or 'pyrit_svn/pyrit' (if you're on svn). We use Python's _distutils_ to compile and install the code:
 
 {{{
-cd Pyrit-0.2.2
+cd Pyrit-0.2.3
 python setup.py build
 }}}
 
@@ -73,7 +74,7 @@ Get yourself a copy of the CUDA-*Toolkit* from [http://www.nvidia.com/object/cud
 Switch to the directory holding CPyrit-CUDA's source-code and compile and install it just like you did with Pyrit:
 
 {{{
-cd CPyrit-CUDA-0.2.2
+cd CPyrit-CUDA-0.2.3
 python setup.py build
 sudo python setup.py install
 }}}
@@ -87,47 +88,29 @@ Download the ATI-Stream SDK from [http://developer.amd.com/gpu/ATIStreamSDK/Page
 Switch to the directory holding CPyrit-Stream's source-code and compile and install it just like you did with Pyrit:
 
 {{{
-cd CPyrit-Stream-0.2.2
+cd CPyrit-Stream-0.2.3
 python setup.py build
 sudo python setup.py install
 }}}
 
 You also need to have ATI's proprietary hardware-drivers 'fglrx' installed in the way that fits your OS.
 
+==== ... support for OpenCL ====
+
+Vendor-support for OpenCL is in a very early stage and currently Nvidia is the only provider of [http://www.nvidia.com/object/cuda_opencl.html a working OpenCL environment]. Other hardware-platforms, including [http://www-03.ibm.com/technology/cell/ IBM's Cell B.E.], should however support OpenCL in the near future.
+
+You can use Pyrit's OpenCL-core if you happen to have a working OpenCL-environment:
+{{{
+cd CPyrit-OpenCL-0.2.3
+python setup.py build
+sudo python setup.py install
+}}}
+
+Please notice that the OpenCL-Core is not used for Nvidia-GPUs if CPyrit-CUDA is also installed.
+
 = Using binary packages =
 
-You can install pre-built packages if you are unexperienced with compiling your own software (or just lazy...). As maintaining binary packages is a work-intensive task of it's own and due to the general lack of hardware, only packages for [http://fedoraproject.org/ Fedora] are 'officially' supported. Festor Wailon Dacoba maintains a package repository that includes Pyrit-builds for [http://www.ubuntu.org Ubuntu 9.04]. The [http://www.pentoo.ch/ Pentoo-] and the [http://www.remote-exploit.org/backtrack.html Backtrack4]-LiveCD also include Pyrit.
-
-== Fedora ==
-
-There are packages for Fedora 10 in Pyrit's [Download]-area. Download the main module (and optionally one of the extension modules) and install everything via _rpm_. You also need to install the respective proprietary drivers from the [http://rpmfusion.org/ RPM Fusion] repository if you want to use either [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA] or [http://www.amd.com/US/PRODUCTS/TECHNOLOGIES/STREAM-TECHNOLOGY/Pages/stream-technology.aspx ATI-Stream].
-
-Download a rpm-package for your platform right here:
-
-  * Pyrit (required): Version 0.2.2, [http://pyrit.googlecode.com/files/Pyrit-0.2.2-1.i386.rpm i386], [http://pyrit.googlecode.com/files/Pyrit-0.2.2-1.x86_64.rpm x86_64]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): Version 0.2.2, [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.2-1.i386.rpm i386], [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.2-1.x86_64.rpm x86_64]
-  * CPyrit-Stream (optional, for ATI-hardware): Version 0.2.2, [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.2-1.i386.rpm i386], [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.2-1.x86_64.rpm x86_64]
-
-For example, to download and install the main module:
-{{{
-wget http://pyrit.googlecode.com/files/Pyrit-0.2.2-1.i386.rpm
-rpm -i Pyrit-0.2.2-1.i386.rpm
-}}}
-
-For example, to download and install support for [http://www.amd.com/US/PRODUCTS/TECHNOLOGIES/STREAM-TECHNOLOGY/Pages/stream-technology.aspx ATI-Stream]:
-{{{
-yum install xorg-x11-drv-fglrx
-wget http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.2-1.i386.rpm
-rpm -i CPyrit-Stream-0.2.2-1.i386.rpm
-}}}
-
-For example, to download and install support for [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA]:
-{{{
-yum install xorg-x11-drv-nvidia
-wget http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.2-1.i386.rpm
-rpm -i CPyrit-CUDA-0.2.2-1.i386.rpm
-}}}
-
+Binary packages are not directly supported. Festor Wailon Dacoba maintains a package repository that includes Pyrit-builds for [http://www.ubuntu.org Ubuntu 9.04]. The [http://www.pentoo.ch/ Pentoo-] and the [http://www.remote-exploit.org/backtrack.html Backtrack4]-LiveCD also include Pyrit.
 
 == Ubuntu 9.04 ==
 
