@@ -114,7 +114,7 @@ Binary packages are not directly supported. Festor Wailon Dacoba maintains a pac
 
 == Ubuntu 9.04 ==
 
-Festor Wailon Dacoba maintains packages for Pyrit in his [https://launchpad.net/~festor/+archive/hack-tools Personal Package Archive]. You need to create a third-party software repository and add Festor's public key to your keyring so you can install Pyrit and it's extension modules via _apt-get_. Click through _System_ -> _Administraton_ -> _Software Sources_ in GNOME's menu and add the following APT in the _Third-Party Software_ tab:
+Festor maintains packages for Pyrit in his [https://launchpad.net/~festor/+archive/hack-tools Personal Package Archive]. You need to create a third-party software repository and add Festor's public key to your keyring so you can install Pyrit and it's extension modules via _apt-get_. Click through _System_ -> _Administraton_ -> _Software Sources_ in GNOME's menu and add the following APT in the _Third-Party Software_ tab:
 
 {{{ deb http://ppa.launchpad.net/festor/hack-tools/ubuntu jaunty main }}}
 
