@@ -3,7 +3,7 @@
 
 === Pyrit does not use SSE2 ===
 
-The CPU-core supports SSE2 since version '0.2.3-dev (r112)'. The code is currently only available by installing from [Installation#Adventurous:_Source-code_from_svn-trunk svn-trunk].
+The CPU-core supports SSE2 since version '0.2.3'.
 
 === '_ImportError: /usr/.../_cpyrit/_cpyrit_cpu.so: cannot restore segment prot after reloc: Permission denied_' ===
 
@@ -16,7 +16,7 @@ echo 0 > /selinux/enforce
 
 === Using CPyrit-CUDA with CUDA 2.2 causes the error message '_Failed to load CUDA-core (CUDA_ERROR_INVALID_IMAGE)_' ===
 
-This error was fixed in version '0.2.3-dev (r99)'. You either have to use the code from [Installation#Adventurous:_Source-code_from_svn-trunk svn-trunk] or downgrade to CUDA 2.1.
+This error was fixed in version '0.2.3'. You either have to update to '0.2.3' or downgrade to CUDA 2.1.
 
 
 === Compiling CPyrit-Stream throws an error message '_explicit template specialization cannot have a storage class_' ===
