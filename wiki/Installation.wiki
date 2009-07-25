@@ -110,7 +110,7 @@ Please notice that the OpenCL-Core is not used for Nvidia-GPUs if CPyrit-CUDA is
 
 = Using binary packages =
 
-Binary packages are not directly supported. Festor Wailon Dacoba maintains a package repository that includes Pyrit-builds for [http://www.ubuntu.org Ubuntu 9.04]. The [http://www.pentoo.ch/ Pentoo-] and the [http://www.remote-exploit.org/backtrack.html Backtrack4]-LiveCD also include Pyrit.
+Binary packages are not directly supported. Festor maintains a package repository that includes Pyrit-builds for [http://www.ubuntu.org Ubuntu 9.04]. The [http://www.pentoo.ch/ Pentoo-] and the [http://www.remote-exploit.org/backtrack.html Backtrack4]-LiveCD also include Pyrit.
 
 == Ubuntu 9.04 ==
 
@@ -143,6 +143,4 @@ sudo apt-get install nvidia-glx-180 pyrit-cuda
 }}}
 
 *Please notice that [https://launchpad.net/~festor/+archive/hack-tools this third-party repository] is not maintained by the author of Pyrit.*
-
-
 
