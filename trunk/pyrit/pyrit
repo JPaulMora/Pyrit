@@ -197,11 +197,11 @@ class Pyrit_CLI(object):
             f = open(self.options.file, 'wb')
         lines = 0
         with util.AsyncFileWriter(f) as awriter:
-            for pwset in self.passwdstore.iterpasswords():
+            for idx, pwset in enumerate(self.passwdstore.iterpasswords()):
                 awriter.write('\n'.join(pwset))
                 awriter.write('\n')
                 lines += len(pwset)
-                self.tell("%i lines written\r" % lines, end=None, sep=None)
+                self.tell("%i lines written (%.2f%%)\r" % (lines, (idx+1)*100 / len(self.passwdstore)), end=None, sep=None)
             self.tell("\nAll done")
         f.close()
     
@@ -421,9 +421,9 @@ class Pyrit_CLI(object):
         for r in cp:
             pass
         
-        # Minimize scheduling overheader...
-        cp.resetStatistics()
+        # Minimize scheduling overhead...
         pws = ['barbarbar']*max(min(cp.getPeakPerformance(), 50000), 500)
+        cp.resetStatistics()
         cycler = itertools.cycle(('\\|/-'))
         t = time.time()
         while time.time() - t < 60:
