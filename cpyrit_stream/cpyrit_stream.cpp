@@ -331,5 +331,6 @@ init_cpyrit_stream(void)
 
     Py_INCREF(&StreamDevice_type);
     PyModule_AddObject(m, "StreamDevice", (PyObject*)&StreamDevice_type);
+    PyModule_AddStringConstant(m, "VERSION", VERSION);
 }
 

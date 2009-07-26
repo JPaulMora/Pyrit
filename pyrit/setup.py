@@ -30,17 +30,15 @@ try:
     version_string = '0.2.4-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     version_string = '0.2.4-dev'
-f = open('_cpyrit/__init__.py', 'wb')
-f.write("__all__ = ['_cpyrit_cpu', '_cpyrit_util']\n")
-f.write("VERSION = '%s'\n" % version_string)
-f.close()
+EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
                     sources = ['_cpyrit/_cpyrit_cpu.c','_cpyrit/_cpyrit_cpu_sse2.S'],
                     libraries = ['ssl'])
 
 util_extension = Extension(name='_cpyrit._cpyrit_util',
-                    sources = ['_cpyrit/_cpyrit_util.c'])
+                    sources = ['_cpyrit/_cpyrit_util.c'],
+                    extra_compile_args=EXTRA_COMPILE_ARGS)
 
 setup_args = dict(
         name = 'Pyrit',

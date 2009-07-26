@@ -18,9 +18,11 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import with_statement
+
 import getopt
 import hashlib
-import httplib
+import itertools
 import os
 import random
 import sys
@@ -194,17 +196,14 @@ class Pyrit_CLI(object):
             self.tell("Exporting to '%s'..." % self.options.file)
             f = open(self.options.file, 'wb')
         lines = 0
-        awriter = util.AsyncFileWriter(f)
-        try:
+        with util.AsyncFileWriter(f) as awriter:
             for pwset in self.passwdstore.iterpasswords():
                 awriter.write('\n'.join(pwset))
                 awriter.write('\n')
                 lines += len(pwset)
                 self.tell("%i lines written\r" % lines, end=None, sep=None)
             self.tell("\nAll done")
-        finally:
-            awriter.close()
-            f.close()
+        f.close()
     
     def export_cowpatty(self):
         if self.options.file is None:
@@ -415,21 +414,26 @@ class Pyrit_CLI(object):
         # Burn-in so all modules are forced to load and buffers can calibrate to correct size        
         self.tell("Calibrating...", end=None)
         t = time.time()
-        pws = ['barbarbar']*3500
+        pws = ['barbarbar']*1500
         while time.time() - t < 10:
             cp.enqueue('foo', pws)
             cp.dequeue(block=False)
         for r in cp:
             pass
         
-        self.tell("\rRunning benchmark for at least 60 seconds...\n")
+        # Minimize scheduling overheader...
         cp.resetStatistics()
+        pws = ['barbarbar']*max(min(cp.getPeakPerformance(), 50000), 500)
+        cycler = itertools.cycle(('\\|/-'))
         t = time.time()
         while time.time() - t < 60:
+            self.tell("\rRunning benchmark for about %i seconds... %s" % (60 - (time.time() - t), cycler.next()), end=None)
             cp.enqueue('foo', pws)
             cp.dequeue(block=False)
+        self.tell('')
         for r in cp:
             pass
+        self.tell('')
         total = 0
         tdiff = time.time() - t
         for i, core in enumerate(cp.cores):

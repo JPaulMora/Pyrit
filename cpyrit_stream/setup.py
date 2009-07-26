@@ -26,11 +26,6 @@ import re
 import sys
 import subprocess
 
-# Options to use for all modules
-EXTRA_COMPILE_ARGS = ['-O2']
-LIBRARY_DIRS = []
-INCLUDE_DIRS = []
-
 # Try to find the Brook+ library and headers
 STREAM_LIB_DIRS = []
 STREAM_INC_DIRS = []
@@ -43,6 +38,14 @@ for path in ('/usr/local/atibrook/sdk','/opt/atibrook/sdk'):
         break
 else:
     print >>sys.stderr, "The AMD-Stream compiler, headers and libraries required to build the kernel were not found. Trying to continue anyway..."
+
+
+try:
+    svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
+    version_string = '0.2.4-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+except:
+    version_string = '0.2.4-dev'
+EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
 class GPUBuilder(build_ext):
@@ -104,12 +107,12 @@ stream_extension = Extension('_cpyrit._cpyrit_stream',
                     libraries = ['ssl', 'dl', 'brook'],
                     sources = ['cpyrit_stream.cpp', '_brook_tmp/_stream.cpp'],
                     extra_compile_args = EXTRA_COMPILE_ARGS,
-                    include_dirs = INCLUDE_DIRS + STREAM_INC_DIRS + ['_brook_tmp'],
-                    library_dirs = LIBRARY_DIRS + STREAM_LIB_DIRS)
+                    include_dirs = STREAM_INC_DIRS + ['_brook_tmp'],
+                    library_dirs = STREAM_LIB_DIRS)
 
 setup_args = dict(
         name = 'CPyrit-Stream',
-        version = '0.2.3',
+        version = '0.2.4',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
@@ -117,7 +120,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [stream_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.3-1, libaticalcl.so'}}
+        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.4-1, libaticalcl.so'}}
         )
         
 if __name__ == "__main__":

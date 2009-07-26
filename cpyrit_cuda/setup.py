@@ -23,8 +23,10 @@ from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
 import os
+import re
 import subprocess
 import sys
+import zlib
 
 NVIDIA_INC_DIRS = []
 NVCC = 'nvcc'
@@ -35,6 +37,15 @@ for path in ('/usr/local/cuda','/opt/cuda'):
         break
 else:
     print >>sys.stderr, "The CUDA compiler and headers required to build the kernel were not found. Trying to continue anyway..."
+
+
+try:
+    svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
+    version_string = '0.2.4-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+except:
+    version_string = '0.2.4-dev'
+EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
+
 
 class GPUBuilder(build_ext):
     def _call(self, comm):
@@ -65,12 +76,13 @@ class GPUBuilder(build_ext):
             print "Compiling CUDA module using nvcc %s..." % nvcc_version
             subprocess.check_call(NVCC + ' --host-compilation C -Xptxas "-v" -Xcompiler "-fPIC" --cubin ./_cpyrit_cudakernel.cu', shell=True)
             f = open("_cpyrit_cudakernel.cubin", "rb")
-            cubin_inc = ",".join(("0x%02X%s" % (ord(c), "\n" if i % 32 == 0 else "") for i, c in enumerate(f.read())))
+            cubin = f.read() + '\x00'
             f.close()
+            cubin_inc = ",".join(("0x%02X%s" % (ord(c), "\n" if i % 32 == 0 else "") for i, c in enumerate(zlib.compress(cubin,9))))
             f = open("_cpyrit_cudakernel.cubin.h", "wb")
-            f.write("const unsigned char __cudakernel_module[] = {")
+            f.write("unsigned char __cudakernel_packedmodule[] = {")
             f.write(cubin_inc)
-            f.write(",0x00};\n\n")
+            f.write("};\nsize_t cudakernel_modulesize = %i;\n" % len(cubin))
             f.close()
         print "Building modules..."
         build_ext.run(self)
@@ -97,13 +109,14 @@ class GPUCleaner(clean):
 
 
 cuda_extension = Extension('_cpyrit._cpyrit_cuda',
-                    libraries = ['ssl', 'cuda'],
+                    libraries = ['ssl', 'cuda', 'z'],
                     sources = ['_cpyrit_cuda.c'],
-                    include_dirs = NVIDIA_INC_DIRS)
+                    include_dirs = NVIDIA_INC_DIRS,
+                    extra_compile_args = EXTRA_COMPILE_ARGS)
 
 setup_args = dict(
         name = 'CPyrit-CUDA',
-        version = '0.2.3',
+        version = '0.2.4',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
@@ -111,7 +124,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [cuda_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.3-1'}}
+        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.4-1'}}
         )
         
 if __name__ == "__main__":
