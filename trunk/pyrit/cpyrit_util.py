@@ -34,6 +34,8 @@
    local installations.
 """
 
+from __future__ import with_statement
+
 import cStringIO
 import hashlib
 import itertools
@@ -43,7 +45,7 @@ import threading
 import zlib
 
 from _cpyrit._cpyrit_util import genCowpEntries
-from _cpyrit import VERSION
+from _cpyrit._cpyrit_util import VERSION
 
 
 def genCowpHeader(essid):
@@ -92,6 +94,15 @@ class AsyncFileWriter(threading.Thread):
         self.buf = cStringIO.StringIO()
         self.cv = threading.Condition()
         self.start()
+    
+    def __enter__(self):
+        with self.cv:
+            if self.shallstop:
+                raise RuntimeError,"Writer has already been closed"
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        self.close()
         
     def close(self):
         """Stop the writer and wait for it to finish.
@@ -100,15 +111,12 @@ class AsyncFileWriter(threading.Thread):
            used for initialization. Exceptions in the writer-thread are
            re-raised after the writer is closed.
         """
-        self.cv.acquire()
-        try:
+        with self.cv:
             self.shallstop = True
             self.cv.notifyAll()
             while not self.hasstopped:
                 self.cv.wait()
             self._raise()
-        finally:
-            self.cv.release()
 
     def write(self, data):
         """Write data to the buffer, block if necessary.
@@ -116,17 +124,14 @@ class AsyncFileWriter(threading.Thread):
            Exceptions in the writer-thread are re-raised in the caller's thread
            before the data is written.
         """
-        self.cv.acquire()
-        try:
+        with self.cv:
             self._raise()
             while self.buf.tell() > self.maxsize:
                 self.cv.wait()
                 if self.shallstop:
-                    raise IOError, "Writer has already been closed."
+                    raise RuntimeError, "Writer has already been closed."
             self.buf.write(data)
             self.cv.notifyAll()
-        finally:
-            self.cv.release()
             
     def closeAsync(self):
         """Signal the writer to stop and return to caller immediately.
@@ -135,12 +140,9 @@ class AsyncFileWriter(threading.Thread):
            to prevent this instance from writing to a closed file handle.
            Exceptions are not re-raised.
         """
-        self.cv.acquire()
-        try:
+        with self.cv:
             self.shallstop = True
             self.cv.notifyAll()
-        finally:
-            self.cv.release()
     
     def join(self):
         """Wait for the writer to stop.
@@ -148,13 +150,10 @@ class AsyncFileWriter(threading.Thread):
            Exceptions in the writer-thread are re-raised in the caller's thread
            after writer has stopped.
         """
-        self.cv.acquire()
-        try:
+        with self.cv:
             while not self.hasstopped:
                 self.cv.wait()
             self._raise()
-        finally:
-            self.cv.release()
 
     def _raise(self):
         # Assumes we hold self.cv
@@ -168,8 +167,7 @@ class AsyncFileWriter(threading.Thread):
     def run(self):
         try:
             while True:
-                self.cv.acquire()
-                try:
+                with self.cv:
                     data = None
                     if self.buf.tell() == 0:
                         if self.shallstop:
@@ -180,18 +178,15 @@ class AsyncFileWriter(threading.Thread):
                         data = self.buf.getvalue()
                         self.buf = cStringIO.StringIO()
                         self.cv.notifyAll()
-                finally:
-                    self.cv.release()
                 if data:
                     self.filehndl.write(data)
             self.filehndl.flush()
         except Exception, e:
             self.excp = type(e)(str(e)) # Re-create a 'trans-thread-safe' instance
         finally:
-            self.cv.acquire()
-            self.shallstop = self.hasstopped = True
-            self.cv.notifyAll()
-            self.cv.release()
+            with self.cv:
+                self.shallstop = self.hasstopped = True
+                self.cv.notifyAll()
 
 
 class EssidStore(object):
@@ -210,9 +205,8 @@ class EssidStore(object):
         self.essids = {}
         for essid_hash in os.listdir(self.basepath):
             essidpath = os.path.join(self.basepath, essid_hash)
-            f = open(os.path.join(essidpath, 'essid'), 'rb')
-            essid = f.read()
-            f.close()
+            with open(os.path.join(essidpath, 'essid'), 'rb') as f:
+                essid = f.read()
             if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
                 self.essids[essid] = (essidpath, {})
                 for pyrfile in [p for p in os.listdir(essidpath) if p[-4:] == '.pyr']:
@@ -230,9 +224,8 @@ class EssidStore(object):
         if not self.containskey(essid, key):
             return ()
         try:
-            f = open(self.essids[essid][1][key], 'rb')
-            buf = f.read()
-            f.close()
+            with open(self.essids[essid][1][key], 'rb') as f:
+                buf = f.read()
             md = hashlib.md5()
             magic, essidlen = struct.unpack(EssidStore._pyr_preheadfmt, buf[:EssidStore._pyr_preheadfmt_size])
             if magic == 'PYR2' or magic == 'PYRT':
@@ -266,7 +259,7 @@ class EssidStore(object):
                 raise IOError, "Header announced %i results but %i unpacked" % (numElems, len(results))
             return results
         except:
-            print "Error while loading results %s for ESSID '%s'" % (key, essid)
+            print >>sys.stderr, "Error while loading results %s for ESSID '%s'" % (key, essid)
             raise
     
     def __setitem__(self, (essid, key), results):
@@ -284,11 +277,10 @@ class EssidStore(object):
         md.update(pmkbuffer)
         md.update(pwbuffer)        
         filename = os.path.join(self.essids[essid][0], key) + '.pyr'
-        f = open(filename, 'wb')
-        f.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
-        f.write(pmkbuffer)
-        f.write(pwbuffer)
-        f.close()
+        with open(filename, 'wb') as f:
+            f.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
+            f.write(pmkbuffer)
+            f.write(pwbuffer)
         self.essids[essid][1][key] = filename
         
     def __len__(self):
@@ -348,9 +340,8 @@ class EssidStore(object):
         essid_root = os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8])
         if not os.path.exists(essid_root):
             os.makedirs(essid_root)
-            f = open(os.path.join(essid_root, 'essid'), 'wb')
-            f.write(essid)
-            f.close()
+            with open(os.path.join(essid_root, 'essid'), 'wb') as f:
+                f.write(essid)
             self.essids[essid] = (essid_root, {})
 
 
@@ -383,7 +374,7 @@ class PasswordStore(object):
 
     def __iter__(self):
         """Iterate over all keys that can be used to receive password-sets."""
-        return set(self.pwfiles).__iter__()
+        return self.pwfiles.__iter__()
 
     def __len__(self):
         """Return the number of keys that can be used to receive password-sets."""
@@ -392,9 +383,8 @@ class PasswordStore(object):
     def __getitem__(self, key):
         """Return the collection of passwords indexed by the given key.""" 
         filename = os.path.join(self.pwfiles[key], key) + '.pw'
-        f = open(filename, 'rb')
-        buf = f.read()
-        f.close()
+        with open(filename, 'rb') as f:
+            buf = f.read()
         if buf[:4] == "PAW2":
             md = hashlib.md5()
             md.update(buf[4+md.digest_size:])
@@ -418,7 +408,7 @@ class PasswordStore(object):
     def iterkeys(self):
         """Equivalent to self.__iter__"""
         return self.__iter__()
-            
+    
     def iterpasswords(self):
         """Iterate over all available passwords-sets."""
         for key in self:
@@ -443,11 +433,10 @@ class PasswordStore(object):
         b = zlib.compress('\n'.join(sorted(bucket)), 1)
         md = hashlib.md5(b)
         key = md.hexdigest()
-        f = open(os.path.join(pwpath, key) + '.pw', 'wb')
-        f.write('PAW2')
-        f.write(md.digest())
-        f.write(b)
-        f.close()
+        with open(os.path.join(pwpath, key) + '.pw', 'wb') as f:
+            f.write('PAW2')
+            f.write(md.digest())
+            f.write(b)
         self.pwfiles[key] = pwpath
 
     def flush_buffer(self):

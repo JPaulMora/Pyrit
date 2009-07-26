@@ -453,6 +453,7 @@ static PyMethodDef CPyritOpenCL_methods[] = {
 PyMODINIT_FUNC
 init_cpyrit_opencl(void)
 {
+    PyObject *m;
     z_stream zst;
 
     if (clGetDeviceIDs(NULL, CL_DEVICE_TYPE_GPU, 0, NULL, &OpenCLDevCount) != CL_SUCCESS || OpenCLDevCount < 1)
@@ -512,7 +513,10 @@ init_cpyrit_opencl(void)
 	    return;
     }
 
+    m = Py_InitModule("_cpyrit_opencl", CPyritOpenCL_methods);
+
     Py_INCREF(&OpenCLDevice_type);
-    PyModule_AddObject(Py_InitModule("_cpyrit_opencl", CPyritOpenCL_methods), "OpenCLDevice", (PyObject *)&OpenCLDevice_type);
+    PyModule_AddObject(m, "OpenCLDevice", (PyObject *)&OpenCLDevice_type);
+    PyModule_AddStringConstant(m, "VERSION", VERSION);
 }
 

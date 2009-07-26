@@ -23,6 +23,8 @@ from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
 import os
+import re
+import subprocess
 import sys
 import zlib
 
@@ -33,6 +35,15 @@ for path in ('/usr/local/opencl/OpenCL/common/inc','/opt/opencl/OpenCL/common/in
         break
 else:
     print >>sys.stderr, "The headers required to build the OpenCL-kernel were not found. Trying to continue anyway..."
+
+
+try:
+    svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
+    version_string = '0.2.4-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+except:
+    version_string = '0.2.4-dev'
+EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
+
 
 class GPUBuilder(build_ext):
     def run(self):
@@ -77,11 +88,12 @@ class GPUCleaner(clean):
 opencl_extension = Extension('_cpyrit._cpyrit_opencl',
                     libraries = ['ssl', 'OpenCL', 'z'],
                     sources = ['_cpyrit_opencl.c'],
-                    include_dirs = OPENCL_INC_DIRS)
+                    include_dirs = OPENCL_INC_DIRS,
+                    extra_compile_args = EXTRA_COMPILE_ARGS)
 
 setup_args = dict(
         name = 'CPyrit-OpenCL',
-        version = '0.2.3',
+        version = '0.2.4',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
@@ -89,7 +101,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [opencl_extension],
         cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.3-1'}}
+        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.4-1'}}
         )
         
 if __name__ == "__main__":

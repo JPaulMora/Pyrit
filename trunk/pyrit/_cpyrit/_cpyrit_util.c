@@ -110,6 +110,6 @@ static PyMethodDef CPyritUtilMethods[] = {
 PyMODINIT_FUNC
 init_cpyrit_util(void)
 {
-    Py_InitModule("_cpyrit_util", CPyritUtilMethods);
+    PyModule_AddStringConstant(Py_InitModule("_cpyrit_util", CPyritUtilMethods), "VERSION", VERSION);
 }
 

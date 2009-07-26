@@ -22,6 +22,7 @@
 #include <structmember.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
+#include <zlib.h>
 #include "_cpyrit_cuda.h"
 
 // Created by NVCC and setup.py
@@ -40,6 +41,7 @@ typedef struct
 } CUDADevice;
 
 int cudaDevCount;
+unsigned char *cudakernel_module;
 
 static char*
 getCUresultMsg(CUresult error)
@@ -107,7 +109,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     
     CUSAFECALL(cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_YIELD, self->dev_idx));
     
-    CUSAFECALL(cuModuleLoadData(&self->mod, &__cudakernel_module));
+    CUSAFECALL(cuModuleLoadData(&self->mod, cudakernel_module));
 
     CUSAFECALL(cuModuleGetFunction(&self->kernel, self->mod, "cuda_pmk_kernel"));
     
@@ -206,12 +208,9 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
     passwd_seq = PyObject_GetIter(passwd_seq);
     if (!passwd_seq) return NULL;
     
-    memset( essid, 0, sizeof(essid) );
-    slen = strlen(essid_pre);
-    slen = slen <= 32 ? slen : 32;
-    memcpy(essid, essid_pre, slen);
+    strncpy(essid, essid_pre, sizeof(essid));
     slen = strlen(essid)+4;
-
+    
     arraysize = 0;
     c_inbuffer = NULL;
     c_outbuffer = NULL;    
@@ -390,12 +389,41 @@ PyMODINIT_FUNC
 init_cpyrit_cuda(void)
 {
     PyObject *m;
-    
+    z_stream zst;
+
     if (cuInit(0) != CUDA_SUCCESS || cuDeviceGetCount(&cudaDevCount) != CUDA_SUCCESS || cudaDevCount < 1)
     {
         PyErr_SetString(PyExc_ImportError, "CUDA seems to be unavailable or no device reported.");
         return;
     }
+
+    cudakernel_module = PyMem_Malloc(cudakernel_modulesize);
+    if (!cudakernel_module)
+    {
+        PyErr_NoMemory();
+        return;
+    }
+    zst.zalloc = Z_NULL;
+    zst.zfree = Z_NULL;
+    zst.opaque = Z_NULL;
+    zst.avail_in = sizeof(__cudakernel_packedmodule);
+    zst.next_in = __cudakernel_packedmodule;
+    if (inflateInit(&zst) != Z_OK)
+    {
+        PyMem_Free(cudakernel_module);
+        PyErr_SetString(PyExc_IOError, "Failed to initialize zlib.");
+        return;
+    }
+    zst.avail_out = cudakernel_modulesize;
+    zst.next_out = cudakernel_module;   
+    if (inflate(&zst, Z_FINISH) != Z_STREAM_END)
+    {
+        inflateEnd(&zst);
+        PyMem_Free(cudakernel_module);    
+        PyErr_SetString(PyExc_IOError, "Failed to decompress CUDA-kernel.");
+        return;
+    }
+    inflateEnd(&zst);
     
     CUDADevice_type.tp_getattro = PyObject_GenericGetAttr;
     CUDADevice_type.tp_setattro = PyObject_GenericSetAttr;
@@ -409,5 +437,6 @@ init_cpyrit_cuda(void)
     
     Py_INCREF(&CUDADevice_type);
     PyModule_AddObject(m, "CUDADevice", (PyObject*)&CUDADevice_type);
+    PyModule_AddStringConstant(m, "VERSION", VERSION);
 }
 

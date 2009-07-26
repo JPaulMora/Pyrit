@@ -27,6 +27,8 @@
    CPyrit enumerates the available cores and schedules workunits among them.
 """
 
+from __future__ import with_statement
+
 import sys
 import time
 import threading
@@ -64,6 +66,9 @@ class Core(threading.Thread):
     def _testComputeFunction(self, i):
         if any((pmk != Core.TV_PMK for pmk in self.solve(Core.TV_ESSID, [Core.TV_PASSWD]*i))):
             raise ValueError, "Test-vector does not result in correct PMK."
+
+    def resetStatistics(self):
+        self.compTime = self.resCount = self.callCount = 0
             
     def run(self):
         self._testComputeFunction(101)
@@ -101,6 +106,10 @@ class CPUCore(Core, _cpyrit_cpu.CPUDevice):
 ## CUDA
 try:
     from _cpyrit import _cpyrit_cuda
+    cpyrit_cuda_ver = getattr(_cpyrit_cuda, "VERSION", "unknown")
+    if cpyrit_cuda_ver != util.VERSION:
+        print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-CUDA ('%s')\n"\
+                            % (util.VERSION, cpyrit_cuda_ver)
 except ImportError:
     pass
 except Exception, e:
@@ -121,6 +130,10 @@ else:
 ## OpenCL
 try:
     from _cpyrit import _cpyrit_opencl
+    cpyrit_opencl_ver = getattr(_cpyrit_opencl, "VERSION", "unknown")
+    if cpyrit_opencl_ver != util.VERSION:
+        print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-OpenCL ('%s')\n"\
+                            % (util.VERSION, cpyrit_opencl_ver)
 except ImportError:
     pass
 except Exception, e:
@@ -141,6 +154,10 @@ else:
 ## Stream
 try:
     from _cpyrit import _cpyrit_stream
+    cpyrit_stream_ver = getattr(_cpyrit_stream, "VERSION", "unknown")
+    if cpyrit_stream_ver != util.VERSION:
+        print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-Stream ('%s')\n"\
+                            % (util.VERSION, cpyrit_stream_ver)
 except ImportError:
     pass
 except Exception, e:
@@ -216,11 +233,8 @@ class CPyrit(object):
     def __len__(self):
         """Return the number of passwords that currently wait to be transfered
            to the hardware."""
-        self.cv.acquire()
-        try:
+        with self.cv:
             return self._len()
-        finally:
-            self.cv.release()
 
     def __iter__(self):
         """Iterates over all pending results. Blocks until no further workunits
@@ -237,18 +251,15 @@ class CPyrit(object):
            to the hardware.
         """
         assert maxBufferSize >= 0
-        self.cv.acquire()
-        try:
+        with self.cv:
             while self._len() > maxBufferSize:
                 self.cv.wait(2)
                 self._check_cores()
-        finally:
-            self.cv.release()
             
     def resetStatistics(self):
-        """Reset the cores' statistics"""
+        """Reset all cores' statistics"""
         for core in self.cores:
-            core.compTime = core.resCount = core.callCount = 0
+            core.resetStatistics()
 
     def getPeakPerformance(self):
         """Return the summed peak performance of all cores.
@@ -266,9 +277,8 @@ class CPyrit(object):
            currently waiting for being scheduled to the hardware is higher than
            five times the current peak performance.
            Calls to .dequeue() correspond in a FIFO-manner.
-        """ 
-        self.cv.acquire()
-        try:
+        """
+        with self.cv:
             if self._len() > 0:
                 while self.getPeakPerformance() == 0 or self._len() > self.getPeakPerformance() * 5:
                     self.cv.wait(2)
@@ -281,8 +291,6 @@ class CPyrit(object):
             self.workunits.append(len(passwordlist))
             self.in_idx += len(passwordlist)
             self.cv.notifyAll()
-        finally:
-            self.cv.release()
         
     def dequeue(self, block=True, timeout=None):
         """Receive the results corresponding to a previous call to .enqueue().
@@ -293,9 +301,8 @@ class CPyrit(object):
            than timeout.
            Calls to .enqueue() correspond in a FIFO-manner.
         """
-        self.cv.acquire()
         t = time.time()
-        try:
+        with self.cv:
             if len(self.workunits) == 0:
                 return
             while True:
@@ -323,8 +330,6 @@ class CPyrit(object):
                     self.workunits.pop(0)
                     self.cv.notifyAll()
                     return tuple(results)
-        finally:
-            self.cv.release()
         
     def _gather(self, desired_size):
         """Try to accumulate the given number of passwords for a single ESSID
@@ -336,8 +341,7 @@ class CPyrit(object):
            results and call _scatter() or _revoke() with the (ESSID,passwords)-tuple
            returned by this call as parameters.
         """
-        self.cv.acquire()
-        try:
+        with self.cv:
             passwords = []
             pwslices = []
             cur_essid = None
@@ -374,8 +378,6 @@ class CPyrit(object):
                     return wu
                 else:
                     self.cv.wait(3)
-        finally:
-            self.cv.release()
 
     def _scatter(self, essid, passwords, results):
         """Spray the given results back to their corresponding workunits.
@@ -384,8 +386,7 @@ class CPyrit(object):
            to indicate which workunit it is returning results for.
         """
         assert len(results) == len(passwords)
-        self.cv.acquire()
-        try:
+        with self.cv:
             wu = (essid, passwords)
             slices = self.slices[wu].pop(0)
             if len(self.slices[wu]) == 0:
@@ -401,8 +402,6 @@ class CPyrit(object):
                     res.extend(self.outqueue[o_idx])
                     del self.outqueue[o_idx]
             self.cv.notifyAll()
-        finally:
-            self.cv.release()
 
     def _revoke(self, essid, passwords):
         """Re-insert the given workunit back into the global queue so it may
@@ -412,8 +411,7 @@ class CPyrit(object):
            process it. It is the Core's responsibility to ensure that it stops
            pulling work from the queue in such situations.
         """
-        self.cv.acquire()
-        try:
+        with self.cv:
             wu = (essid, passwords)
             slices = self.slices[wu].pop()
             if len(self.slices[wu]) == 0:
@@ -429,6 +427,4 @@ class CPyrit(object):
                 d[idx] = passwordlist[ptr:ptr+length]
                 ptr += length
             self.cv.notifyAll()
-        finally:
-            self.cv.release()
 
