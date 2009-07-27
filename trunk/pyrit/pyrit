@@ -422,7 +422,7 @@ class Pyrit_CLI(object):
             pass
         
         # Minimize scheduling overhead...
-        pws = ['barbarbar']*max(min(cp.getPeakPerformance(), 50000), 500)
+        pws = ['barbarbar']*max(min(int(cp.getPeakPerformance()), 50000), 500)
         cp.resetStatistics()
         cycler = itertools.cycle(('\\|/-'))
         t = time.time()
