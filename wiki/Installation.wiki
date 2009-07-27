@@ -83,7 +83,7 @@ You also need to have Nvidia's proprietary hardware-drivers installed in the way
 
 ==== ... support for ATI-Stream ====
 
-Download the ATI-Stream SDK from [http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx here] and install it. You need to modify setup.py or modify _$PATH$_ and _ldconfig_ if you choose not to install into either '/usr/local/atibrook/sdk' or '/opt/atibrook/sdk'. As ATI's software is (once again) of extremely bad quality, you probably need to apply a series of workarounds for common bugs in the Stream-SDK. See [http://pyrit.wordpress.com/2009/02/12/compiling-amd-stream-core-with-g-43/ here], [http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=521323 here] and [http://developer.amd.com/support/KnowledgeBase/Lists/KnowledgeBase/DispForm.aspx?ID=28 here]. Building CPyrit-Stream requires a C++-compiler which should be provided by your distribution (e.g. _gcc-c++_).
+Download the ATI-Stream SDK from [http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx here] and install it. You need to modify setup.py or modify _$PATH_ and _ldconfig_ if you choose not to install into either '/usr/local/atibrook/sdk' or '/opt/atibrook/sdk'. As ATI's software is (once again) of extremely bad quality, you probably need to apply a series of workarounds for common bugs in the Stream-SDK. See [http://pyrit.wordpress.com/2009/02/12/compiling-amd-stream-core-with-g-43/ here], [http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=521323 here] and [http://developer.amd.com/support/KnowledgeBase/Lists/KnowledgeBase/DispForm.aspx?ID=28 here]. Building CPyrit-Stream requires a C++-compiler which should be provided by your distribution (e.g. _gcc-c++_).
 
 Switch to the directory holding CPyrit-Stream's source-code and compile and install it just like you did with Pyrit:
 
@@ -118,10 +118,10 @@ Festor maintains packages for Pyrit in his [https://launchpad.net/~festor/+archi
 
 {{{ deb http://ppa.launchpad.net/festor/hack-tools/ubuntu jaunty main }}}
 
-Ubuntu may complain about missing signing-keys which you can safely ignore for now. Open a terminal, add Festor's public key _619BA177_ to your keyring and update _apt-get_'s package list:
+Ubuntu may complain about missing signing-keys which you can safely ignore for now. Open a terminal, add Festor's public key *619BA177* to your keyring and update _apt-get_'s package list:
 
 {{{
-sudo apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 619BA17
+sudo apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 619BA177
 sudo apt-get update
 }}}
 
@@ -143,4 +143,3 @@ sudo apt-get install nvidia-glx-180 pyrit-cuda
 }}}
 
 *Please notice that [https://launchpad.net/~festor/+archive/hack-tools this third-party repository] is not maintained by the author of Pyrit.*
-
