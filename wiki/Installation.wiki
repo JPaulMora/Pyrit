@@ -110,36 +110,4 @@ Please notice that the OpenCL-Core is not used for Nvidia-GPUs if CPyrit-CUDA is
 
 = Using binary packages =
 
-Binary packages are not directly supported. Festor maintains a package repository that includes Pyrit-builds for [http://www.ubuntu.org Ubuntu 9.04]. The [http://www.pentoo.ch/ Pentoo-] and the [http://www.remote-exploit.org/backtrack.html Backtrack4]-LiveCD also include Pyrit.
-
-== Ubuntu 9.04 ==
-
-Festor maintains packages for Pyrit in his [https://launchpad.net/~festor/+archive/hack-tools Personal Package Archive]. You need to create a third-party software repository and add Festor's public key to your keyring so you can install Pyrit and it's extension modules via _apt-get_. Click through _System_ -> _Administraton_ -> _Software Sources_ in GNOME's menu and add the following APT in the _Third-Party Software_ tab:
-
-{{{ deb http://ppa.launchpad.net/festor/hack-tools/ubuntu jaunty main }}}
-
-Ubuntu may complain about missing signing-keys which you can safely ignore for now. Open a terminal, add Festor's public key *619BA177* to your keyring and update _apt-get_'s package list:
-
-{{{
-sudo apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 619BA177
-sudo apt-get update
-}}}
-
-You can now install the main package 'pyrit' and the extension modules 'pyrit-cuda' and 'pyrit-stream'. You need to enable the _Restricted_-repository to access the proprietary drivers if you want to use either [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA] or [http://www.amd.com/US/PRODUCTS/TECHNOLOGIES/STREAM-TECHNOLOGY/Pages/stream-technology.aspx ATI-Stream].
-
-For example, to download and install the main module:
-{{{
-sudo apt-get install pyrit
-}}}
-
-For example, to download and install support for [http://www.amd.com/US/PRODUCTS/TECHNOLOGIES/STREAM-TECHNOLOGY/Pages/stream-technology.aspx ATI-Stream]:
-{{{
-sudo apt-get install xorg-driver-fglrx pyrit-stream
-}}}
-
-For example, to download and install support for [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA]:
-{{{
-sudo apt-get install nvidia-glx-180 pyrit-cuda
-}}}
-
-*Please notice that [https://launchpad.net/~festor/+archive/hack-tools this third-party repository] is not maintained by the author of Pyrit.*
+Binary packages are not directly supported. The [http://www.pentoo.ch/ Pentoo-] and the [http://www.remote-exploit.org/backtrack.html Backtrack4]-LiveCD include Pyrit as pre-build packages.
