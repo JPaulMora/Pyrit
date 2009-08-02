@@ -24,11 +24,6 @@
 #include <openssl/sha.h>
 #include "_cpyrit_cpu.h"
 
-typedef struct
-{
-    PyObject_HEAD
-} CPUDevice;
-
 struct pmk_ctr
 {
     SHA_CTX ctx_ipad;
@@ -37,275 +32,289 @@ struct pmk_ctr
     uint32_t e2[5];
 };
 
+typedef struct
+{
+    PyObject_HEAD
+} CPUDevice;
+
+typedef struct
+{
+    PyObject_HEAD
+    char keyscheme;
+    unsigned char pke[100];
+    unsigned char keymic[16];
+    size_t eapolframe_size;
+    unsigned char *eapolframe;
+} EAPOLCracker;
+
+static PyObject *PlatformString;
+static void (*prepare_pmk)(const char *essid_pre, const char *password, struct pmk_ctr *ctr) = NULL;
+static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
+
 #ifdef COMPILE_SSE2
     extern int detect_sse2(void);
     extern int sse2_sha1_update(uint32_t ctx[20], uint32_t data[64], uint32_t wrkbuf[320]) __attribute__((regparm(3)));
     extern int sse2_sha1_finalize(uint32_t ctx[20], uint32_t digests[20]) __attribute__((regparm(2)));
 #endif
 
-static void (*prepare_pmk)(const char *essid_pre, const char *password, struct pmk_ctr *ctr) = NULL;
-static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
-
-static PyObject *PlatformString;
-
 #ifdef COMPILE_PADLOCK
-#include <sys/ucontext.h>
-#include <signal.h>
-#include <errno.h>
-#include <sys/mman.h>
+    struct xsha1_ctx {
+        unsigned int state[32];
+        unsigned char inputbuffer[20+64];
+    } __attribute__((aligned(16)));
 
-struct xsha1_ctx {
-    unsigned int state[32];
-    unsigned char inputbuffer[20+64];
-} __attribute__((aligned(16)));
+    #include <sys/ucontext.h>
+    #include <signal.h>
+    #include <errno.h>
+    #include <sys/mman.h>
 
-// Snippet taken from OpenSSL 0.9.8
-static int
-detect_padlock(void)
-{
-    char vendor_string[16];
-    unsigned int eax, edx;
-
-    eax = 0x00000000;
-    vendor_string[12] = 0;
-    asm volatile (
-            "pushl  %%ebx\n"
-            "cpuid\n"
-            "movl   %%ebx,(%%edi)\n"
-            "movl   %%edx,4(%%edi)\n"
-            "movl   %%ecx,8(%%edi)\n"
-            "popl   %%ebx"
-            : "+a"(eax) : "D"(vendor_string) : "ecx", "edx");
-    if (strcmp(vendor_string, "CentaurHauls") != 0)
-            return 0;
-
-    /* Check for Centaur Extended Feature Flags presence */
-    eax = 0xC0000000;
-    asm volatile ("pushl %%ebx; cpuid; popl %%ebx"
-            : "+a"(eax) : : "ecx", "edx");
-    if (eax < 0xC0000001)
-            return 0;
-
-    /* Read the Centaur Extended Feature Flags */
-    eax = 0xC0000001;
-    asm volatile ("pushl %%ebx; cpuid; popl %%ebx"
-            : "+a"(eax), "=d"(edx) : : "ecx");
-
-    return (edx & 0x300) == 0x300;
-}
-
-// This instruction is not available on all CPUs (do we really care about those?)
-// Therefor it is only used on padlock-enabled machines
-static inline int bswap(int x)
-{
-    asm volatile ("bswap %0":
-                "=r" (x):
-                "0" (x));
-    return x;
-}
-
-static int
-padlock_xsha1(unsigned char *input, unsigned int *output, int done, int count)
-{
-    int volatile d = done;
-    asm volatile ("xsha1"
-              : "+S"(input), "+D"(output), "+a"(d)
-              : "c"(count));
-    return d;
-}
-
-// This handler will ignore the SIGSEGV deliberately caused by padlock_xsha1_prepare
-static void
-segv_action(int sig, siginfo_t *info, void *uctxp)            
-{
-    MCTX_EIP((ucontext_t*)uctxp) += 4;
-}
-
-// REP XSHA1 is crashed into the mprotect'ed page so we can
-// steal the state at *EDI before finalizing.
-static int
-padlock_xsha1_prepare(const unsigned char *input, SHA_CTX *output)
-{
-    size_t page_size = getpagesize(), buffersize = 2 * page_size, hashed = 0;
-    struct sigaction act, oldact;
-    unsigned char *cnt, *inputbuffer;
-    
-    inputbuffer = mmap(0, buffersize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-
-    mprotect(inputbuffer + page_size, page_size, PROT_NONE);
-
-    struct xsha1_ctx ctx;
-    ((int*)ctx.state)[0] = 0x67452301;
-    ((int*)ctx.state)[1] = 0xEFCDAB89;
-    ((int*)ctx.state)[2] = 0x98BADCFE;
-    ((int*)ctx.state)[3] = 0x10325476;
-    ((int*)ctx.state)[4] = 0xC3D2E1F0;
-
-    cnt = inputbuffer + page_size - (64*2);
-    memcpy(cnt, input, 64);
-    memset(&act, 0, sizeof(act));
-    act.sa_sigaction = segv_action;
-    act.sa_flags = SA_SIGINFO;
-    sigaction(SIGSEGV, &act, &oldact);
-    hashed = padlock_xsha1(cnt, ctx.state, 0, (64*2));        
-    sigaction(SIGSEGV, &oldact, NULL);
-
-    munmap(inputbuffer, buffersize);
-    
-    output->h0 = ((int*)ctx.state)[0];
-    output->h1 = ((int*)ctx.state)[1];
-    output->h2 = ((int*)ctx.state)[2];
-    output->h3 = ((int*)ctx.state)[3];
-    output->h4 = ((int*)ctx.state)[4];
-
-    return hashed;
-}
-
-// Now lie about the total number of bytes hashed by this call to get the correct hash
-static inline int
-padlock_xsha1_finalize(SHA_CTX *prestate, unsigned char *buffer)
-{
-    struct xsha1_ctx ctx;
-    size_t hashed;
-
-    ((int*)ctx.state)[0] = prestate->h0;
-    ((int*)ctx.state)[1] = prestate->h1;
-    ((int*)ctx.state)[2] = prestate->h2;
-    ((int*)ctx.state)[3] = prestate->h3;
-    ((int*)ctx.state)[4] = prestate->h4;
-        
-    memcpy(ctx.inputbuffer, buffer, 20);
-    hashed = padlock_xsha1(ctx.inputbuffer, ctx.state, 64, 64+20);
-
-    ((int*)buffer)[0] = bswap(ctx.state[0]); ((int*)buffer)[1] = bswap(ctx.state[1]);
-    ((int*)buffer)[2] = bswap(ctx.state[2]); ((int*)buffer)[3] = bswap(ctx.state[3]);
-    ((int*)buffer)[4] = bswap(ctx.state[4]);
-
-    return hashed;
-}
-
-static void
-prepare_pmk_padlock(const char *essid_pre, const char *password, struct pmk_ctr *ctr)
-{
-    int i, slen;
-    unsigned char pad[64];
-    char essid[32+4+1];
-
-    strncpy(essid, essid_pre, sizeof(essid));
-    slen = strlen(essid)+4;
-
-    strncpy((char *)pad, password, sizeof(pad));
-    for (i = 0; i < 16; i++)
-        ((unsigned int*)pad)[i] ^= 0x36363636;
-    padlock_xsha1_prepare(pad, &ctr->ctx_ipad);
-
-    for (i = 0; i < 16; i++)
-        ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
-    padlock_xsha1_prepare(pad, &ctr->ctx_opad);
-
-    essid[slen - 1] = '\1';
-    HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e1, NULL);
-
-    essid[slen - 1] = '\2';
-    HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e2, NULL);
-}
-
-static int
-finalize_pmk_padlock(struct pmk_ctr *ctr)
-{
-    int i;
-    unsigned int e1_buffer[5], e2_buffer[5];
-
-    memcpy(e1_buffer, ctr->e1, 20);
-    memcpy(e2_buffer, ctr->e2, 20);
-    for (i = 0; i < 4096-1; i++)
+    // Snippet taken from OpenSSL 0.9.8
+    static int
+    detect_padlock(void)
     {
-        padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e1_buffer);
-        padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e1_buffer);
-        ctr->e1[0] ^= e1_buffer[0]; ctr->e1[1] ^= e1_buffer[1]; ctr->e1[2] ^= e1_buffer[2];
-        ctr->e1[3] ^= e1_buffer[3]; ctr->e1[4] ^= e1_buffer[4];
-        
-        padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e2_buffer);
-        padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e2_buffer);
-        ctr->e2[0] ^= e2_buffer[0]; ctr->e2[1] ^= e2_buffer[1]; ctr->e2[2] ^= e2_buffer[2];
+        char vendor_string[16];
+        unsigned int eax, edx;
+
+        eax = 0x00000000;
+        vendor_string[12] = 0;
+        asm volatile (
+                "pushl  %%ebx\n"
+                "cpuid\n"
+                "movl   %%ebx,(%%edi)\n"
+                "movl   %%edx,4(%%edi)\n"
+                "movl   %%ecx,8(%%edi)\n"
+                "popl   %%ebx"
+                : "+a"(eax) : "D"(vendor_string) : "ecx", "edx");
+        if (strcmp(vendor_string, "CentaurHauls") != 0)
+                return 0;
+
+        /* Check for Centaur Extended Feature Flags presence */
+        eax = 0xC0000000;
+        asm volatile ("pushl %%ebx; cpuid; popl %%ebx"
+                : "+a"(eax) : : "ecx", "edx");
+        if (eax < 0xC0000001)
+                return 0;
+
+        /* Read the Centaur Extended Feature Flags */
+        eax = 0xC0000001;
+        asm volatile ("pushl %%ebx; cpuid; popl %%ebx"
+                : "+a"(eax), "=d"(edx) : : "ecx");
+
+        return (edx & 0x300) == 0x300;
     }
-    
-    return 1;
-}
+
+    // This instruction is not available on all CPUs (do we really care about those?)
+    // Therefor it is only used on padlock-enabled machines
+    static inline int bswap(int x)
+    {
+        asm volatile ("bswap %0":
+                    "=r" (x):
+                    "0" (x));
+        return x;
+    }
+
+    static int
+    padlock_xsha1(unsigned char *input, unsigned int *output, int done, int count)
+    {
+        int volatile d = done;
+        asm volatile ("xsha1"
+                  : "+S"(input), "+D"(output), "+a"(d)
+                  : "c"(count));
+        return d;
+    }
+
+    // This handler will ignore the SIGSEGV deliberately caused by padlock_xsha1_prepare
+    static void
+    segv_action(int sig, siginfo_t *info, void *uctxp)            
+    {
+        MCTX_EIP((ucontext_t*)uctxp) += 4;
+    }
+
+    // REP XSHA1 is crashed into the mprotect'ed page so we can
+    // steal the state at *EDI before finalizing.
+    static int
+    padlock_xsha1_prepare(const unsigned char *input, SHA_CTX *output)
+    {
+        size_t page_size = getpagesize(), buffersize = 2 * page_size, hashed = 0;
+        struct sigaction act, oldact;
+        unsigned char *cnt, *inputbuffer;
+        
+        inputbuffer = mmap(0, buffersize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
+
+        mprotect(inputbuffer + page_size, page_size, PROT_NONE);
+
+        struct xsha1_ctx ctx;
+        ((int*)ctx.state)[0] = 0x67452301;
+        ((int*)ctx.state)[1] = 0xEFCDAB89;
+        ((int*)ctx.state)[2] = 0x98BADCFE;
+        ((int*)ctx.state)[3] = 0x10325476;
+        ((int*)ctx.state)[4] = 0xC3D2E1F0;
+
+        cnt = inputbuffer + page_size - (64*2);
+        memcpy(cnt, input, 64);
+        memset(&act, 0, sizeof(act));
+        act.sa_sigaction = segv_action;
+        act.sa_flags = SA_SIGINFO;
+        sigaction(SIGSEGV, &act, &oldact);
+        hashed = padlock_xsha1(cnt, ctx.state, 0, (64*2));        
+        sigaction(SIGSEGV, &oldact, NULL);
+
+        munmap(inputbuffer, buffersize);
+        
+        output->h0 = ((int*)ctx.state)[0];
+        output->h1 = ((int*)ctx.state)[1];
+        output->h2 = ((int*)ctx.state)[2];
+        output->h3 = ((int*)ctx.state)[3];
+        output->h4 = ((int*)ctx.state)[4];
+
+        return hashed;
+    }
+
+    // Now lie about the total number of bytes hashed by this call to get the correct hash
+    static inline int
+    padlock_xsha1_finalize(SHA_CTX *prestate, unsigned char *buffer)
+    {
+        struct xsha1_ctx ctx;
+        size_t hashed;
+
+        ((int*)ctx.state)[0] = prestate->h0;
+        ((int*)ctx.state)[1] = prestate->h1;
+        ((int*)ctx.state)[2] = prestate->h2;
+        ((int*)ctx.state)[3] = prestate->h3;
+        ((int*)ctx.state)[4] = prestate->h4;
+            
+        memcpy(ctx.inputbuffer, buffer, 20);
+        hashed = padlock_xsha1(ctx.inputbuffer, ctx.state, 64, 64+20);
+
+        ((int*)buffer)[0] = bswap(ctx.state[0]); ((int*)buffer)[1] = bswap(ctx.state[1]);
+        ((int*)buffer)[2] = bswap(ctx.state[2]); ((int*)buffer)[3] = bswap(ctx.state[3]);
+        ((int*)buffer)[4] = bswap(ctx.state[4]);
+
+        return hashed;
+    }
+
+    static void
+    prepare_pmk_padlock(const char *essid_pre, const char *password, struct pmk_ctr *ctr)
+    {
+        int i, slen;
+        unsigned char pad[64];
+        char essid[32+4+1];
+
+        strncpy(essid, essid_pre, sizeof(essid));
+        slen = strlen(essid)+4;
+
+        strncpy((char *)pad, password, sizeof(pad));
+        for (i = 0; i < 16; i++)
+            ((unsigned int*)pad)[i] ^= 0x36363636;
+        padlock_xsha1_prepare(pad, &ctr->ctx_ipad);
+
+        for (i = 0; i < 16; i++)
+            ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
+        padlock_xsha1_prepare(pad, &ctr->ctx_opad);
+
+        essid[slen - 1] = '\1';
+        HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e1, NULL);
+
+        essid[slen - 1] = '\2';
+        HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e2, NULL);
+    }
+
+    static int
+    finalize_pmk_padlock(struct pmk_ctr *ctr)
+    {
+        int i;
+        unsigned int e1_buffer[5], e2_buffer[5];
+
+        memcpy(e1_buffer, ctr->e1, 20);
+        memcpy(e2_buffer, ctr->e2, 20);
+        for (i = 0; i < 4096-1; i++)
+        {
+            padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e1_buffer);
+            padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e1_buffer);
+            ctr->e1[0] ^= e1_buffer[0]; ctr->e1[1] ^= e1_buffer[1]; ctr->e1[2] ^= e1_buffer[2];
+            ctr->e1[3] ^= e1_buffer[3]; ctr->e1[4] ^= e1_buffer[4];
+            
+            padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e2_buffer);
+            padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e2_buffer);
+            ctr->e2[0] ^= e2_buffer[0]; ctr->e2[1] ^= e2_buffer[1]; ctr->e2[2] ^= e2_buffer[2];
+        }
+        
+        return 1;
+    }
 
 #endif // COMPILE_PADLOCK
 
+
 #ifdef COMPILE_SSE2
-
-static int
-finalize_pmk_sse2(struct pmk_ctr *ctr)
-{
-    int i, j, k;
-    uint32_t ctx_ipad[20] __attribute__ ((aligned (16)));
-    uint32_t ctx_opad[20] __attribute__ ((aligned (16)));
-    uint32_t sha1_ctx[20] __attribute__ ((aligned (16)));
-    uint32_t e1_buffer[64] __attribute__ ((aligned (16)));
-    uint32_t e2_buffer[64] __attribute__ ((aligned (16)));
-    uint32_t wrkbuf[320] __attribute__ ((aligned (16)));
-
-    memset(e1_buffer, 0, sizeof(e1_buffer));
-    memset(e2_buffer, 0, sizeof(e2_buffer));
-
-    // Interleave four ipads, opads and first-round-PMKs to local buffers
-    for (i = 0; i < 4; i++)
+    static int
+    finalize_pmk_sse2(struct pmk_ctr *ctr)
     {
-        ctx_ipad[i+ 0] = ctr[i].ctx_ipad.h0;
-        ctx_ipad[i+ 4] = ctr[i].ctx_ipad.h1;
-        ctx_ipad[i+ 8] = ctr[i].ctx_ipad.h2;
-        ctx_ipad[i+12] = ctr[i].ctx_ipad.h3;
-        ctx_ipad[i+16] = ctr[i].ctx_ipad.h4;
- 
-        ctx_opad[i+ 0] = ctr[i].ctx_opad.h0;
-        ctx_opad[i+ 4] = ctr[i].ctx_opad.h1;
-        ctx_opad[i+ 8] = ctr[i].ctx_opad.h2;
-        ctx_opad[i+12] = ctr[i].ctx_opad.h3;
-        ctx_opad[i+16] = ctr[i].ctx_opad.h4;
+        int i, j, k;
+        uint32_t ctx_ipad[20] __attribute__ ((aligned (16)));
+        uint32_t ctx_opad[20] __attribute__ ((aligned (16)));
+        uint32_t sha1_ctx[20] __attribute__ ((aligned (16)));
+        uint32_t e1_buffer[64] __attribute__ ((aligned (16)));
+        uint32_t e2_buffer[64] __attribute__ ((aligned (16)));
+        uint32_t wrkbuf[320] __attribute__ ((aligned (16)));
 
-        e1_buffer[20+i] = e2_buffer[20+i] = 0x80; // Terminator bit
-        e1_buffer[60+i] = e2_buffer[60+i] = 0xA0020000; // size = (64+20)*8
-        for (j = 0; j < 5; j++)
-        {
-            e1_buffer[j*4 + i] = ctr[i].e1[j];
-            e2_buffer[j*4 + i] = ctr[i].e2[j];
-        }
-    }
-    
-    // Process through SSE2 and de-interleave back to ctr
-    for (i = 0; i < 4096-1; i++)
-    {
-        memcpy(sha1_ctx, ctx_ipad, sizeof(sha1_ctx));
-        sse2_sha1_update(sha1_ctx, e1_buffer, wrkbuf);
-        sse2_sha1_finalize(sha1_ctx, e1_buffer);
-        
-        memcpy(sha1_ctx, ctx_opad, sizeof(sha1_ctx));
-        sse2_sha1_update(sha1_ctx, e1_buffer, wrkbuf);
-        sse2_sha1_finalize(sha1_ctx, e1_buffer);
+        memset(e1_buffer, 0, sizeof(e1_buffer));
+        memset(e2_buffer, 0, sizeof(e2_buffer));
 
-        memcpy(sha1_ctx, ctx_ipad, sizeof(sha1_ctx));
-        sse2_sha1_update(sha1_ctx, e2_buffer, wrkbuf);
-        sse2_sha1_finalize(sha1_ctx, e2_buffer);
-        
-        memcpy(sha1_ctx, ctx_opad, sizeof(sha1_ctx));
-        sse2_sha1_update(sha1_ctx, e2_buffer, wrkbuf);
-        sse2_sha1_finalize(sha1_ctx, e2_buffer);
-        
-        for (j = 0; j < 4; j++)
+        // Interleave four ipads, opads and first-round-PMKs to local buffers
+        for (i = 0; i < 4; i++)
         {
-            for (k = 0; k < 5; k++)
+            ctx_ipad[i+ 0] = ctr[i].ctx_ipad.h0;
+            ctx_ipad[i+ 4] = ctr[i].ctx_ipad.h1;
+            ctx_ipad[i+ 8] = ctr[i].ctx_ipad.h2;
+            ctx_ipad[i+12] = ctr[i].ctx_ipad.h3;
+            ctx_ipad[i+16] = ctr[i].ctx_ipad.h4;
+     
+            ctx_opad[i+ 0] = ctr[i].ctx_opad.h0;
+            ctx_opad[i+ 4] = ctr[i].ctx_opad.h1;
+            ctx_opad[i+ 8] = ctr[i].ctx_opad.h2;
+            ctx_opad[i+12] = ctr[i].ctx_opad.h3;
+            ctx_opad[i+16] = ctr[i].ctx_opad.h4;
+
+            e1_buffer[20+i] = e2_buffer[20+i] = 0x80; // Terminator bit
+            e1_buffer[60+i] = e2_buffer[60+i] = 0xA0020000; // size = (64+20)*8
+            for (j = 0; j < 5; j++)
             {
-                ctr[j].e1[k] ^= e1_buffer[k*4 + j];
-                ctr[j].e2[k] ^= e2_buffer[k*4 + j];
+                e1_buffer[j*4 + i] = ctr[i].e1[j];
+                e2_buffer[j*4 + i] = ctr[i].e2[j];
             }
         }
-    }
+        
+        // Process through SSE2 and de-interleave back to ctr
+        for (i = 0; i < 4096-1; i++)
+        {
+            memcpy(sha1_ctx, ctx_ipad, sizeof(sha1_ctx));
+            sse2_sha1_update(sha1_ctx, e1_buffer, wrkbuf);
+            sse2_sha1_finalize(sha1_ctx, e1_buffer);
+            
+            memcpy(sha1_ctx, ctx_opad, sizeof(sha1_ctx));
+            sse2_sha1_update(sha1_ctx, e1_buffer, wrkbuf);
+            sse2_sha1_finalize(sha1_ctx, e1_buffer);
 
-    return 4;
-}
+            memcpy(sha1_ctx, ctx_ipad, sizeof(sha1_ctx));
+            sse2_sha1_update(sha1_ctx, e2_buffer, wrkbuf);
+            sse2_sha1_finalize(sha1_ctx, e2_buffer);
+            
+            memcpy(sha1_ctx, ctx_opad, sizeof(sha1_ctx));
+            sse2_sha1_update(sha1_ctx, e2_buffer, wrkbuf);
+            sse2_sha1_finalize(sha1_ctx, e2_buffer);
+            
+            for (j = 0; j < 4; j++)
+            {
+                for (k = 0; k < 5; k++)
+                {
+                    ctr[j].e1[k] ^= e1_buffer[k*4 + j];
+                    ctr[j].e2[k] ^= e2_buffer[k*4 + j];
+                }
+            }
+        }
+
+        return 4;
+    }
 
 #endif // COMPILE_SSE2
 
@@ -423,7 +432,7 @@ cpyrit_solve(PyObject *self, PyObject *args)
             pmk_buffer = t;
         }
         passwd = PyString_AsString(passwd_obj);
-        if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
+        if (passwd == NULL || PyString_Size(passwd_obj) < 8 || PyString_Size(passwd_obj) > 63)
         {
             Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
@@ -457,6 +466,146 @@ cpyrit_solve(PyObject *self, PyObject *args)
 
     return result;
 }
+
+
+static int
+eapolcracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
+{
+    char *keyscheme;
+    unsigned char *pke, *keymic, *eapolframe;
+    size_t pke_len, keymic_size, eapolframe_size;
+
+    self->eapolframe = NULL;
+    if (!PyArg_ParseTuple(args, "ss#s#s#", &keyscheme, &pke, &pke_len, &keymic, &keymic_size, &eapolframe, &eapolframe_size))
+        return -1;
+
+    if (pke_len != 100)
+    {
+        PyErr_SetString(PyExc_ValueError, "PKE must be a string of exactly 100 bytes.");
+        return -1;
+    }
+    memcpy(self->pke, pke, 100);
+    
+    if (keymic_size != 16)
+    {
+        PyErr_SetString(PyExc_ValueError, "KeyMIC must a string of 16 bytes.");
+        return -1;
+    }
+    memcpy(self->keymic, keymic, 16);
+    
+    self->eapolframe_size = eapolframe_size;
+    self->eapolframe = PyMem_Malloc(self->eapolframe_size);
+    if (!self->eapolframe)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+    memcpy(self->eapolframe, eapolframe, self->eapolframe_size);
+    
+    if (strcmp(keyscheme, "HMAC_MD5_RC4") == 0) {
+        self->keyscheme = HMAC_MD5_RC4;
+    } else if (strcmp(keyscheme, "HMAC_SHA1_AES") == 0) {
+        self->keyscheme = HMAC_SHA1_AES;
+    } else {
+        PyErr_SetString(PyExc_ValueError, "Invalid key-scheme.");
+        return -1;
+    }
+
+    return 0;
+
+}
+
+static void
+eapolcracker_dealloc(EAPOLCracker *self)
+{
+    if (self->eapolframe)
+        PyMem_Free(self->eapolframe);
+    PyObject_Del(self);
+}
+
+
+static PyObject *
+eapolcracker_solve(EAPOLCracker *self, PyObject *args)
+{
+    PyObject *pmk_seq, *pmk_obj, *result;
+    char *pmk;
+    unsigned char *pmkbuffer, *t, mic_key[20], eapol_mic[20];
+    Py_ssize_t i, buffersize, pmkcount;
+
+    if (!PyArg_ParseTuple(args, "O", &pmk_seq))
+        return NULL;
+
+    pmk_seq = PyObject_GetIter(pmk_seq);
+    if (!pmk_seq)
+    {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    
+    pmkbuffer = NULL;
+    pmk_obj = NULL;
+    buffersize = pmkcount = 0;
+    while ((pmk_obj = PyIter_Next(pmk_seq)))
+    {
+        if (buffersize <= pmkcount * 32)
+        {
+            buffersize += 32*50000;
+            t = PyMem_Realloc(pmkbuffer, buffersize);
+            if (!t)
+                goto errout;
+            pmkbuffer = t;
+        }
+        pmk = PyString_AsString(pmk_obj);
+
+        if (pmk == NULL || PyString_Size(pmk_obj) != 32)
+        {
+            PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
+            goto errout;
+        }
+
+        memcpy(pmkbuffer + pmkcount*32, pmk, 32);
+        
+        Py_DECREF(pmk_obj);
+        pmkcount += 1;
+    }
+    Py_DECREF(pmk_seq);
+    
+    result = NULL;
+    if (pmkcount > 0)
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        for (i = 0; i < pmkcount; i++)
+        {
+            HMAC(EVP_sha1(), &pmkbuffer[i*32], 32, self->pke, 100, mic_key, NULL);
+            if (self->keyscheme == HMAC_MD5_RC4)
+                HMAC(EVP_md5(), mic_key, 16, self->eapolframe, self->eapolframe_size, eapol_mic, NULL);
+            else
+                HMAC(EVP_sha1(), mic_key, 16, self->eapolframe, self->eapolframe_size, eapol_mic, NULL);
+            if (memcmp(eapol_mic, self->keymic, 16) == 0)
+            {
+                result = PyInt_FromSsize_t(i);
+                break;
+            }
+        }
+        Py_END_ALLOW_THREADS;    
+    }
+    if (!result)
+    {
+        result = Py_None;
+        Py_INCREF(Py_None);
+    }
+
+    PyMem_Free(pmkbuffer);
+
+    return result;
+    
+    errout:
+    Py_DECREF(pmk_seq);
+    Py_XDECREF(pmk_obj);
+    PyMem_Free(pmkbuffer);
+    return NULL;
+}
+
 
 static PyMethodDef CPUDevice_methods[] =
 {
@@ -509,6 +658,59 @@ static PyTypeObject CPUDevice_type = {
     0,                          /*tp_is_gc*/
 };
 
+
+static PyMethodDef EAPOLCracker_methods[] =
+{
+    {"solve", (PyCFunction)eapolcracker_solve, METH_VARARGS, "[You should not be here. The Levellord]"},
+    {NULL, NULL}
+};
+
+static PyTypeObject EAPOLCracker_type = {
+    PyObject_HEAD_INIT(NULL)
+    0,                          /*ob_size*/
+    "_cpyrit_cpu.EAPOLCracker", /*tp_name*/
+    sizeof(EAPOLCracker),       /*tp_basicsize*/
+    0,                          /*tp_itemsize*/
+    (destructor)eapolcracker_dealloc,   /*tp_dealloc*/
+    0,                          /*tp_print*/
+    0,                          /*tp_getattr*/
+    0,                          /*tp_setattr*/
+    0,                          /*tp_compare*/
+    0,                          /*tp_repr*/
+    0,                          /*tp_as_number*/
+    0,                          /*tp_as_sequence*/
+    0,                          /*tp_as_mapping*/
+    0,                          /*tp_hash*/
+    0,                          /*tp_call*/
+    0,                          /*tp_str*/
+    0,                          /*tp_getattro*/
+    0,                          /*tp_setattro*/
+    0,                          /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+     | Py_TPFLAGS_BASETYPE,
+    0,                          /*tp_doc*/
+    0,                          /*tp_traverse*/
+    0,                          /*tp_clear*/
+    0,                          /*tp_richcompare*/
+    0,                          /*tp_weaklistoffset*/
+    0,                          /*tp_iter*/
+    0,                          /*tp_iternext*/
+    EAPOLCracker_methods,       /*tp_methods*/
+    0,                          /*tp_members*/
+    0,                          /*tp_getset*/
+    0,                          /*tp_base*/
+    0,                          /*tp_dict*/
+    0,                          /*tp_descr_get*/
+    0,                          /*tp_descr_set*/
+    0,                          /*tp_dictoffset*/
+    (initproc)eapolcracker_init,/*tp_init*/
+    0,                          /*tp_alloc*/
+    0,                          /*tp_new*/
+    0,                          /*tp_free*/
+    0,                          /*tp_is_gc*/
+};
+
+
 static PyMethodDef CPyritCPUMethods[] = {
     {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine CPU-type/name"},
     {NULL, NULL, 0, NULL}
@@ -554,10 +756,21 @@ init_cpyrit_cpu(void)
     CPUDevice_type.tp_free = _PyObject_Del;  
     if (PyType_Ready(&CPUDevice_type) < 0)
 	    return;
+
+    EAPOLCracker_type.tp_getattro = PyObject_GenericGetAttr;
+    EAPOLCracker_type.tp_setattro = PyObject_GenericSetAttr;
+    EAPOLCracker_type.tp_alloc  = PyType_GenericAlloc;
+    EAPOLCracker_type.tp_new = PyType_GenericNew;
+    EAPOLCracker_type.tp_free = _PyObject_Del;  
+    if (PyType_Ready(&EAPOLCracker_type) < 0)
+	    return;
     
     m = Py_InitModule("_cpyrit_cpu", CPyritCPUMethods);
 
     Py_INCREF(&CPUDevice_type);
     PyModule_AddObject(m, "CPUDevice", (PyObject*)&CPUDevice_type);
+
+    Py_INCREF(&EAPOLCracker_type);
+    PyModule_AddObject(m, "EAPOLCracker", (PyObject*)&EAPOLCracker_type);
 }
 

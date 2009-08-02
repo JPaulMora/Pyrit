@@ -33,7 +33,9 @@ except:
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 cpu_extension = Extension(name='_cpyrit._cpyrit_cpu',
-                    sources = ['_cpyrit/_cpyrit_cpu.c','_cpyrit/_cpyrit_cpu_sse2.S'],
+                    sources = ['_cpyrit/_cpyrit_cpu.c',\
+                               '_cpyrit/_cpyrit_cpu_sse2.S',\
+                              ],
                     libraries = ['ssl'])
 
 util_extension = Extension(name='_cpyrit._cpyrit_util',
