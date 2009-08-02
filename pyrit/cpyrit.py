@@ -178,6 +178,24 @@ else:
             Core.run(self)
 
 
+## The Dummy-Device.
+try:
+    from _cpyrit import _cpyrit_null
+except ImportError:
+    pass
+else:
+    class NullCore(Core, _cpyrit_null.NullDevice):
+        """Dummy-Device that returns zero'ed results instead of PMKs. For testing and
+           demonstration only...
+        """
+        def __init__(self, queue):
+            raise RuntimeError, "The Null-Core should never get initialized!"
+            Core.__init__(self, queue)
+            _cpyrit_null.NullDevice.__init__(self)
+            self.name = "Null-Core"
+            self.start()
+
+
 class CPyrit(object):
     """Enumerates and manages all available hardware resources provided in
        the module and does most of the scheduling-magic.
@@ -201,7 +219,7 @@ class CPyrit(object):
         self.cores = []
         self.cv = threading.Condition()
 
-        ncpus = util.detect_ncpus()
+        ncpus = util.ncpus
         # CUDA
         if '_cpyrit._cpyrit_cuda' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):

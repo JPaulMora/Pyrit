@@ -18,6 +18,9 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#define HMAC_MD5_RC4 0
+#define HMAC_SHA1_AES 1
+
 #ifdef __i386__
     #define COMPILE_PADLOCK
     #if defined(linux)
@@ -34,7 +37,7 @@
     #endif
 #endif
 
+
 #if (defined(__i386__) || defined(__x86_64__)) && !defined(__APPLE__)
     #define COMPILE_SSE2
 #endif
-
