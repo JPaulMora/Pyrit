@@ -473,7 +473,7 @@ eapolcracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
 {
     char *keyscheme;
     unsigned char *pke, *keymic, *eapolframe;
-    size_t pke_len, keymic_size, eapolframe_size;
+    int pke_len, keymic_size, eapolframe_size;
 
     self->eapolframe = NULL;
     if (!PyArg_ParseTuple(args, "ss#s#s#", &keyscheme, &pke, &pke_len, &keymic, &keymic_size, &eapolframe, &eapolframe_size))
