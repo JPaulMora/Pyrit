@@ -88,7 +88,7 @@ class Core(threading.Thread):
 
 ## CPU
 try:
-    from _cpyrit import _cpyrit_cpu
+    import _cpyrit_cpu
 except:
     print >>sys.stderr, "Failed to load Pyrit's CPU-driven core; this module should always be available. Sorry, we can't continue."
     raise
@@ -105,7 +105,7 @@ class CPUCore(Core, _cpyrit_cpu.CPUDevice):
 
 ## CUDA
 try:
-    from _cpyrit import _cpyrit_cuda
+    import _cpyrit_cuda
     cpyrit_cuda_ver = getattr(_cpyrit_cuda, "VERSION", "unknown")
     if cpyrit_cuda_ver != util.VERSION:
         print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-CUDA ('%s')\n"\
@@ -129,7 +129,7 @@ else:
 
 ## OpenCL
 try:
-    from _cpyrit import _cpyrit_opencl
+    import _cpyrit_opencl
     cpyrit_opencl_ver = getattr(_cpyrit_opencl, "VERSION", "unknown")
     if cpyrit_opencl_ver != util.VERSION:
         print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-OpenCL ('%s')\n"\
@@ -153,7 +153,7 @@ else:
 
 ## Stream
 try:
-    from _cpyrit import _cpyrit_stream
+    import _cpyrit_stream
     cpyrit_stream_ver = getattr(_cpyrit_stream, "VERSION", "unknown")
     if cpyrit_stream_ver != util.VERSION:
         print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-Stream ('%s')\n"\
@@ -180,7 +180,7 @@ else:
 
 ## The Dummy-Device.
 try:
-    from _cpyrit import _cpyrit_null
+    import _cpyrit_null
 except ImportError:
     pass
 else:
@@ -221,18 +221,18 @@ class CPyrit(object):
 
         ncpus = util.ncpus
         # CUDA
-        if '_cpyrit._cpyrit_cuda' in sys.modules:
+        if 'cpyrit._cpyrit_cuda' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
                 self.cores.append(CUDACore(queue=self, dev_idx=dev_idx))
                 ncpus -= 1
         # OpenCL
-        if '_cpyrit._cpyrit_opencl' in sys.modules:
+        if 'cpyrit._cpyrit_opencl' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_opencl.listDevices()):
                 if device[1] != 'NVIDIA Corporation' or '_cpyrit._cpyrit_cuda' not in sys.modules:
                     self.cores.append(OpenCLCore(queue=self, dev_idx=dev_idx))
                     ncpus -= 1
         # ATI
-        if '_cpyrit._cpyrit_stream' in sys.modules:
+        if 'cpyrit._cpyrit_stream' in sys.modules:
             for dev_idx in xrange(_cpyrit_stream.getDeviceCount()):
                 self.cores.append(StreamCore(queue=self, dev_idx=dev_idx))
                 ncpus -= 1
