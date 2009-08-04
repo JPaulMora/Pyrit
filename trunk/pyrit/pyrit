@@ -26,10 +26,13 @@ import itertools
 import os
 import random
 import sys
-import sqlite3
 import threading
 import time
-import cpyrit_util as util
+import cpyrit.cpyrit_util as util
+try:
+    import cpyrit.cpyrit_pckttools as pckttools
+except util.ScapyImportError:
+    pass
 
 class Pyrit_CLI(object):
     class options(object):
@@ -133,6 +136,32 @@ class Pyrit_CLI(object):
             '\n  verify             : Verify 10% of the results by recomputation'
             '\n')
 
+    def requires_options(*reqs):
+        """Decorate a function to check for certain options before execution."""
+        def check_req(f):
+            def new_f(*args, **kwds):
+                for req in reqs:
+                    if not args[0].options.__getattribute__(req):
+                        return {'essid': "You must specify a ESSID using the option -e. See 'help'.",
+                               'file': "You must specify a filename using the option -f. See 'help'.",
+                               'capturefile': "You must specify a packet-capture file using the option -r. See 'help'." 
+                                }[req]
+                return f(*args, **kwds)
+            new_f.func_name = f.func_name
+            return new_f
+        return check_req
+
+    def requires_pckttools(*params):
+        """Decorate a function to check for cpyrit.cpyrit_pckttools before execution."""
+        def check_pkttools(f):
+            def new_f(*args, **kwds):
+                if 'cpyrit.cpyrit_pckttools' not in sys.modules:
+                    return "The scapy-module is required to use Pyrit's analyze/attack functions but seems to be unavailable."""
+                return f(*args, **kwds)
+            new_f.func_name = f.func_name
+            return new_f
+        return check_pkttools
+
     def _printCoreStats(self, cp, startTime):
         totalResCount = sum((c.resCount for c in cp.cores))
         if totalResCount > 0:
@@ -144,26 +173,24 @@ class Pyrit_CLI(object):
                self.tell("#%i: '%s': %.1f PMKs/s (Occ. %.1f%%; RTT %.1f)" % \
                             (i+1, core.name, perf, core.compTime * 100.0 / tdiff, rtt))
 
-    def _getParser(self):
-        self.tell("Parsing file '%s'..." % self.options.capturefile, end=None) 
-        parser = util.PacketParser(self.options.capturefile)
+    def _getParser(self, capturefile):
+        self.tell("Parsing file '%s'..." % capturefile, end=None) 
+        parser = pckttools.PacketParser(capturefile)
         self.tell("%i packets (%i 802.11-packets), %i APs\n" % (parser.pcktcount, parser.dot11_pcktcount, len(parser)))
         return parser
     
+    @requires_options('essid')
     def create_essid(self):
-        if self.options.essid is None:
-            return "You must specify a ESSID using the -e option. See 'help'."
-        elif self.options.essid in self.essidstore:
+        if self.options.essid in self.essidstore:
             # Not an error for reasons of convenience
             self.tell("ESSID already created")
         else:
             self.essidstore.create_essid(self.options.essid)
             self.tell("Created ESSID '%s'" % self.options.essid)
 
+    @requires_options('essid')
     def delete_essid(self):
-        if self.options.essid is None:
-            return "You must specify a ESSID using the -e option. See 'help'."
-        elif self.options.essid not in self.essidstore:
+        if self.options.essid not in self.essidstore:
             return "ESSID not found..."
         else:
             self.tell("All results for ESSID '%s' will be deleted! Continue? [y/N]" % self.options.essid, end=None)
@@ -175,7 +202,7 @@ class Pyrit_CLI(object):
                 self.tell("aborted.")
 
     def list_cores(self):
-        import cpyrit
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
         self.tell("The following cores seem available...")
         for i, core in enumerate(cp.cores):
@@ -200,35 +227,22 @@ class Pyrit_CLI(object):
         for essid, rescount in sorted(essid_results.iteritems()):
             self.tell("ESSID '%s':\t%i (%.2f%%)" % (essid, rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
         self.tell("")
-            
+    
+    @requires_options('file')
     def import_passwords(self):
-        if self.options.file is None:
-            return "One must specify a filename using the -f option. See 'help'"
-        else:
-            self.tell("Importing from", end=None)
-            if self.options.file == '-':
-                self.tell("stdin.")
-                f = sys.stdin
-            else:
-                self.tell("'%s'" % self.options.file)
-                f = open(self.options.file, 'r')
-            for i, line in enumerate(f):
-                self.passwdstore.store_password(line)
-                if i % 100000 == 0:
-                    self.tell("\r%i lines read." % i, end=None, flush=True)
-            f.close()
-            self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
-            self.passwdstore.flush_buffer()
-            self.tell('All done.')
+        f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
+        for i, line in enumerate(f):
+            self.passwdstore.store_password(line)
+            if i % 100000 == 0:
+                self.tell("\r%i lines read." % i, end=None, flush=True)
+        f.close()
+        self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
+        self.passwdstore.flush_buffer()
+        self.tell('All done.')
 
+    @requires_options('file')
     def export_passwords(self):
-        if self.options.file is None:
-            return "You must specify a filename using the -f option. See 'help'"
-        if self.options.file == '-':
-            f = sys.stdout
-        else:
-            self.tell("Exporting to '%s'..." % self.options.file)
-            f = open(self.options.file, 'wb')
+        f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
         lines = 0
         with util.AsyncFileWriter(f) as awriter:
             for idx, pwset in enumerate(self.passwdstore.iterpasswords()):
@@ -239,15 +253,8 @@ class Pyrit_CLI(object):
             self.tell("\nAll done")
         f.close()
     
+    @requires_options('file', 'essid')
     def export_cowpatty(self):
-        if self.options.file is None:
-            return "You must specify a filename using the -f option. See 'help'"
-        if self.options.essid is None:
-            essid = self.options.file.split('.')[0]
-            if essid in self.essidstore:
-                self.options.essid = essid
-            else:
-                return "The cowpatty-format only supports one ESSID per file. Please specify one using the -e option."
         if self.options.essid not in self.essidstore:
             return "The ESSID you specified can't be found in the storage."
         f = sys.stdout if self.options.file == '-' else open(self.options.file, 'wb')
@@ -267,10 +274,10 @@ class Pyrit_CLI(object):
             awriter.close()
             f.close()
 
+    @requires_pckttools()
+    @requires_options('capturefile')
     def analyzeCapture(self):
-        if not self.options.capturefile:
-            return "Specify a packet capture file using the -r option. See 'help'"
-        for i, ap in enumerate(self._getParser()):
+        for i, ap in enumerate(self._getParser(self.options.capturefile)):
             self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
             for j, sta in enumerate(ap):
                 self.tell("  #%i: Station %s" % (j, sta), end=None, sep=None)
@@ -280,11 +287,10 @@ class Pyrit_CLI(object):
                     self.tell('')
             self.tell('')
 
+    @requires_options('file')
     def export_hashdb(self):
-        if self.options.file is None:
-            return "You must specify the database filename using the -f option. See 'help'"
+        import sqlite3
         essids = list(self.essidstore) if self.options.essid is None else [self.options.essid]
-
         con = sqlite3.connect(self.options.file)
         con.text_factory = str
         cur = con.cursor()
@@ -406,17 +412,14 @@ class Pyrit_CLI(object):
                     yield zip(workunits.pop(0), solvedPMKs)
         if len(pwbuffer) > 0:
             workunits.append(pwbuffer)
-            cp.enqueue(self.options.essid, workunits[-1])
+            cp.enqueue(essid, workunits[-1])
         for solvedPMKs in cp:
             yield zip(workunits.pop(0), solvedPMKs)
 
+    @requires_options('essid', 'file')
     def passthrough(self):
-        import cpyrit
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
-        if self.options.essid is None:
-            return "Specifiy a ESSID using the -e option. See 'help'"
-        if self.options.file is None:
-            return "Specify a filename using the -f option to read passwords from. See 'help'"
         f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
         totalResCount = 0
         startTime = time.time()
@@ -436,9 +439,9 @@ class Pyrit_CLI(object):
             f.close()
 
     def batchprocess(self):
-        import cpyrit
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
-        if self.options.file and self.options.essid is None:
+        if self.options.file and not self.options.essid:
             return "Results will be written to a file while batchprocessing. This requires to specify a single ESSID."
         if self.options.essid is not None:
             if self.options.essid not in self.essidstore:
@@ -477,16 +480,12 @@ class Pyrit_CLI(object):
             self._printCoreStats(cp, startTime)
         self.tell("Batchprocessing done.")
 
+    @requires_pckttools()
+    @requires_options('essid', 'file', 'capturefile')
     def attack_passthrough(self):
-        import cpyrit
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
-        if self.options.essid is None:
-            return "Specifiy a ESSID using the -e option. See 'help'"
-        if self.options.file is None:
-            return "Specify a filename using the -f option to read passwords from. See 'help'"
-        if not self.options.capturefile:
-            return "Specify a packet capture file using the -r option. See 'help'"
-        parser = self._getParser()
+        parser = self._getParser(self.options.capturefile)
         try:
             ap = self._fuzzyGetAP(parser)
         except RuntimeError, e:
@@ -497,7 +496,7 @@ class Pyrit_CLI(object):
         totalResCount = 0
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
-            cracker = util.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.frame)
+            cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.frame)
             self.tell("Attacking handshake with Station %s..." % auth.sta)
             for results in self._passthroughIterator(self.options.essid, cp, f):
                 cracker.enqueue(results)
@@ -516,12 +515,12 @@ class Pyrit_CLI(object):
             return "\n\nPassword was not found.\n"
         self._printCoreStats(cp, startTime)                
 
+    @requires_pckttools()
+    @requires_options('capturefile')
     def attack_batch(self):
-        import cpyrit
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
-        if not self.options.capturefile:
-            return "Specify a packet capture file using the -r option. See 'help'"
-        parser = self._getParser()
+        parser = self._getParser(self.options.capturefile)
         try:
             ap = self._fuzzyGetAP(parser)
         except RuntimeError, e:
@@ -534,7 +533,7 @@ class Pyrit_CLI(object):
         startTime = time.time()
         try:
             for auth in ap.getCompletedAuthentications():
-                cracker = util.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.frame)
+                cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.frame)
                 self.tell("Attacking handshake with Station %s..." % auth.sta)
                 for results in self._databaseIterator(self.options.essid, cp, yieldOldResults=True, yieldNewResults=True):
                     cracker.enqueue(results)
@@ -554,10 +553,10 @@ class Pyrit_CLI(object):
         finally:
             self._printCoreStats(cp, startTime)
 
+    @requires_pckttools()
+    @requires_options('capturefile')
     def attack_db(self):
-        if not self.options.capturefile:
-            return "Specify a packet capture file using the -r option. See 'help'"
-        parser = self._getParser()
+        parser = self._getParser(self.options.capturefile)
         try:
             ap = self._fuzzyGetAP(parser)
         except RuntimeError, e:
@@ -569,7 +568,7 @@ class Pyrit_CLI(object):
         totalResCount = 0
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
-            cracker = util.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.frame)
+            cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.frame)
             self.tell("Attacking handshake with Station %s..." % auth.sta)
             for results in self._databaseIterator(self.options.essid, cp=None, yieldOldResults=True, yieldNewResults=False):
                 cracker.enqueue(results)
@@ -587,10 +586,9 @@ class Pyrit_CLI(object):
         else:
             return "\n\nPassword was not found.\n"
 
-    def benchmark(self):
-        import cpyrit
+    def benchmark(self, timeout=60):
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
-
         # Burn-in so all modules are forced to load and buffers can calibrate to correct size        
         self.tell("Calibrating...", end=None)
         t = time.time()
@@ -599,33 +597,25 @@ class Pyrit_CLI(object):
             cp.enqueue('foo', pws)
             cp.dequeue(block=False)
         for r in cp:
-            pass
-        
+            pass        
         # Minimize scheduling overhead...
         pws = ['barbarbar']*max(min(int(cp.getPeakPerformance()), 50000), 500)
+
         cp.resetStatistics()
         cycler = itertools.cycle(('\\|/-'))
         t = time.time()
-        while time.time() - t < 60:
-            self.tell("\rRunning benchmark for about %i seconds... %s" % (60 - (time.time() - t), cycler.next()), end=None)
+        while time.time() - t < timeout:
+            self.tell("\rRunning benchmark for about %i seconds... %s" % (timeout - (time.time() - t), cycler.next()), end=None)
             cp.enqueue('foo', pws)
             cp.dequeue(block=False)
         self.tell('')
         for r in cp:
             pass
         self.tell('')
-        total = 0
-        tdiff = time.time() - t
-        for i, core in enumerate(cp.cores):
-            perf = core.resCount / core.compTime if core.compTime > 0 else 0
-            rtt = (core.resCount / core.callCount) / perf if core.callCount > 0 and perf > 0 else 0
-            self.tell("#%i: '%s': %.1f PMKs/s (Occ. %.1f%%; RTT %.1f)" \
-                        % (i+1, core.name, perf, core.compTime * 100.0 / tdiff, rtt))
-            total += perf
-        self.tell("\nBenchmark done. %i PMKs/s total." % total)
-
-    def selftest(self):
-        import cpyrit
+        self._printCoreStats(cp, t)
+    
+    def selftest(self, timeout=60):
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
         self.tell("Cores incorporated in the test:")
         for i, core in enumerate(cp.cores):
@@ -634,7 +624,7 @@ class Pyrit_CLI(object):
         workunits = []
         t = time.time()
         err = False
-        while time.time() - t < 60 and not err:
+        while time.time() - t < timeout and not err:
             essid = random.choice(util.PMK_TESTVECTORS.keys())
             pws = [random.choice(util.PMK_TESTVECTORS[essid].keys()) for i in xrange(random.randrange(10, 1000))]
             workunits.append((essid, pws))
@@ -662,7 +652,7 @@ class Pyrit_CLI(object):
             self.tell("\nAll results verified. Your installation seems OK.")
     
     def verify(self):
-        import cpyrit
+        from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
         if self.options.essid is not None:
             if self.options.essid not in self.essidstore:

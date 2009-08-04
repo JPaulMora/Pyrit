@@ -18,9 +18,6 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#define HMAC_MD5_RC4 0
-#define HMAC_SHA1_AES 1
-
 #ifdef __i386__
     #define COMPILE_PADLOCK
     #if defined(linux)
