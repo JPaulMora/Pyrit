@@ -108,7 +108,7 @@ class GPUCleaner(clean):
         clean.run(self)
 
 
-cuda_extension = Extension('_cpyrit._cpyrit_cuda',
+cuda_extension = Extension('cpyrit._cpyrit_cuda',
                     libraries = ['ssl', 'cuda', 'z'],
                     sources = ['_cpyrit_cuda.c'],
                     include_dirs = NVIDIA_INC_DIRS,

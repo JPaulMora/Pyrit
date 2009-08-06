@@ -103,7 +103,7 @@ class GPUCleaner(clean):
 
 
 # ... _brook_tmp/_stream.cpp is put in place by GPUBuilder
-stream_extension = Extension('_cpyrit._cpyrit_stream',
+stream_extension = Extension('cpyrit._cpyrit_stream',
                     libraries = ['ssl', 'dl', 'brook'],
                     sources = ['cpyrit_stream.cpp', '_brook_tmp/_stream.cpp'],
                     extra_compile_args = EXTRA_COMPILE_ARGS,

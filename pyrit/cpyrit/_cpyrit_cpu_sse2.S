@@ -128,13 +128,11 @@
     por     tmp2, b;
  
 
-.globl sse2_sha1_finalize;
-.globl sse2_sha1_update;
 .globl detect_sse2;
-
+.globl sse2_sha1_update;
+.globl sse2_sha1_finalize;
 
 .data
-
 .align(16)
 const_stage0:   .long 0x5A827999, 0x5A827999, 0x5A827999, 0x5A827999
 const_stage1:   .long 0x6ED9EBA1, 0x6ED9EBA1, 0x6ED9EBA1, 0x6ED9EBA1

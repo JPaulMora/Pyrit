@@ -95,89 +95,105 @@ eapolcracker_dealloc(EAPOLCracker *self)
 static PyObject *
 eapolcracker_solve(EAPOLCracker *self, PyObject *args)
 {
-    PyObject *pmk_seq, *pmk_obj, *result;
+    PyObject *result_seq, *result_obj, **passwd_objbuffer, **t_obj, \
+             *passwd_obj, *pmk_obj, *solution_obj;
     char *pmk;
-    unsigned char *pmkbuffer, *t, mic_key[20], eapol_mic[20];
-    Py_ssize_t i, buffersize, pmkcount;
+    unsigned char *pmk_buffer, *t, mic_key[20], eapol_mic[20];
+    Py_ssize_t buffersize;
+    long i, itemcount;
 
-    if (!PyArg_ParseTuple(args, "O", &pmk_seq))
+    if (!PyArg_ParseTuple(args, "O", &result_seq))
         return NULL;
 
-    pmk_seq = PyObject_GetIter(pmk_seq);
-    if (!pmk_seq)
+    result_seq = PyObject_GetIter(result_seq);
+    if (!result_seq)
     {
         PyErr_NoMemory();
         return NULL;
     }
     
-    pmkbuffer = NULL;
-    pmk_obj = NULL;
-    buffersize = pmkcount = 0;
-    while ((pmk_obj = PyIter_Next(pmk_seq)))
+    pmk_buffer = NULL;
+    passwd_objbuffer = NULL;
+    passwd_obj = pmk_obj = solution_obj = NULL;
+    itemcount = 0;
+    buffersize = 0;
+    while ((result_obj = PyIter_Next(result_seq)))
     {
-        if (buffersize <= pmkcount * 32)
+        if (buffersize <= itemcount)
         {
-            buffersize += 32*50000;
-            t = PyMem_Realloc(pmkbuffer, buffersize);
+            buffersize += 50000;
+            t = PyMem_Realloc(pmk_buffer, buffersize*32);
             if (!t)
-                goto errout;
-            pmkbuffer = t;
+                goto out;
+            pmk_buffer = t;
+            t_obj = PyMem_Realloc(passwd_objbuffer, buffersize*sizeof(PyObject*));
+            if (!t_obj)
+                goto out;
+            passwd_objbuffer = t_obj;
         }
+        
+        passwd_obj = PySequence_GetItem(result_obj, 0);
+        if (!passwd_obj)
+            goto out;
+        passwd_objbuffer[itemcount] = passwd_obj;
+        
+        pmk_obj = PySequence_GetItem(result_obj, 1);
+        if (!pmk_obj)
+            goto out;
         pmk = PyString_AsString(pmk_obj);
-
         if (pmk == NULL || PyString_Size(pmk_obj) != 32)
         {
             PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
-            goto errout;
+            Py_DECREF(pmk_obj);
+            goto out;
         }
-
-        memcpy(pmkbuffer + pmkcount*32, pmk, 32);
-        
+        memcpy(pmk_buffer + itemcount*32, pmk, 32);
         Py_DECREF(pmk_obj);
-        pmkcount += 1;
+        
+        itemcount += 1;
     }
-    Py_DECREF(pmk_seq);
     
-    result = NULL;
-    if (pmkcount > 0)
+    if (itemcount > 0)
     {
         Py_BEGIN_ALLOW_THREADS;
-        for (i = 0; i < pmkcount; i++)
+        for (i = 0; i < itemcount; i++)
         {
-            HMAC(EVP_sha1(), &pmkbuffer[i*32], 32, self->pke, 100, mic_key, NULL);
+            HMAC(EVP_sha1(), &pmk_buffer[i*32], 32, self->pke, 100, mic_key, NULL);
             if (self->keyscheme == HMAC_MD5_RC4)
                 HMAC(EVP_md5(), mic_key, 16, self->eapolframe, self->eapolframe_size, eapol_mic, NULL);
             else
                 HMAC(EVP_sha1(), mic_key, 16, self->eapolframe, self->eapolframe_size, eapol_mic, NULL);
             if (memcmp(eapol_mic, self->keymic, 16) == 0)
             {
-                result = PyInt_FromSsize_t(i);
+                solution_obj = passwd_objbuffer[i];
                 break;
             }
         }
-        Py_END_ALLOW_THREADS;    
+        Py_END_ALLOW_THREADS;
     }
-    if (!result)
+    if (!solution_obj)
     {
-        result = Py_None;
-        Py_INCREF(Py_None);
+        solution_obj = Py_None;
+        Py_INCREF(solution_obj);
     }
-
-    PyMem_Free(pmkbuffer);
-
-    return result;
     
-    errout:
-    Py_DECREF(pmk_seq);
-    Py_XDECREF(pmk_obj);
-    PyMem_Free(pmkbuffer);
-    return NULL;
+    out:
+    Py_DECREF(result_seq);
+    if (pmk_buffer)
+        PyMem_Free(pmk_buffer);
+    if (itemcount > 0)
+    {
+        for (i = 0; i < itemcount; i++)
+            Py_DECREF(passwd_objbuffer[i]);
+        PyMem_Free(passwd_objbuffer);
+    }
+    return solution_obj;
 }
 
 
 static PyMethodDef EAPOLCracker_methods[] =
 {
-    {"solve", (PyCFunction)eapolcracker_solve, METH_VARARGS, "[You should not be here. The Levellord]"},
+    {"solve", (PyCFunction)eapolcracker_solve, METH_VARARGS, "Try to find the password that corresponds to this instance's EAPOL-session from a iterable of (passwords,PMK)-tuples."},
     {NULL, NULL}
 };
 
