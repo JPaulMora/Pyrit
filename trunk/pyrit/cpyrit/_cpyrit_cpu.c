@@ -41,12 +41,6 @@ static PyObject *PlatformString;
 static void (*prepare_pmk)(const char *essid_pre, const char *password, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
 
-#ifdef COMPILE_SSE2
-    extern int detect_sse2(void);
-    extern int sse2_sha1_update(uint32_t ctx[20], uint32_t data[64], uint32_t wrkbuf[320]) __attribute__((regparm(3)));
-    extern int sse2_sha1_finalize(uint32_t ctx[20], uint32_t digests[20]) __attribute__((regparm(2)));
-#endif
-
 #ifdef COMPILE_PADLOCK
     struct xsha1_ctx {
         unsigned int state[32];
@@ -212,7 +206,7 @@ static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
     static int
     finalize_pmk_padlock(struct pmk_ctr *ctr)
     {
-        int i;
+        int i, j;
         unsigned int e1_buffer[5], e2_buffer[5];
 
         memcpy(e1_buffer, ctr->e1, 20);
@@ -221,12 +215,13 @@ static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
         {
             padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e1_buffer);
             padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e1_buffer);
-            ctr->e1[0] ^= e1_buffer[0]; ctr->e1[1] ^= e1_buffer[1]; ctr->e1[2] ^= e1_buffer[2];
-            ctr->e1[3] ^= e1_buffer[3]; ctr->e1[4] ^= e1_buffer[4];
+            for (j = 0; j < 5; j++)
+                ctr->e1[j] ^= e1_buffer[j];
             
             padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e2_buffer);
             padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e2_buffer);
-            ctr->e2[0] ^= e2_buffer[0]; ctr->e2[1] ^= e2_buffer[1]; ctr->e2[2] ^= e2_buffer[2];
+            for (j = 0; j < 3; j++)
+                ctr->e2[j] ^= e2_buffer[j];
         }
         
         return 1;
@@ -236,6 +231,10 @@ static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
 
 
 #ifdef COMPILE_SSE2
+    extern int detect_sse2(void);
+    extern int sse2_sha1_update(uint32_t ctx[20], uint32_t data[64], uint32_t wrkbuf[320]) __attribute__((regparm(3)));
+    extern int sse2_sha1_finalize(uint32_t ctx[20], uint32_t digests[20]) __attribute__((regparm(2)));
+
     static int
     finalize_pmk_sse2(struct pmk_ctr *ctr)
     {
@@ -339,7 +338,7 @@ prepare_pmk_openssl(const char *essid_pre, const char *password, struct pmk_ctr 
 static int
 finalize_pmk_openssl(struct pmk_ctr *ctr)
 {
-    int i;
+    int i, j;
     SHA_CTX ctx;
     unsigned int e1_buffer[5], e2_buffer[5];
 
@@ -355,9 +354,9 @@ finalize_pmk_openssl(struct pmk_ctr *ctr)
         SHA1_Update(&ctx, (unsigned char*)e1_buffer, 20);
         SHA1_Final((unsigned char*)e1_buffer, &ctx);
 
-        ctr->e1[0] ^= e1_buffer[0]; ctr->e1[1] ^= e1_buffer[1]; ctr->e1[2] ^= e1_buffer[2]; 
-        ctr->e1[3] ^= e1_buffer[3]; ctr->e1[4] ^= e1_buffer[4]; 
-
+        for (j = 0; j < 5; j++)
+            ctr->e1[j] ^= e1_buffer[j];
+        
         memcpy(&ctx, &ctr->ctx_ipad, sizeof(ctx));
         SHA1_Update(&ctx, (unsigned char*)e2_buffer, 20);
         SHA1_Final((unsigned char*)e2_buffer, &ctx);
@@ -366,7 +365,8 @@ finalize_pmk_openssl(struct pmk_ctr *ctr)
         SHA1_Update(&ctx, (unsigned char*)e2_buffer, 20);
         SHA1_Final((unsigned char*)e2_buffer, &ctx);
 
-        ctr->e2[0] ^= e2_buffer[0]; ctr->e2[1] ^= e2_buffer[1]; ctr->e2[2] ^= e2_buffer[2]; 
+        for (j = 0; j < 3; j++)
+            ctr->e2[j] ^= e2_buffer[j]; 
     }
     
     return 1;

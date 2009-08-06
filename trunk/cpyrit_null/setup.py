@@ -34,7 +34,7 @@ except:
     version_string = '0.2.4-dev'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
-null_extension = Extension('_cpyrit._cpyrit_null',
+null_extension = Extension('cpyrit._cpyrit_null',
                     sources = ['_cpyrit_null.c'],
                     extra_compile_args=EXTRA_COMPILE_ARGS)
 

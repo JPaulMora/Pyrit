@@ -281,14 +281,10 @@ class EAPOLCrackerThread(threading.Thread, _cpyrit_pckttools.EAPOLCracker):
     
     def run(self):
         while True:
-            results = self.workqueue.get()
-            try:
-                solution_idx = self.solve((pmk for passwd, pmk in results))
-                if solution_idx:
-                    self.solution = results[solution_idx][0]
-                    break
-            finally:
-                self.workqueue.task_done()
+            solution = self.solve(self.workqueue.get())
+            if solution:
+                self.solution = solution
+            self.workqueue.task_done()
 
 
 class EAPOLCracker(object):

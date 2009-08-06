@@ -1,4 +1,5 @@
 pyrit
+pyrit_cli.py
 setup.py
 cpyrit/__init__.py
 cpyrit/cpyrit.py
