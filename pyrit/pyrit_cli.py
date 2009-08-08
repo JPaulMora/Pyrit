@@ -103,6 +103,7 @@ class Pyrit_CLI(object):
          'selftest': self.selftest,
          'verify': self.verify,
          'analyze': self.analyzeCapture,
+         'attack': self.attack_batch
          'attack_db': self.attack_db,
          'attack_batch': self.attack_batch,
          'attack_passthrough': self.attack_passthrough,
@@ -521,7 +522,7 @@ class Pyrit_CLI(object):
         self.tell("Batchprocessing done.")
 
     @requires_pckttools()
-    @requires_options('essid', 'file', 'capturefile')
+    @requires_options('file', 'capturefile')
     def attack_passthrough(self):
         from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
