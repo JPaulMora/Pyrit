@@ -41,6 +41,8 @@ static PyObject *PlatformString;
 static void (*prepare_pmk)(const char *essid_pre, const char *password, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
 
+static uint32_t sha1_constants[6][4];
+
 #ifdef COMPILE_PADLOCK
     struct xsha1_ctx {
         unsigned int state[32];
@@ -232,22 +234,23 @@ static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
 
 #ifdef COMPILE_SSE2
     extern int detect_sse2(void);
-    extern int sse2_sha1_update(uint32_t ctx[20], uint32_t data[64], uint32_t wrkbuf[320]) __attribute__((regparm(3)));
-    extern int sse2_sha1_finalize(uint32_t ctx[20], uint32_t digests[20]) __attribute__((regparm(2)));
+    extern int sse2_sha1_update(uint32_t ctx[4*5+4*6], uint32_t data[4*16], uint32_t wrkbuf[4*80]) __attribute__ ((regparm(3)));
+    extern int sse2_sha1_finalize(uint32_t ctx[4*5+4*6], uint32_t digests[4*5]) __attribute__ ((regparm(2)));
 
     static int
     finalize_pmk_sse2(struct pmk_ctr *ctr)
     {
         int i, j, k;
-        uint32_t ctx_ipad[20] __attribute__ ((aligned (16)));
-        uint32_t ctx_opad[20] __attribute__ ((aligned (16)));
-        uint32_t sha1_ctx[20] __attribute__ ((aligned (16)));
-        uint32_t e1_buffer[64] __attribute__ ((aligned (16)));
-        uint32_t e2_buffer[64] __attribute__ ((aligned (16)));
-        uint32_t wrkbuf[320] __attribute__ ((aligned (16)));
+        uint32_t ctx_ipad[4*5]      __attribute__ ((aligned (16)));
+        uint32_t ctx_opad[4*5]      __attribute__ ((aligned (16)));
+        uint32_t sha1_ctx[4*5+4*6]  __attribute__ ((aligned (16)));
+        uint32_t e1_buffer[4*16]    __attribute__ ((aligned (16)));
+        uint32_t e2_buffer[4*16]    __attribute__ ((aligned (16)));
+        uint32_t wrkbuf[4*80]       __attribute__ ((aligned (16)));
 
         memset(e1_buffer, 0, sizeof(e1_buffer));
         memset(e2_buffer, 0, sizeof(e2_buffer));
+        memcpy(&sha1_ctx[4*5], sha1_constants, sizeof(sha1_constants));
 
         // Interleave four ipads, opads and first-round-PMKs to local buffers
         for (i = 0; i < 4; i++)
@@ -276,19 +279,19 @@ static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
         // Process through SSE2 and de-interleave back to ctr
         for (i = 0; i < 4096-1; i++)
         {
-            memcpy(sha1_ctx, ctx_ipad, sizeof(sha1_ctx));
+            memcpy(sha1_ctx, ctx_ipad, 4 * 5 * sizeof(uint32_t));
             sse2_sha1_update(sha1_ctx, e1_buffer, wrkbuf);
             sse2_sha1_finalize(sha1_ctx, e1_buffer);
             
-            memcpy(sha1_ctx, ctx_opad, sizeof(sha1_ctx));
+            memcpy(sha1_ctx, ctx_opad, 4 * 5 * sizeof(uint32_t));
             sse2_sha1_update(sha1_ctx, e1_buffer, wrkbuf);
             sse2_sha1_finalize(sha1_ctx, e1_buffer);
 
-            memcpy(sha1_ctx, ctx_ipad, sizeof(sha1_ctx));
+            memcpy(sha1_ctx, ctx_ipad, 4 * 5 * sizeof(uint32_t));
             sse2_sha1_update(sha1_ctx, e2_buffer, wrkbuf);
             sse2_sha1_finalize(sha1_ctx, e2_buffer);
             
-            memcpy(sha1_ctx, ctx_opad, sizeof(sha1_ctx));
+            memcpy(sha1_ctx, ctx_opad, 4 * 5 * sizeof(uint32_t));
             sse2_sha1_update(sha1_ctx, e2_buffer, wrkbuf);
             sse2_sha1_finalize(sha1_ctx, e2_buffer);
             
@@ -543,6 +546,17 @@ PyMODINIT_FUNC
 init_cpyrit_cpu(void)
 {
     PyObject *m;
+    int i;
+
+    for (i = 0; i < 4; i++)
+    {
+        sha1_constants[0][i] = 0x5A827999; /* const_stage0 */
+        sha1_constants[1][i] = 0x6ED9EBA1; /* const_stage1 */
+        sha1_constants[2][i] = 0x8F1BBCDC; /* const_stage2 */
+        sha1_constants[3][i] = 0xCA62C1D6; /* const_stage3 */
+        sha1_constants[4][i] = 0xFF00FF00; /* const_ff00   */
+        sha1_constants[5][i] = 0x00FF00FF; /* const_00ff   */
+    }
 
     pathconfig();
 
