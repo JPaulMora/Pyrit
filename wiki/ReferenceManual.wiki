@@ -16,18 +16,54 @@ If _command_ succeeds, _pyrit_'s process exit status is set to 0; otherwise it i
 
 Pyrit recognizes the following options:
 
- * *-e*
- Specifies the ESSID. Commands usually refer to all ESSIDs in the database when this option is omitted.
- * *-f*
- Specifies a filename. Beware that depending on the given _command_ this may be a file that is read from or written to. The special filename '-' can be used for _stdin_/_stdout_.
+    * *-b _(0.2.4)_*
+    Specifies a BSSID. Can be used to restrict commands to certain Access-Points.
+    * *-e*
+    Specifies the ESSID. Commands usually refer to all ESSIDs in the database when this option is omitted.
+    * *-f*
+    Specifies a filename. Beware that depending on the given _command_ this may be a file that is read from or written to. The special filename '-' can be used for _stdin_/_stdout_.
+    * *-r _(0.2.4)_*
+    Specified a packet-capture file in pcap format (possibly gzip-compressed).
 
 === Commands ===
+
+    * *analyze _(0.2.4)_*
+    Parse a packet-capture file (in pcap-format) and try to detect Access-Points, Stations and EAPOL-handshakes. For example:
+        `pyrit -r test.pcap analyze`
+        
+    The suffix _'handshake found'_ is appended to the Station's BSSID if the communication between the Access-Point and the Station seems to include a valid EAPOL-handshake.
+
+
+    * *attack*
+    Synonym for *attack_batch*
+
+
+    * *attack_batch _(0.2.4)_*
+    Attack an EAPOL-handshake found in the packet-capture file given by the option *-r* using the Pairwise Master Keys and passwords stored in the database. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
+        `pyrit -r test.pcap -e MyNetwork -b 00:de:ad:c0:de:00 attack_batch`
+        
+    Pairwise Master Keys that previously have been computed and stored in the database are taken from there; all other passwords will first be translated into their respective Pairwise Master Keys and stored in the database for later re-use. ESSIDs are created automatically in the database if necessary.
+
+    
+    * *attack_db _(0.2.4)_*
+    Attack an EAPOL-handshake found in the packet-capture file given by the option *-r* using the Pairwise Master Keys stored in the database. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
+        `pyrit -r test.pcap -e MyOtherNetwork attack_db`
+
+    Only Pairwise Master Keys that previously have been computed and stored in the database are used by *attack_db*.
+
+
+    * *attack_passthrough _(0.2.4)_*
+    Attack an EAPOL-handshake found in the packet-capture file given by the option *-r* using the passwords read from the file given by the option *-f*. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
+        `pyrit -r test.pcap -b 00:de:ad:be:ef:00 -f words.txt attack_passthrough`
+
+    This command circumvents Pyrit's database and should only be used if storage-space is a problem (e.g. on LiveCDs). You should consider using *attack_batch* otherwise.
+
 
     * *batch*
     Start to translate all passwords in the database into their respective PMKs and store the results in the database. The option *-e* may be used to restrict this command to a single ESSID; if it is ommitted, all ESSIDs are processed one after the other in undefined order. For example:
         `pyrit -e NETGEAR batch`
     
-    The option *-f* can be used to specify a filename the results should additionally be written to in _cowpatty_'s binary format. The option *-e* becomes mandatory and the ESSID is automatically created in the database if necessary. PMKs that previously have been computed and stored in the database are exported from there without further processing. _Pyrit_ stops and exits if an _IOError_ is raised while writing to the specified file but signals success on exit. This makes it very convenient to pipe results directly to other programs but also keep them for later use. For example:
+    The option *-f* can be used to specify a filename the results should additionally be written to in _cowpatty_'s binary format. The option *-e* becomes mandatory and the ESSID is automatically created in the database if necessary. Pairwise Master Keys that previously have been computed and stored in the database are exported from there without further processing. _Pyrit_ stops and exits if an _IOError_ is raised while writing to the specified file but signals success on exit. This makes it very convenient to pipe results directly to other programs but also keep them for later use. For example:
         `pyrit -e NETGEAR -f - batch | cowpatty -d - -r wpatestcapture.cap -s NETGEAR`
 
 
@@ -93,6 +129,11 @@ Pyrit recognizes the following options:
     Run an extensive selftest for about 60 seconds. This test includes the entire scheduling-mechanism and all cores that are listed by *list_cores*. You can use this function to detect broken hardware-modules or malicious network-clients. For example:
         `pyrit selftest`
 
+    
+    * *strip _(0.2.4)_*
+    Parse a packet-capture file given by the option *-r*, extract only packets that are necessary for EAPOL-handshake detection and write a new dump to the filename given by the option *-f*. The options *-e* and *-b* can be used to filter certain Access-Points. For example:
+        `pyrit -r large_dump.pcap -e MyNetwork -f tiny_dump_MyNetwork.dump strip`
+    
  
     * *verify*
     Randomly pick 10% of the results stored in the database and verify their value by recomputation. You need this function if you suspect broken hardware or malicious network-clients. For example:
