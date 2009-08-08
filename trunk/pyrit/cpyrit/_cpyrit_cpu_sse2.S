@@ -25,6 +25,13 @@
 
 #ifdef COMPILE_SSE2
 
+#define const_stage0 4*5*4 + 4*0*4
+#define const_stage1 4*5*4 + 4*1*4
+#define const_stage2 4*5*4 + 4*2*4
+#define const_stage3 4*5*4 + 4*3*4
+#define const_ff00   4*5*4 + 4*4*4
+#define const_00ff   4*5*4 + 4*5*4
+
 #define ctxa %xmm0
 #define ctxb %xmm1
 #define ctxc %xmm2
@@ -37,7 +44,6 @@
 #define tmp5 ctxb
 
 #ifdef __x86_64__
-    #define _reloc(x) x(%rip)
     #define eax_rdi %rdi
     #define ebx_rbx %rbx
     #define ecx_rcx %rcx
@@ -45,7 +51,6 @@
     #define edx_rdx %rdx
     #define edx_rsi %rsi
 #else
-    #define _reloc(x) x
     #define eax_rdi %eax
     #define ebx_rbx %ebx
     #define ecx_rcx %ecx
@@ -90,8 +95,8 @@
     por     tmp2, b;                    \
     movdqa  (data*16)(edx_rsi), tmp1;   \
     movdqa  tmp1, tmp2;                 \
-    pand    _reloc(const_ff00), tmp1;   \
-    pand    _reloc(const_00ff), tmp2;   \
+    pand    const_ff00(eax_rdi), tmp1;  \
+    pand    const_00ff(eax_rdi), tmp2;  \
     psrld   $8, tmp1;                   \
     pslld   $8, tmp2;                   \
     por     tmp2, tmp1;                 \
@@ -128,24 +133,15 @@
     por     tmp2, b;
  
 
-.globl detect_sse2;
-.globl sse2_sha1_update;
-.globl sse2_sha1_finalize;
+.globl detect_sse2, _detect_sse2;;
+.globl sse2_sha1_update, _sse2_sha1_update;
+.globl sse2_sha1_finalize, _sse2_sha1_finalize;
 
-.data
-.align(16)
-const_stage0:   .long 0x5A827999, 0x5A827999, 0x5A827999, 0x5A827999
-const_stage1:   .long 0x6ED9EBA1, 0x6ED9EBA1, 0x6ED9EBA1, 0x6ED9EBA1
-const_stage2:   .long 0x8F1BBCDC, 0x8F1BBCDC, 0x8F1BBCDC, 0x8F1BBCDC
-const_stage3:   .long 0xCA62C1D6, 0xCA62C1D6, 0xCA62C1D6, 0xCA62C1D6
-const_ff00:     .long 0xFF00FF00, 0xFF00FF00, 0xFF00FF00, 0xFF00FF00
-const_00ff:     .long 0x00FF00FF, 0x00FF00FF, 0x00FF00FF, 0x00FF00FF
-
- 
 .text
 
-// arg 1 (eax) (64bit: rdi): context (4*20 bytes)
-// arg 2 (edx) (64bit: rsi) : digests (4*20 bytes)
+// arg 1 (eax) (64bit: rdi): context + constants (4*5*4 + 4*6*4 bytes)
+// arg 2 (edx) (64bit: rsi): digests (4*5*4 bytes)
+_sse2_sha1_finalize:
 sse2_sha1_finalize:
 
     movdqa    0(eax_rdi), ctxa
@@ -154,12 +150,12 @@ sse2_sha1_finalize:
     movdqa   48(eax_rdi), ctxd
     movdqa   64(eax_rdi), ctxe
 
-    movdqa   _reloc(const_ff00), tmp3
+    movdqa   const_ff00(eax_rdi), tmp3
     movdqa   ctxa, tmp1
     movdqa   ctxb, tmp2
     pand     tmp3, ctxa
     pand     tmp3, ctxb
-    movdqa   _reloc(const_00ff), tmp3
+    movdqa   const_00ff(eax_rdi), tmp3
     pand     tmp3, tmp1
     pand     tmp3, tmp2
     psrld    $8, ctxa
@@ -179,14 +175,14 @@ sse2_sha1_finalize:
     movdqa   ctxa,  0(edx_rsi)
     movdqa   ctxb,  16(edx_rsi)
 
-    movdqa   _reloc(const_ff00), tmp5
+    movdqa   const_ff00(eax_rdi), tmp5
     movdqa   ctxc, tmp1
     movdqa   ctxd, tmp2
     movdqa   ctxe, tmp3
     pand     tmp5, ctxc
     pand     tmp5, ctxd
     pand     tmp5, ctxe
-    movdqa   _reloc(const_00ff), tmp5
+    movdqa   const_00ff(eax_rdi), tmp5
     pand     tmp5, tmp1
     pand     tmp5, tmp2
     pand     tmp5, tmp3
@@ -218,9 +214,10 @@ sse2_sha1_finalize:
 
     ret
 
-// arg 1 (eax) (64bit: rdi): context     (4*20 bytes)
+// arg 1 (eax) (64bit: rdi): context + constants (4*5*4 + 4*6*4 bytes)
 // arg 2 (edx) (64bit: rsi): input data (4*64 bytes)
-// arg 3 (ecx) (64bit: rdx): workspace  (1280 bytes)
+// arg 3 (ecx) (64bit: rdx): workspace  (4*80*4 bytes)
+_sse2_sha1_update:
 sse2_sha1_update:
 
     movdqa    0(eax_rdi), ctxa
@@ -228,100 +225,96 @@ sse2_sha1_update:
     movdqa   32(eax_rdi), ctxc
     movdqa   48(eax_rdi), ctxd
     movdqa   64(eax_rdi), ctxe
-
-round0:
-
+    
     prefetchnta (edx_rsi)
 
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, _reloc(const_stage0),  0 );
-    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, _reloc(const_stage0),  1 );
-    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, _reloc(const_stage0),  2 );
-    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, _reloc(const_stage0),  3 );
-    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, _reloc(const_stage0),  4 );
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, _reloc(const_stage0),  5 );
-    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, _reloc(const_stage0),  6 );
-    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, _reloc(const_stage0),  7 );
-    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, _reloc(const_stage0),  8 );
-    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, _reloc(const_stage0),  9 );
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, _reloc(const_stage0), 10 );
-    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, _reloc(const_stage0), 11 );
-    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, _reloc(const_stage0), 12 );
-    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, _reloc(const_stage0), 13 );
-    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, _reloc(const_stage0), 14 );
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, _reloc(const_stage0), 15 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F0, _reloc(const_stage0), 16 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F0, _reloc(const_stage0), 17 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F0, _reloc(const_stage0), 18 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F0, _reloc(const_stage0), 19 );
+/* round0 */
+    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi),  0 );
+    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi),  1 );
+    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi),  2 );
+    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi),  3 );
+    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi),  4 );
+    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi),  5 );
+    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi),  6 );
+    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi),  7 );
+    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi),  8 );
+    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi),  9 );
+    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi), 10 );
+    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi), 11 );
+    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi), 12 );
+    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi), 13 );
+    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi), 14 );
+    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi), 15 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi), 16 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi), 17 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi), 18 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi), 19 );
 
-round1:
+/* round1 */
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 20 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 21 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 22 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 23 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 24 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 25 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 26 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 27 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 28 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 29 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 30 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 31 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 32 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 33 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 34 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 35 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 36 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 37 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 38 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 39 );
 
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage1), 20 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage1), 21 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage1), 22 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage1), 23 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage1), 24 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage1), 25 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage1), 26 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage1), 27 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage1), 28 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage1), 29 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage1), 30 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage1), 31 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage1), 32 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage1), 33 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage1), 34 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage1), 35 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage1), 36 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage1), 37 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage1), 38 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage1), 39 );
+/* round2 */
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 40 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 41 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 42 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 43 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 44 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 45 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 46 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 47 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 48 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 49 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 50 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 51 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 52 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 53 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 54 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 55 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 56 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 57 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 58 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 59 );
 
-round2:
-
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, _reloc(const_stage2), 40 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, _reloc(const_stage2), 41 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, _reloc(const_stage2), 42 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, _reloc(const_stage2), 43 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, _reloc(const_stage2), 44 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, _reloc(const_stage2), 45 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, _reloc(const_stage2), 46 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, _reloc(const_stage2), 47 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, _reloc(const_stage2), 48 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, _reloc(const_stage2), 49 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, _reloc(const_stage2), 50 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, _reloc(const_stage2), 51 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, _reloc(const_stage2), 52 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, _reloc(const_stage2), 53 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, _reloc(const_stage2), 54 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, _reloc(const_stage2), 55 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, _reloc(const_stage2), 56 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, _reloc(const_stage2), 57 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, _reloc(const_stage2), 58 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, _reloc(const_stage2), 59 );
-
-round3:
-
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage3), 60 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage3), 61 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage3), 62 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage3), 63 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage3), 64 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage3), 65 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage3), 66 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage3), 67 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage3), 68 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage3), 69 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage3), 70 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage3), 71 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage3), 72 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage3), 73 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage3), 74 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, _reloc(const_stage3), 75 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, _reloc(const_stage3), 76 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, _reloc(const_stage3), 77 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, _reloc(const_stage3), 78 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, _reloc(const_stage3), 79 );
+/* round3 */
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 60 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 61 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 62 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 63 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 64 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 65 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 66 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 67 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 68 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 69 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 70 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 71 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 72 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 73 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 74 );
+    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 75 );
+    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 76 );
+    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 77 );
+    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 78 );
+    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 79 );
 
     paddd    0(eax_rdi), ctxa
     paddd   16(eax_rdi), ctxb
@@ -337,7 +330,8 @@ round3:
 
     ret
 
-// returns 1 if SSE2 is supported, 0 otherwise
+/* returns 1 if SSE2 is supported, 0 otherwise */
+_detect_sse2:
 detect_sse2:
 #ifndef __x86_64__
     pushfl

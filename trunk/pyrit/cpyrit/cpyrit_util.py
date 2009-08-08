@@ -378,7 +378,7 @@ class PasswordStore(object):
 
     def __iter__(self):
         """Iterate over all keys that can be used to receive password-sets."""
-        return self.pwfiles.__iter__()
+        return self.pwfiles.keys().__iter__()
 
     def __len__(self):
         """Return the number of keys that can be used to receive password-sets."""

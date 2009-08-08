@@ -35,6 +35,6 @@
 #endif
 
 
-#if (defined(__i386__) || defined(__x86_64__)) && !defined(__APPLE__)
+#if (defined(__i386__) || defined(__x86_64__))
     #define COMPILE_SSE2
 #endif
