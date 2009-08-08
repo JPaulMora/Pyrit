@@ -103,7 +103,7 @@ class Pyrit_CLI(object):
          'selftest': self.selftest,
          'verify': self.verify,
          'analyze': self.analyzeCapture,
-         'attack': self.attack_batch
+         'attack': self.attack_batch,
          'attack_db': self.attack_db,
          'attack_batch': self.attack_batch,
          'attack_passthrough': self.attack_passthrough,
