@@ -38,7 +38,7 @@ typedef struct
 } CPUDevice;
 
 static PyObject *PlatformString;
-static void (*prepare_pmk)(const char *essid_pre, const char *password, struct pmk_ctr *ctr) = NULL;
+static void (*prepare_pmk)(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
 
 static uint32_t sha1_constants[6][4];
@@ -180,29 +180,31 @@ static uint32_t sha1_constants[6][4];
     }
 
     static void
-    prepare_pmk_padlock(const char *essid_pre, const char *password, struct pmk_ctr *ctr)
+    prepare_pmk_padlock(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr)
     {
-        int i, slen;
-        unsigned char pad[64];
-        char essid[32+4+1];
+        int i;
+        unsigned char pad[64], essid[32+4];
 
-        strncpy(essid, essid_pre, sizeof(essid));
-        slen = strlen(essid)+4;
+        essidlen = essidlen > 32 ? 32 : essidlen;
+        passwdlen = passwdlen > 64 ? 64 : passwdlen;
 
-        strncpy((char *)pad, password, sizeof(pad));
+        memcpy(essid, essid_pre, essidlen);
+        memset(essid + essidlen, 0, sizeof(essid) - essidlen);
+
+        memcpy(pad, password, passwdlen);
+        memset(pad + passwdlen, 0, sizeof(pad) - passwdlen);
         for (i = 0; i < 16; i++)
             ((unsigned int*)pad)[i] ^= 0x36363636;
         padlock_xsha1_prepare(pad, &ctr->ctx_ipad);
-
         for (i = 0; i < 16; i++)
             ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
         padlock_xsha1_prepare(pad, &ctr->ctx_opad);
 
-        essid[slen - 1] = '\1';
-        HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e1, NULL);
+        essid[essidlen + 4 - 1] = '\1';
+        HMAC(EVP_sha1(), password, passwdlen, essid, essidlen + 4, (unsigned char*)ctr->e1, NULL);
 
-        essid[slen - 1] = '\2';
-        HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e2, NULL);
+        essid[essidlen + 4 - 1] = '\2';
+        HMAC(EVP_sha1(), password, passwdlen, essid, essidlen + 4, (unsigned char*)ctr->e2, NULL);
     }
 
     static int
@@ -311,31 +313,33 @@ static uint32_t sha1_constants[6][4];
 #endif // COMPILE_SSE2
 
 static void
-prepare_pmk_openssl(const char *essid_pre, const char *password, struct pmk_ctr *ctr)
+prepare_pmk_openssl(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr)
 {
-    int i, slen;
-    unsigned char pad[64];
-    char essid[32+4+1];
+    int i;
+    unsigned char pad[64], essid[32+4];
 
-    strncpy(essid, essid_pre, sizeof(essid));
-    slen = strlen(essid)+4;
+    essidlen = essidlen > 32 ? 32 : essidlen;
+    passwdlen = passwdlen > 64 ? 64 : passwdlen;
 
-    strncpy((char *)pad, password, sizeof(pad));
+    memcpy(essid, essid_pre, essidlen);
+    memset(essid + essidlen, 0, sizeof(essid) - essidlen);
+    
+    memcpy(pad, password, passwdlen);
+    memset(pad + passwdlen, 0, sizeof(pad) - passwdlen);
     for( i = 0; i < 16; i++ )
 	    ((unsigned int*)pad)[i] ^= 0x36363636;
     SHA1_Init(&ctr->ctx_ipad);
     SHA1_Update(&ctr->ctx_ipad, pad, 64);
-
     for( i = 0; i < 16; i++ )
 	    ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
     SHA1_Init(&ctr->ctx_opad);
     SHA1_Update(&ctr->ctx_opad, pad, 64);
 
-    essid[slen - 1] = '\1';
-    HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e1, NULL);
+    essid[essidlen + 4 - 1] = '\1';
+    HMAC(EVP_sha1(), password, passwdlen, essid, essidlen + 4, (unsigned char*)ctr->e1, NULL);
     
-    essid[slen - 1] = '\2';
-    HMAC(EVP_sha1(), (unsigned char *)password, strlen(password), (unsigned char*)essid, slen, (unsigned char*)ctr->e2, NULL);
+    essid[essidlen + 4 - 1] = '\2';
+    HMAC(EVP_sha1(), password, passwdlen, essid, essidlen + 4, (unsigned char*)ctr->e2, NULL);
 }
 
 static int
@@ -387,22 +391,21 @@ cpyrit_getPlatform(PyObject *self, PyObject *args)
 static PyObject *
 cpyrit_solve(PyObject *self, PyObject *args)
 {
-    char *essid, *passwd;
-    PyObject *passwd_seq, *passwd_obj, *result;
-    int i, arraysize;
+    unsigned char *essid, *passwd;
+    PyObject *passwd_seq, *passwd_obj, *essid_obj, *result;
+    int i, arraysize, essidlen, passwdlen;
     struct pmk_ctr *pmk_buffer, *t;
 
-    if (!PyArg_ParseTuple(args, "sO", &essid, &passwd_seq)) return NULL;
-    
-    if (strlen(essid) < 1 || strlen(essid) > 32)
-    {
-        PyErr_SetString(PyExc_ValueError, "ESSID must be a string between 1 and 32 bytes.");
-        return NULL;
-    }
+    if (!PyArg_ParseTuple(args, "OO", &essid_obj, &passwd_seq)) return NULL;
     passwd_seq = PyObject_GetIter(passwd_seq);
-    if (!passwd_seq)
+    if (!passwd_seq) return NULL;
+    
+    essid = (unsigned char*)PyString_AsString(essid_obj);
+    essidlen = PyString_Size(essid_obj);
+    if (essid == NULL || essidlen < 1 || essidlen > 32)
     {
-        PyErr_NoMemory();
+        Py_DECREF(passwd_seq);
+        PyErr_SetString(PyExc_ValueError, "ESSID must be a string between 1 and 32 bytes.");
         return NULL;
     }
     
@@ -424,16 +427,17 @@ cpyrit_solve(PyObject *self, PyObject *args)
             }
             pmk_buffer = t;
         }
-        passwd = PyString_AsString(passwd_obj);
-        if (passwd == NULL || PyString_Size(passwd_obj) < 8 || PyString_Size(passwd_obj) > 63)
+        passwd = (unsigned char*)PyString_AsString(passwd_obj);
+        passwdlen = PyString_Size(passwd_obj);
+        if (passwd == NULL || passwdlen < 8 || passwdlen > 63)
         {
             Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
             PyMem_Free(pmk_buffer);
-            PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
+            PyErr_SetString(PyExc_ValueError, "All passwords must be strings between 8 and 63 characters");
             return NULL;
         }
-        prepare_pmk(essid, passwd, &pmk_buffer[arraysize]);
+        prepare_pmk(essid, essidlen, passwd, passwdlen, &pmk_buffer[arraysize]);
         Py_DECREF(passwd_obj);
         arraysize++;
     }

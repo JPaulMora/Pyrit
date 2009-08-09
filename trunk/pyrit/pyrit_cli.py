@@ -197,7 +197,7 @@ class Pyrit_CLI(object):
             raise PyritRuntimeError("Specify a AccessPoint's BSSID or ESSID using the options -b or -e. See 'help'")
         if self.options.bssid:
             if self.options.bssid not in parser:
-                raise PyritRuntimeError, "No Access-Point with BSSID '%s' found in the capture file..."
+                raise PyritRuntimeError("No Access-Point with BSSID '%s' found in the capture file..." % self.options.bssid)
             ap = parser[self.options.bssid]
         else:
             ap = None
@@ -335,7 +335,7 @@ class Pyrit_CLI(object):
     @requires_options('capturefile', 'file')
     def stripCapture(self):
         parser = self._getParser(self.options.capturefile)
-        writer = pckttools.PcapWriter(self.options.file, linktype=parser.linktype)
+        writer = pckttools.PcapWriter(self.options.file, linktype=parser.linktype, gz=self.options.file.endswith('.gz'))
         pcktcount = 0
         for i, ap in enumerate((self._fuzzyGetAP(parser),) if self.options.essid or self.options.bssid else parser):
             self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
