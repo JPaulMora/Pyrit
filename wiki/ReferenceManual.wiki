@@ -133,7 +133,9 @@ Pyrit recognizes the following options:
     * *strip _(0.2.4)_*
     Parse a packet-capture file given by the option *-r*, extract only packets that are necessary for EAPOL-handshake detection and write a new dump to the filename given by the option *-f*. The options *-e* and *-b* can be used to filter certain Access-Points. For example:
         `pyrit -r large_dump.pcap -e MyNetwork -f tiny_dump_MyNetwork.dump strip`
-    
+
+    The new file is automatically gzip-compressed if the filename specified by *-f* ends in '.gz'.
+        
  
     * *verify*
     Randomly pick 10% of the results stored in the database and verify their value by recomputation. You need this function if you suspect broken hardware or malicious network-clients. For example:

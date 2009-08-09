@@ -13,6 +13,8 @@ This error may happen with SSE2-support compiled in and is caused by SELinux not
 echo 0 > /selinux/enforce
 }}}
 
+The error was fixed in version '0.2.4 r152'.
+
 
 === Using CPyrit-CUDA with CUDA 2.2 causes the error message '_Failed to load CUDA-core (CUDA_ERROR_INVALID_IMAGE)_' ===
 
