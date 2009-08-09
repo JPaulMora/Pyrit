@@ -25,6 +25,7 @@ import _cpyrit_pckttools
 
 try:
     import scapy.config
+    scapy.config.conf.logLevel = 40 # Suppress useless warnings from scapy...
     import scapy.fields
     import scapy.layers.dot11
     import scapy.packet
@@ -184,10 +185,12 @@ class EAPOLAuthentication(object):
 
 class PacketParser(object):
     def __init__(self, pcapfile):
+        reader = scapy.utils.PcapReader(pcapfile)
         self.air = {}
         self.pcktcount = 0
         self.dot11_pcktcount = 0
-        for pckt in scapy.utils.PcapReader(pcapfile):
+        self.linktype = reader.linktype
+        for pckt in reader:
             self.pcktcount += 1
             if not scapy.layers.dot11.Dot11 in pckt:
                 continue

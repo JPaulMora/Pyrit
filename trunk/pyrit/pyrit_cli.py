@@ -34,6 +34,7 @@ try:
 except util.ScapyImportError:
     pass
 
+
 class PyritRuntimeError(RuntimeError):
     pass
 
@@ -321,23 +322,22 @@ class Pyrit_CLI(object):
     @requires_pckttools()
     @requires_options('capturefile')
     def analyzeCapture(self):
-        for i, ap in enumerate(self._getParser(self.options.capturefile)):
+        parser = self._getParser(self.options.capturefile)
+        for i, ap in enumerate(parser):
             self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
             for j, sta in enumerate(ap):
                 self.tell("  #%i: Station %s" % (j, sta), end=None, sep=None)
                 self.tell(", handshake found" if ap[sta].iscomplete() else '')
+        if not any(len(ap) > 0 and ap.essid for ap in parser):
+            raise PyritRuntimeError("No valid EAOPL-handshake detected.")
 
     @requires_pckttools()
     @requires_options('capturefile', 'file')
     def stripCapture(self):
         parser = self._getParser(self.options.capturefile)
-        writer = pckttools.PcapWriter(self.options.file)
-        if self.options.essid or self.options.bssid:
-            aps = (self._fuzzyGetAP(parser), )
-        else:
-            aps = parser
+        writer = pckttools.PcapWriter(self.options.file, linktype=parser.linktype)
         pcktcount = 0
-        for i, ap in enumerate(aps):
+        for i, ap in enumerate((self._fuzzyGetAP(parser),) if self.options.essid or self.options.bssid else parser):
             self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
             if ap.essidframe:
                 writer.write(ap.essidframe)
@@ -345,11 +345,11 @@ class Pyrit_CLI(object):
             for j, sta in enumerate(ap):
                 self.tell("  #%i: Station %s  [" % (j, sta), end=None, sep=None)
                 auth = ap[sta]
-                for frame in range(3):
-                    if auth.frames[frame]:
-                        writer.write(auth.frames[frame])
+                for idx in range(3):
+                    if auth.frames[idx]:
+                        writer.write(auth.frames[idx])
                         pcktcount += 1
-                    self.tell('#' if auth.frames[frame] else ' ', end=None, sep=None)
+                    self.tell('#' if auth.frames[idx] else ' ', end=None, sep=None)
                 self.tell(']')
         writer.close()
         self.tell("\nNew pcap-file written (%i out of %i packets)" % (pcktcount, parser.pcktcount))
@@ -629,7 +629,6 @@ class Pyrit_CLI(object):
             pass        
         # Minimize scheduling overhead...
         pws = ['barbarbar']*max(min(int(cp.getPeakPerformance()), 50000), 500)
-
         cp.resetStatistics()
         cycler = itertools.cycle(('\\|/-'))
         t = time.time()

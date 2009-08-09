@@ -23,7 +23,7 @@ Pyrit recognizes the following options:
     * *-f*
     Specifies a filename. Beware that depending on the given _command_ this may be a file that is read from or written to. The special filename '-' can be used for _stdin_/_stdout_.
     * *-r _(0.2.4)_*
-    Specified a packet-capture file in pcap format (possibly gzip-compressed).
+    Specifies a packet-capture file in pcap format (possibly gzip-compressed).
 
 === Commands ===
 
@@ -34,7 +34,7 @@ Pyrit recognizes the following options:
     The suffix _'handshake found'_ is appended to the Station's BSSID if the communication between the Access-Point and the Station seems to include a valid EAPOL-handshake.
 
 
-    * *attack*
+    * *attack _(0.2.4)_*
     Synonym for *attack_batch*
 
 
