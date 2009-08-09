@@ -196,20 +196,26 @@ errout:
 static PyObject*
 cpyrit_solve(CUDADevice *self, PyObject *args)
 {
-    char *essid_pre, essid[33+4], *passwd;
-    unsigned char pad[64], temp[32];
-    int i, arraysize, slen;
-    PyObject *passwd_seq, *passwd_obj, *result;
+    unsigned char essid[32+4], *passwd, pad[64], temp[32];
+    int i, arraysize, essidlen, passwdlen;
+    PyObject *essid_obj, *passwd_seq, *passwd_obj, *result;
     gpu_inbuffer *c_inbuffer, *t;
     gpu_outbuffer *c_outbuffer;
     SHA_CTX ctx_pad;
 
-    if (!PyArg_ParseTuple(args, "sO", &essid_pre, &passwd_seq)) return NULL;
+    if (!PyArg_ParseTuple(args, "OO", &essid_obj, &passwd_seq)) return NULL;
     passwd_seq = PyObject_GetIter(passwd_seq);
     if (!passwd_seq) return NULL;
     
-    strncpy(essid, essid_pre, sizeof(essid));
-    slen = strlen(essid)+4;
+    essidlen = PyString_Size(essid_obj);
+    if (essidlen < 1 || essidlen > 32)
+    {
+        Py_DECREF(passwd_seq);
+        PyErr_SetString(PyExc_ValueError, "The ESSID must be a string between 1 and 32 characters");
+        return NULL;
+    }
+    memcpy(essid, PyString_AsString(essid_obj), essidlen);
+    memset(essid + essidlen, 0, sizeof(essid) - essidlen);
     
     arraysize = 0;
     c_inbuffer = NULL;
@@ -229,17 +235,19 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
             }
             c_inbuffer = t;
         }                
-        passwd = PyString_AsString(passwd_obj);
-        if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
+        passwd = (unsigned char*)PyString_AsString(passwd_obj);
+        passwdlen = PyString_Size(passwd_obj);
+        if (passwd == NULL || passwdlen < 8 || passwdlen > 63)
         {
             Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
             PyMem_Free(c_inbuffer);
-            PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
+            PyErr_SetString(PyExc_ValueError, "All passwords must be strings between 8 and 63 characters");
             return NULL;
         }
         
-        strncpy((char*)pad, passwd, sizeof(pad));
+        memcpy(pad, passwd, passwdlen);
+        memset(pad + passwdlen, 0, sizeof(pad) - passwdlen);
         for (i = 0; i < 16; i++)
             ((unsigned int*)pad)[i] ^= 0x36363636;
         SHA1_Init(&ctx_pad);
@@ -251,16 +259,16 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
         CPY_DEVCTX(ctx_pad, c_inbuffer[arraysize].ctx_opad);
         
-        essid[slen - 1] = '\1';
-        HMAC(EVP_sha1(), (unsigned char *)passwd, strlen(passwd), (unsigned char*)essid, slen, temp, NULL);
+        essid[essidlen + 4 - 1] = '\1';
+        HMAC(EVP_sha1(), passwd, passwdlen, essid, essidlen + 4, temp, NULL);
         GET_BE(c_inbuffer[arraysize].e1.h0, temp, 0);
         GET_BE(c_inbuffer[arraysize].e1.h1, temp, 4);
         GET_BE(c_inbuffer[arraysize].e1.h2, temp, 8);
         GET_BE(c_inbuffer[arraysize].e1.h3, temp, 12);
         GET_BE(c_inbuffer[arraysize].e1.h4, temp, 16);
 
-        essid[slen - 1] = '\2';
-        HMAC(EVP_sha1(), (unsigned char *)passwd, strlen(passwd), (unsigned char*)essid, slen, temp, NULL);
+        essid[essidlen + 4 - 1] = '\2';
+        HMAC(EVP_sha1(), passwd, passwdlen, essid, essidlen + 4, temp, NULL);
         GET_BE(c_inbuffer[arraysize].e2.h0, temp, 0);
         GET_BE(c_inbuffer[arraysize].e2.h1, temp, 4);
         GET_BE(c_inbuffer[arraysize].e2.h2, temp, 8);

@@ -29,36 +29,54 @@
 typedef struct
 {
     PyObject_HEAD
+    unsigned int *dbuf;
 } StreamDevice;
 
 int StreamDevCount;
 brook::Device* StreamDevices;
 
-extern "C" PyObject*
-cpyrit_solve(PyObject * self, PyObject * args)
+static int
+streamdev_init(StreamDevice *self, PyObject *args, PyObject *kwds)
 {
-    char *essid_pre, essid[33+4], *passwd;
-    unsigned char pad[64], temp[32];
-    int i, slen;
-    PyObject *passwd_seq, *passwd_obj, *result;
-    SHA_CTX ctx_pad;
-    unsigned int *dbuf, arraysize;
+    self->dbuf = (unsigned int*)PyMem_Malloc(8192 * 2 * 4 * (5 * 3));
+    if (!self->dbuf)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+    return 0;
+}
 
-    if (!PyArg_ParseTuple (args, "sO", &essid_pre, &passwd_seq)) return NULL;
+static void
+streamdev_dealloc(StreamDevice *self)
+{
+    if (self->dbuf)
+        PyMem_Free(self->dbuf);
+    PyObject_Del(self);
+}
+
+extern "C" PyObject*
+streamdev_solve(StreamDevice *self, PyObject *args)
+{
+    unsigned char essid[32+4], *passwd, pad[64], temp[32];
+    int i, arraysize, essidlen, passwdlen;
+    PyObject *essid_obj, *passwd_seq, *passwd_obj, *result;
+    SHA_CTX ctx_pad;
+
+    if (!PyArg_ParseTuple (args, "OO", &essid_obj, &passwd_seq)) return NULL;
     passwd_seq = PyObject_GetIter(passwd_seq);
     if (!passwd_seq) return NULL;
 
-    strncpy(essid, essid_pre, sizeof(essid));
-    slen = strlen(essid)+4;
-    
-    dbuf = (unsigned int*)PyMem_Malloc(8192 * 2 * 4 * (5 * 3));
-    if (!dbuf)
+    essidlen = PyString_Size(essid_obj);
+    if (essidlen < 1 || essidlen > 32)
     {
         Py_DECREF(passwd_seq);
-        PyErr_NoMemory();
+        PyErr_SetString(PyExc_ValueError, "The ESSID must be a string between 1 and 32 characters");
         return NULL;
     }
-
+    memcpy(essid, PyString_AsString(essid_obj), essidlen);
+    memset(essid + essidlen, 0, sizeof(essid) - essidlen);
+    
     arraysize = 0;
     while ((passwd_obj = PyIter_Next(passwd_seq)))
     {
@@ -66,56 +84,56 @@ cpyrit_solve(PyObject * self, PyObject * args)
         {
             Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
-            PyMem_Free(dbuf);
             PyErr_SetString(PyExc_ValueError, "Sequence must not be longer than 8192 elements.");
             return NULL;
         }
-        passwd = PyString_AsString(passwd_obj);
-        if (passwd == NULL || strlen(passwd) < 8 || strlen(passwd) > 63)
+        passwd = (unsigned char*)PyString_AsString(passwd_obj);
+        passwdlen = PyString_Size(passwd_obj);
+        if (passwd == NULL || passwdlen < 8 || passwdlen > 63)
         {
             Py_DECREF(passwd_obj);
             Py_DECREF(passwd_seq);
-            PyMem_Free(dbuf);
             PyErr_SetString(PyExc_ValueError, "All items must be strings between 8 and 63 characters");
             return NULL;
         }
         
-        strncpy((char*)pad, passwd, sizeof(pad));
+        memcpy(pad, passwd, passwdlen);
+        memset(pad + passwdlen, 0, sizeof(pad) - passwdlen);
         for (i = 0; i < 16; i++)
             ((unsigned int*)pad)[i] ^= 0x36363636;
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
-        dbuf[(8192 * 2 * 0) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 0) + (arraysize * 2) + 0] = ctx_pad.h0;
-        dbuf[(8192 * 2 * 1) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 1) + (arraysize * 2) + 0] = ctx_pad.h1;
-        dbuf[(8192 * 2 * 2) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 2) + (arraysize * 2) + 0] = ctx_pad.h2;
-        dbuf[(8192 * 2 * 3) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 3) + (arraysize * 2) + 0] = ctx_pad.h3;
-        dbuf[(8192 * 2 * 4) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 4) + (arraysize * 2) + 0] = ctx_pad.h4;
+        self->dbuf[(8192 * 2 * 0) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 0) + (arraysize * 2) + 0] = ctx_pad.h0;
+        self->dbuf[(8192 * 2 * 1) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 1) + (arraysize * 2) + 0] = ctx_pad.h1;
+        self->dbuf[(8192 * 2 * 2) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 2) + (arraysize * 2) + 0] = ctx_pad.h2;
+        self->dbuf[(8192 * 2 * 3) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 3) + (arraysize * 2) + 0] = ctx_pad.h3;
+        self->dbuf[(8192 * 2 * 4) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 4) + (arraysize * 2) + 0] = ctx_pad.h4;
 
         for (i = 0; i < 16; i++)
             ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
         SHA1_Init (&ctx_pad);
         SHA1_Update (&ctx_pad, pad, sizeof(pad));
-        dbuf[(8192 * 2 * 5) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 5) + (arraysize * 2) + 0] = ctx_pad.h0;
-        dbuf[(8192 * 2 * 6) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 6) + (arraysize * 2) + 0] = ctx_pad.h1;
-        dbuf[(8192 * 2 * 7) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 7) + (arraysize * 2) + 0] = ctx_pad.h2;
-        dbuf[(8192 * 2 * 8) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 8) + (arraysize * 2) + 0] = ctx_pad.h3;
-        dbuf[(8192 * 2 * 9) + (arraysize * 2) + 1] = dbuf[(8192 * 2 * 9) + (arraysize * 2) + 0] = ctx_pad.h4;
+        self->dbuf[(8192 * 2 * 5) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 5) + (arraysize * 2) + 0] = ctx_pad.h0;
+        self->dbuf[(8192 * 2 * 6) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 6) + (arraysize * 2) + 0] = ctx_pad.h1;
+        self->dbuf[(8192 * 2 * 7) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 7) + (arraysize * 2) + 0] = ctx_pad.h2;
+        self->dbuf[(8192 * 2 * 8) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 8) + (arraysize * 2) + 0] = ctx_pad.h3;
+        self->dbuf[(8192 * 2 * 9) + (arraysize * 2) + 1] = self->dbuf[(8192 * 2 * 9) + (arraysize * 2) + 0] = ctx_pad.h4;
 
-        essid[slen - 1] = '\1';
-        HMAC(EVP_sha1(), (unsigned char*)passwd, strlen(passwd), (unsigned char*)essid, slen, (unsigned char*)&ctx_pad, NULL);
-        dbuf[(8192 * 2 * 10) + (arraysize * 2) + 0] = ctx_pad.h0;
-        dbuf[(8192 * 2 * 11) + (arraysize * 2) + 0] = ctx_pad.h1;
-        dbuf[(8192 * 2 * 12) + (arraysize * 2) + 0] = ctx_pad.h2;
-        dbuf[(8192 * 2 * 13) + (arraysize * 2) + 0] = ctx_pad.h3;
-        dbuf[(8192 * 2 * 14) + (arraysize * 2) + 0] = ctx_pad.h4;
+        essid[essidlen + 4 - 1] = '\1';
+        HMAC(EVP_sha1(), passwd, passwdlen, essid, essidlen, (unsigned char*)&ctx_pad, NULL);
+        self->dbuf[(8192 * 2 * 10) + (arraysize * 2) + 0] = ctx_pad.h0;
+        self->dbuf[(8192 * 2 * 11) + (arraysize * 2) + 0] = ctx_pad.h1;
+        self->dbuf[(8192 * 2 * 12) + (arraysize * 2) + 0] = ctx_pad.h2;
+        self->dbuf[(8192 * 2 * 13) + (arraysize * 2) + 0] = ctx_pad.h3;
+        self->dbuf[(8192 * 2 * 14) + (arraysize * 2) + 0] = ctx_pad.h4;
 
-        essid[slen - 1] = '\2';
-        HMAC(EVP_sha1(), (unsigned char*)passwd, strlen(passwd), (unsigned char*)essid, slen, (unsigned char*)&ctx_pad, NULL);
-        dbuf[(8192 * 2 * 10) + (arraysize * 2) + 1] = ctx_pad.h0;
-        dbuf[(8192 * 2 * 11) + (arraysize * 2) + 1] = ctx_pad.h1;
-        dbuf[(8192 * 2 * 12) + (arraysize * 2) + 1] = ctx_pad.h2;
-        dbuf[(8192 * 2 * 13) + (arraysize * 2) + 1] = ctx_pad.h3;
-        dbuf[(8192 * 2 * 14) + (arraysize * 2) + 1] = ctx_pad.h4;
+        essid[essidlen + 4 - 1] = '\2';
+        HMAC(EVP_sha1(), passwd, passwdlen, essid, essidlen, (unsigned char*)&ctx_pad, NULL);
+        self->dbuf[(8192 * 2 * 10) + (arraysize * 2) + 1] = ctx_pad.h0;
+        self->dbuf[(8192 * 2 * 11) + (arraysize * 2) + 1] = ctx_pad.h1;
+        self->dbuf[(8192 * 2 * 12) + (arraysize * 2) + 1] = ctx_pad.h2;
+        self->dbuf[(8192 * 2 * 13) + (arraysize * 2) + 1] = ctx_pad.h3;
+        self->dbuf[(8192 * 2 * 14) + (arraysize * 2) + 1] = ctx_pad.h4;
         
         Py_DECREF(passwd_obj);
         arraysize++;
@@ -124,57 +142,57 @@ cpyrit_solve(PyObject * self, PyObject * args)
 
     Py_BEGIN_ALLOW_THREADS;
 
-    ::brook::Stream < uint2 > ipad_A (1, &arraysize);
-    ::brook::Stream < uint2 > ipad_B (1, &arraysize);
-    ::brook::Stream < uint2 > ipad_C (1, &arraysize);
-    ::brook::Stream < uint2 > ipad_D (1, &arraysize);
-    ::brook::Stream < uint2 > ipad_E (1, &arraysize);
+    ::brook::Stream < uint2 > ipad_A (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > ipad_B (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > ipad_C (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > ipad_D (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > ipad_E (1, (unsigned int*)&arraysize);
 
-    ::brook::Stream < uint2 > opad_A (1, &arraysize);
-    ::brook::Stream < uint2 > opad_B (1, &arraysize);
-    ::brook::Stream < uint2 > opad_C (1, &arraysize);
-    ::brook::Stream < uint2 > opad_D (1, &arraysize);
-    ::brook::Stream < uint2 > opad_E (1, &arraysize);
+    ::brook::Stream < uint2 > opad_A (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > opad_B (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > opad_C (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > opad_D (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > opad_E (1, (unsigned int*)&arraysize);
 
-    ::brook::Stream < uint2 > pmk_in0 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_in1 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_in2 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_in3 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_in4 (1, &arraysize);
+    ::brook::Stream < uint2 > pmk_in0 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_in1 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_in2 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_in3 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_in4 (1, (unsigned int*)&arraysize);
 
-    ::brook::Stream < uint2 > pmk_out0 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_out1 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_out2 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_out3 (1, &arraysize);
-    ::brook::Stream < uint2 > pmk_out4 (1, &arraysize);
+    ::brook::Stream < uint2 > pmk_out0 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_out1 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_out2 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_out3 (1, (unsigned int*)&arraysize);
+    ::brook::Stream < uint2 > pmk_out4 (1, (unsigned int*)&arraysize);
 
-    ipad_A.read (dbuf + (8192 * 2 * 0));
-    ipad_B.read (dbuf + (8192 * 2 * 1));
-    ipad_C.read (dbuf + (8192 * 2 * 2));
-    ipad_D.read (dbuf + (8192 * 2 * 3));
-    ipad_E.read (dbuf + (8192 * 2 * 4));
+    ipad_A.read (self->dbuf + (8192 * 2 * 0));
+    ipad_B.read (self->dbuf + (8192 * 2 * 1));
+    ipad_C.read (self->dbuf + (8192 * 2 * 2));
+    ipad_D.read (self->dbuf + (8192 * 2 * 3));
+    ipad_E.read (self->dbuf + (8192 * 2 * 4));
 
-    opad_A.read (dbuf + (8192 * 2 * 5));
-    opad_B.read (dbuf + (8192 * 2 * 6));
-    opad_C.read (dbuf + (8192 * 2 * 7));
-    opad_D.read (dbuf + (8192 * 2 * 8));
-    opad_E.read (dbuf + (8192 * 2 * 9));
+    opad_A.read (self->dbuf + (8192 * 2 * 5));
+    opad_B.read (self->dbuf + (8192 * 2 * 6));
+    opad_C.read (self->dbuf + (8192 * 2 * 7));
+    opad_D.read (self->dbuf + (8192 * 2 * 8));
+    opad_E.read (self->dbuf + (8192 * 2 * 9));
 
-    pmk_in0.read (dbuf + (8192 * 2 * 10));
-    pmk_in1.read (dbuf + (8192 * 2 * 11));
-    pmk_in2.read (dbuf + (8192 * 2 * 12));
-    pmk_in3.read (dbuf + (8192 * 2 * 13));
-    pmk_in4.read (dbuf + (8192 * 2 * 14));
+    pmk_in0.read (self->dbuf + (8192 * 2 * 10));
+    pmk_in1.read (self->dbuf + (8192 * 2 * 11));
+    pmk_in2.read (self->dbuf + (8192 * 2 * 12));
+    pmk_in3.read (self->dbuf + (8192 * 2 * 13));
+    pmk_in4.read (self->dbuf + (8192 * 2 * 14));
 
     sha1_rounds (ipad_A, ipad_B, ipad_C, ipad_D, ipad_E, opad_A, opad_B, opad_C,
         opad_D, opad_E, pmk_in0, pmk_in1, pmk_in2, pmk_in3, pmk_in4,
         pmk_out0, pmk_out1, pmk_out2, pmk_out3, pmk_out4, uint2 (0x80000000, 0x80000000));
 
-    pmk_out0.write(dbuf + (8192 * 2 * 0));
-    pmk_out1.write(dbuf + (8192 * 2 * 1));
-    pmk_out2.write(dbuf + (8192 * 2 * 2));
-    pmk_out3.write(dbuf + (8192 * 2 * 3));
-    pmk_out4.write(dbuf + (8192 * 2 * 4));
+    pmk_out0.write(self->dbuf + (8192 * 2 * 0));
+    pmk_out1.write(self->dbuf + (8192 * 2 * 1));
+    pmk_out2.write(self->dbuf + (8192 * 2 * 2));
+    pmk_out3.write(self->dbuf + (8192 * 2 * 3));
+    pmk_out4.write(self->dbuf + (8192 * 2 * 4));
 
     i = 0;
     if ((pmk_out0.error() != ::brook::BR_NO_ERROR)
@@ -189,40 +207,37 @@ cpyrit_solve(PyObject * self, PyObject * args)
     if (i)
     {
         PyErr_SetString(PyExc_SystemError, "Kernel-call failed in AMD-Stream core.");
-        free(dbuf);
         return NULL;
     }
 
     result = PyTuple_New(arraysize);
     for (i = 0; i < (int)arraysize * 2; i++)
     {
-        ((unsigned int*)temp)[0] = dbuf[(0 * 8192 * 2) + i];
-        ((unsigned int*)temp)[1] = dbuf[(1 * 8192 * 2) + i];
-        ((unsigned int*)temp)[2] = dbuf[(2 * 8192 * 2) + i];
-        ((unsigned int*)temp)[3] = dbuf[(3 * 8192 * 2) + i];
-        ((unsigned int*)temp)[4] = dbuf[(4 * 8192 * 2) + i];
+        ((unsigned int*)temp)[0] = self->dbuf[(0 * 8192 * 2) + i];
+        ((unsigned int*)temp)[1] = self->dbuf[(1 * 8192 * 2) + i];
+        ((unsigned int*)temp)[2] = self->dbuf[(2 * 8192 * 2) + i];
+        ((unsigned int*)temp)[3] = self->dbuf[(3 * 8192 * 2) + i];
+        ((unsigned int*)temp)[4] = self->dbuf[(4 * 8192 * 2) + i];
         i++;
-        ((unsigned int*)temp)[5] = dbuf[(0 * 8192 * 2) + i];
-        ((unsigned int*)temp)[6] = dbuf[(1 * 8192 * 2) + i];
-        ((unsigned int*)temp)[7] = dbuf[(2 * 8192 * 2) + i];
+        ((unsigned int*)temp)[5] = self->dbuf[(0 * 8192 * 2) + i];
+        ((unsigned int*)temp)[6] = self->dbuf[(1 * 8192 * 2) + i];
+        ((unsigned int*)temp)[7] = self->dbuf[(2 * 8192 * 2) + i];
         PyTuple_SetItem(result, i / 2, Py_BuildValue("s#", temp, 32));
     }
-
-    PyMem_Free(dbuf);
 
     return result;
 }
 
-PyObject*
-cpyrit_getDevCount(PyObject* self, PyObject* args)
+static PyObject*
+stream_getDevCount(PyObject* self, PyObject* args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return NULL;
     return Py_BuildValue("i", StreamDevCount);
 }
 
-PyObject*
-cpyrit_setDevice(PyObject* self, PyObject* args)
+static PyObject*
+stream_setDevice(PyObject* self, PyObject* args)
 {
     int StreamDev;
     if (!PyArg_ParseTuple(args, "i", &StreamDev)) return NULL;
@@ -240,7 +255,7 @@ cpyrit_setDevice(PyObject* self, PyObject* args)
 
 static PyMethodDef StreamDevice_methods[] =
 {
-    {"solve", (PyCFunction)cpyrit_solve, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
+    {"solve", (PyCFunction)streamdev_solve, METH_VARARGS, "Calculate PMKs from ESSID and list of strings."},
     {NULL, NULL}
 };
 
@@ -250,7 +265,7 @@ static PyTypeObject StreamDevice_type = {
     "_cpyrit_stream.StreamDevice",/*tp_name*/
     sizeof(StreamDevice),       /*tp_basicsize*/
     0,                          /*tp_itemsize*/
-    0,                          /*tp_dealloc*/
+    (destructor)streamdev_dealloc, /*tp_dealloc*/
     0,                          /*tp_print*/
     0,                          /*tp_getattr*/
     0,                          /*tp_setattr*/
@@ -282,7 +297,7 @@ static PyTypeObject StreamDevice_type = {
     0,                          /*tp_descr_get*/
     0,                          /*tp_descr_set*/
     0,                          /*tp_dictoffset*/
-    0,                          /*tp_init*/
+    (initproc)streamdev_init,   /*tp_init*/
     0,                          /*tp_alloc*/
     0,                          /*tp_new*/
     0,                          /*tp_free*/
@@ -290,8 +305,8 @@ static PyTypeObject StreamDevice_type = {
 };
 
 static PyMethodDef CPyritStreamMethods[] = {
-    {"setDevice", cpyrit_setDevice, METH_VARARGS, "Binds the current thread to the given device."},
-    {"getDeviceCount", cpyrit_getDevCount, METH_VARARGS, "Returns the number of available CAL-devices."},
+    {"setDevice", stream_setDevice, METH_VARARGS, "Binds the current thread to the given device."},
+    {"getDeviceCount", stream_getDevCount, METH_VARARGS, "Returns the number of available CAL-devices."},
     {NULL, NULL, 0, NULL}
 };
 
@@ -302,15 +317,12 @@ init_cpyrit_stream(void)
 
     // The whole purpose is to prevent Brook/SystemRT.cpp from complaining about this to stdout
     void* libHndl = dlopen("libaticalcl.so", RTLD_NOW);
-    if(libHndl)
-    {
-        dlclose(libHndl);
-    }
-    else
+    if(!libHndl)
     {
         PyErr_SetString(PyExc_ImportError, "libaticalcl.so not found.");
         return;
     }
+    dlclose(libHndl);
 
     StreamDevices = brook::getDevices("cal", (unsigned int*)&StreamDevCount);
     if (StreamDevCount < 1)
