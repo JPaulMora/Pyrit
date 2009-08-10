@@ -305,19 +305,17 @@ class Pyrit_CLI(object):
         f = sys.stdout if self.options.file == '-' else open(self.options.file, 'wb')
         lines = 0
         self.tell("Exporting to '%s'..." % self.options.file)
-        awriter = util.AsyncFileWriter(f)
+        cowpwriter = util.CowpattyWriter(self.option.essid, util.AsyncFileWriter(f))
         try:
-            awriter.write(util.genCowpHeader(self.options.essid))
             for results in self.essidstore.iterresults(self.options.essid):
-                awriter.write(util.genCowpEntries(results))
+                cowpwriter.write(results)
                 lines += len(results)
                 self.tell("\r%i entries written..." % lines, end=None, sep=None)
             self.tell("\r%i entries written. All done." % lines)
         except IOError:
             self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
         finally:
-            awriter.close()
-            f.close()
+            cowpwriter.close()
 
     @requires_pckttools()
     @requires_options('capturefile')
@@ -415,73 +413,19 @@ class Pyrit_CLI(object):
             cur.close()
             con.close()
 
-    def _databaseIterator(self, essid, cp, yieldOldResults=True, yieldNewResults=True):
-        workunits = []        
-        for key in self.passwdstore:
-            if yieldOldResults and self.essidstore.containskey(essid, key):
-                yield self.essidstore[essid, key]
-            elif yieldNewResults:
-                passwords = self.passwdstore[key]
-                workunits.append((essid, key, passwords))
-                cp.enqueue(essid, passwords)
-                solvedPMKs = cp.dequeue(block=False)
-                if solvedPMKs is not None:
-                    solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
-                    solvedResults = zip(solvedPasswords, solvedPMKs)
-                    self.essidstore[solvedEssid, solvedKey] = solvedResults
-                    yield solvedResults
-        if yieldNewResults:
-            for solvedPMKs in cp:
-                solvedEssid, solvedKey, solvedPasswords = workunits.pop(0)
-                solvedResults = zip(solvedPasswords, solvedPMKs)
-                self.essidstore[solvedEssid, solvedKey] = solvedResults
-                yield solvedResults
-
-    def _passthroughIterator(self, essid, cp, f):
-        workunits = []
-        pwbuffer = set()
-        for line in f:
-            pw = line.strip()[:63]
-            if len(pw) >= 8:
-                pwbuffer.add(pw)
-            if len(pwbuffer) > 20000:
-                workunits.append(pwbuffer)
-                cp.enqueue(essid, workunits[-1])
-                pwbuffer = set()
-                solvedPMKs = cp.dequeue(block=False)
-                if solvedPMKs is not None:
-                    yield zip(workunits.pop(0), solvedPMKs)
-        if len(pwbuffer) > 0:
-            workunits.append(pwbuffer)
-            cp.enqueue(essid, workunits[-1])
-        for solvedPMKs in cp:
-            yield zip(workunits.pop(0), solvedPMKs)
-
     @requires_options('essid', 'file')
     def passthrough(self):
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
         f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
-        totalResCount = 0
-        startTime = time.time()
-        awriter = util.AsyncFileWriter(sys.stdout)       
+        cowpwriter = util.CowpattyWriter(self.option.essid, util.AsyncFileWriter(sys.stdout))
         try:
-            awriter.write(util.genCowpHeader(self.options.essid))
-            for results in self._passthroughIterator(self.options.essid, cp, f):
-                awriter.write(util.genCowpEntries(results))
-                totalResCount += len(results)
-                self.tell("Computed %i PMKs so far; %i PMKs per second.\r" % \
-                            (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
-            self._printCoreStats(cp, startTime)
+            for results in util.PassthroughIterator(self.options.essid, f):
+                cowpwriter.write(results)
         except IOError:
             self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
         finally:
-            awriter.close()
-            f.close()
+            cowpwriter.close()
 
     def batchprocess(self):
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
         if self.options.file and not self.options.essid:
             raise PyritRuntimeError("Results will be written to a file while batchprocessing. This requires to specify a single ESSID.")
         if self.options.essid is not None:
@@ -492,105 +436,98 @@ class Pyrit_CLI(object):
             essids = list(self.essidstore)
         totalResCount = 0
         startTime = time.time()
-        workunits = []
         if self.options.file:
             f = sys.stdout if self.options.file == '-' else open(self.options.file, 'wb')
-            awriter = util.AsyncFileWriter(f)
+            cowpwriter = util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(f))
         else:
-            f = None
+            cowpwriter = None
         try:
             for essid in essids:
                 self.tell("Working on ESSID '%s'" % essid)
-                if f:
-                    awriter.write(util.genCowpHeader(essid))
-                for results in self._databaseIterator(essid, cp, yieldOldResults=f is not None):
+                dbiterator = util.DatabaseIterator(self.essidstore, self.passwdstore, essid, yieldOldResults=cowpwriter is not None)
+                for idx, results in enumerate(dbiterator):
                     totalResCount += len(results)
-                    if f:
-                        awriter.writer(util.genCowpEntries(results))
-                    self.tell("Processed %i PMKs so far; %i PMKs per second.\r" % \
-                                (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
+                    if cowpwriter:
+                        cowpwriter.write(results)
+                    self.tell("Processed %i/%i workunits so far (%.1f%%); %i PMKs per second.\r" % \
+                              (idx+1, len(self.passwdstore), 100.0 * (idx+1) / len(self.passwdstore),
+                              totalResCount / (time.time() - startTime)), end=None, sep=None)
+                self._printCoreStats(dbiterator.cp, startTime)
                 self.tell('')
-        except (KeyboardInterrupt, SystemExit):
-            self.tell("Exiting...")
         except IOError:
             self.tell("IOError while batchprocessing. Exiting gracefully...")
         finally:
-            if f:
-                awriter.close()
-                f.close()
-            self._printCoreStats(cp, startTime)
+            if cowpwriter:
+                cowpwriter.close()
         self.tell("Batchprocessing done.")
 
     @requires_pckttools()
     @requires_options('file', 'capturefile')
     def attack_passthrough(self):
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
-        parser = self._getParser(self.options.capturefile)
-        ap = self._fuzzyGetAP(parser)
+        ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
         if len(ap) == 0:
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
         f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
+        resultiterator = util.PassthroughIterator(self.options.essid, f)
         totalResCount = 0
         startTime = time.time()
+        crackers = []
         for auth in ap.getCompletedAuthentications():
-            cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame)
-            self.tell("Attacking handshake with Station %s..." % auth.sta)
-            for results in self._passthroughIterator(self.options.essid, cp, f):
+            crackers.append(pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame))
+        for results in resultiterator:
+            for cracker in crackers:
                 cracker.enqueue(results)
-                totalResCount += len(results)
-                self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
-                            (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
-                if cracker.solution:
-                    break
+            totalResCount += len(results)
+            self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
+                        (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
+            if any(cracker.solution for cracker in crackers):
+                break
+        self.tell('')
+        self._printCoreStats(resultiterator.cp, startTime)
+        for cracker in crackers:
             cracker.join()
             if cracker.solution:
+                self.tell("\nThe password is '%s'.\n" % cracker.solution)
                 break
-        if cracker.solution:
-            self.tell("\n\nThe password is '%s'.\n" % cracker.solution)
         else:
             raise PyritRuntimeError("\n\nPassword was not found.\n")
-        self._printCoreStats(cp, startTime)                
 
     @requires_pckttools()
     @requires_options('capturefile')
     def attack_batch(self):
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
-        parser = self._getParser(self.options.capturefile)
-        ap = self._fuzzyGetAP(parser)
+        ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
         if len(ap) == 0:
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
         if self.options.essid not in self.essidstore:
             self.essidstore.create_essid(self.options.essid)
         totalResCount = 0
         startTime = time.time()
-        try:
-            for auth in ap.getCompletedAuthentications():
-                cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame)
-                self.tell("Attacking handshake with Station %s..." % auth.sta)
-                for results in self._databaseIterator(self.options.essid, cp, yieldOldResults=True, yieldNewResults=True):
-                    cracker.enqueue(results)
-                    totalResCount += len(results)
-                    self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
-                                (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
-                    if cracker.solution:
-                        break
-                cracker.join()
+        for auth in ap.getCompletedAuthentications():
+            cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame)
+            dbiterator = util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid)
+            self.tell("Attacking handshake with Station %s..." % auth.sta)
+            for idx, results in enumerate(dbiterator):
+                cracker.enqueue(results)
+                totalResCount += len(results)
+                self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
+                            (totalResCount, 100.0 * (idx+1) / len(self.passwdstore), 
+                             totalResCount / (time.time() - startTime)), end=None, sep=None)
                 if cracker.solution:
                     break
+            self.tell('')
+            self._printCoreStats(dbiterator.cp, startTime)
+            cracker.join()
             if cracker.solution:
-                self.tell("\n\nThe password is '%s'.\n" % cracker.solution)
-            else:
-                raise PyritRuntimeError("\n\nThe password was not found.")
-        finally:
-            self._printCoreStats(cp, startTime)
+                break
+        if cracker.solution:
+            self.tell("\nThe password is '%s'.\n" % cracker.solution)
+        else:
+            raise PyritRuntimeError("\n\nThe password was not found.")
 
     @requires_pckttools()
     @requires_options('capturefile')
     def attack_db(self):
-        parser = self._getParser(self.options.capturefile)
-        ap = self._fuzzyGetAP(parser)
+        ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
         if len(ap) == 0:
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
         if self.options.essid not in self.essidstore:
@@ -600,18 +537,20 @@ class Pyrit_CLI(object):
         for auth in ap.getCompletedAuthentications():
             cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame)
             self.tell("Attacking handshake with Station %s..." % auth.sta)
-            for results in self._databaseIterator(self.options.essid, cp=None, yieldOldResults=True, yieldNewResults=False):
+            for idx, results in enumerate(util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid, yieldNewResults=False)):
                 cracker.enqueue(results)
                 totalResCount += len(results)
-                self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
-                            (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
+                self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
+                            (totalResCount, 100.0 * (idx+1) / len(self.passwdstore), 
+                             totalResCount / (time.time() - startTime)), end=None, sep=None)
                 if cracker.solution:
                     break
+            self.tell('')
             cracker.join()
             if cracker.solution:
                 break
         if cracker.solution:
-            self.tell("\n\nThe password is '%s'.\n" % cracker.solution)
+            self.tell("\nThe password is '%s'.\n" % cracker.solution)
         else:
             raise PyritRuntimeError("\n\nPassword was not found.\n")
 

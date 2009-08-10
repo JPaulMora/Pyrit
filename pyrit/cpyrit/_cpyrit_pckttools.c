@@ -172,21 +172,18 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
         Py_END_ALLOW_THREADS;
     }
     if (!solution_obj)
-    {
         solution_obj = Py_None;
-        Py_INCREF(solution_obj);
-    }
     
     out:
     Py_DECREF(result_seq);
     if (pmk_buffer)
         PyMem_Free(pmk_buffer);
-    if (itemcount > 0)
-    {
-        for (i = 0; i < itemcount; i++)
-            Py_DECREF(passwd_objbuffer[i]);
+    if (passwd_objbuffer)
         PyMem_Free(passwd_objbuffer);
-    }
+    for (i = 0; i < itemcount; i++)
+        Py_DECREF(passwd_objbuffer[i]);
+
+    Py_INCREF(solution_obj);
     return solution_obj;
 }
 
