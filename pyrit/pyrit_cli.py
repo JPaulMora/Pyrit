@@ -20,6 +20,7 @@
 from __future__ import with_statement
 
 import getopt
+import gzip
 import hashlib
 import itertools
 import os
@@ -271,11 +272,16 @@ class Pyrit_CLI(object):
         self.tell("Passwords available:\t%i\n" % pwcount)
         for essid, rescount in sorted(essid_results.iteritems()):
             self.tell("ESSID '%s':\t%i (%.2f%%)" % (essid, rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
-        self.tell("")
+        self.tell('')
     
     @requires_options('file')
     def import_passwords(self):
-        f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
+        if self.options.file == '-':
+            f = sys.stdin
+        elif self.options.file.endswith('.gz'):
+            f = gzip.open(self.options.file, 'r')
+        else:
+            f = open(self.options.file, 'r')
         for i, line in enumerate(f):
             self.passwdstore.store_password(line)
             if i % 100000 == 0:
@@ -287,35 +293,30 @@ class Pyrit_CLI(object):
 
     @requires_options('file')
     def export_passwords(self):
-        f = sys.stdout if self.options.file == '-' else open(self.options.file, 'w')
         lines = 0
-        with util.AsyncFileWriter(f) as awriter:
+        with util.AsyncFileWriter(self.options.file) as awriter:
             for idx, pwset in enumerate(self.passwdstore.iterpasswords()):
                 awriter.write('\n'.join(pwset))
                 awriter.write('\n')
                 lines += len(pwset)
-                self.tell("%i lines written (%.2f%%)\r" % (lines, (idx+1)*100 / len(self.passwdstore)), end=None, sep=None)
-            self.tell("\nAll done")
-        f.close()
+                self.tell("%i lines written (%.1f%%)\r" % (lines, (idx+1)*100.0 / len(self.passwdstore)), end=None, sep=None)
+        self.tell("\nAll done")
     
     @requires_options('file', 'essid')
     def export_cowpatty(self):
         if self.options.essid not in self.essidstore:
             raise PyritRuntimeError("The ESSID you specified can't be found in the storage.")
-        f = sys.stdout if self.options.file == '-' else open(self.options.file, 'wb')
         lines = 0
         self.tell("Exporting to '%s'..." % self.options.file)
-        cowpwriter = util.CowpattyWriter(self.option.essid, util.AsyncFileWriter(f))
-        try:
-            for results in self.essidstore.iterresults(self.options.essid):
-                cowpwriter.write(results)
-                lines += len(results)
-                self.tell("\r%i entries written..." % lines, end=None, sep=None)
-            self.tell("\r%i entries written. All done." % lines)
-        except IOError:
-            self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
-        finally:
-            cowpwriter.close()
+        with util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(self.options.file)) as cowpwriter:
+            try:
+                for results in self.essidstore.iterresults(self.options.essid):
+                    cowpwriter.write(results)
+                    lines += len(results)
+                    self.tell("\r%i entries written..." % lines, end=None, sep=None)
+                self.tell("\r%i entries written. All done." % lines)
+            except IOError:
+                self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
 
     @requires_pckttools()
     @requires_options('capturefile')
@@ -415,15 +416,18 @@ class Pyrit_CLI(object):
 
     @requires_options('essid', 'file')
     def passthrough(self):
-        f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
-        cowpwriter = util.CowpattyWriter(self.option.essid, util.AsyncFileWriter(sys.stdout))
-        try:
-            for results in util.PassthroughIterator(self.options.essid, f):
-                cowpwriter.write(results)
-        except IOError:
-            self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
-        finally:
-            cowpwriter.close()
+        if self.options.file == '-':
+            f = sys.stdin
+        elif self.options.file.endswith('.gz'):
+            f = gzip.open(self.options.file, 'r')
+        else:
+            f = open(self.options.file, 'r')
+        with util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(sys.stdout)) as cowpwriter:
+            try:
+                for results in util.PassthroughIterator(self.options.essid, f):
+                    cowpwriter.write(results)
+            except IOError:
+                self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
 
     def batchprocess(self):
         if self.options.file and not self.options.essid:
@@ -437,8 +441,7 @@ class Pyrit_CLI(object):
         totalResCount = 0
         startTime = time.time()
         if self.options.file:
-            f = sys.stdout if self.options.file == '-' else open(self.options.file, 'wb')
-            cowpwriter = util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(f))
+            cowpwriter = util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(self.options.file))
         else:
             cowpwriter = None
         try:
@@ -453,7 +456,9 @@ class Pyrit_CLI(object):
                               (idx+1, len(self.passwdstore), 100.0 * (idx+1) / len(self.passwdstore),
                               totalResCount / (time.time() - startTime)), end=None, sep=None)
                 self._printCoreStats(dbiterator.cp, startTime)
-                self.tell('')
+                self.tell("Processed %i/%i workunits so far (%.1f%%); %i PMKs per second." % \
+                          (idx+1, len(self.passwdstore), 100.0 * (idx+1) / len(self.passwdstore),
+                          totalResCount / (time.time() - startTime)))
         except IOError:
             self.tell("IOError while batchprocessing. Exiting gracefully...")
         finally:
@@ -467,7 +472,12 @@ class Pyrit_CLI(object):
         ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
         if len(ap) == 0:
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
-        f = sys.stdin if self.options.file == '-' else open(self.options.file, 'r')
+        if self.options.file == '-':
+            f = sys.stdin
+        elif self.options.file.endswith('.gz'):
+            f = gzip.open(self.options.file, 'r')
+        else:
+            f = open(self.options.file, 'r')
         resultiterator = util.PassthroughIterator(self.options.essid, f)
         totalResCount = 0
         startTime = time.time()
@@ -482,7 +492,8 @@ class Pyrit_CLI(object):
                         (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
             if any(cracker.solution for cracker in crackers):
                 break
-        self.tell('')
+        self.tell("Tried %i PMKs so far; %i PMKs per second." % \
+                    (totalResCount, totalResCount / (time.time() - startTime)))
         self._printCoreStats(resultiterator.cp, startTime)
         for cracker in crackers:
             cracker.join()
@@ -490,7 +501,7 @@ class Pyrit_CLI(object):
                 self.tell("\nThe password is '%s'.\n" % cracker.solution)
                 break
         else:
-            raise PyritRuntimeError("\n\nPassword was not found.\n")
+            raise PyritRuntimeError("\nPassword was not found.\n")
 
     @requires_pckttools()
     @requires_options('capturefile')
@@ -522,7 +533,7 @@ class Pyrit_CLI(object):
         if cracker.solution:
             self.tell("\nThe password is '%s'.\n" % cracker.solution)
         else:
-            raise PyritRuntimeError("\n\nThe password was not found.")
+            raise PyritRuntimeError("\nThe password was not found.\n")
 
     @requires_pckttools()
     @requires_options('capturefile')
@@ -533,6 +544,7 @@ class Pyrit_CLI(object):
         if self.options.essid not in self.essidstore:
             raise PyritRuntimeError("The ESSID you specified can't be found in the database.")
         totalResCount = 0
+        wucount = len(self.essidstore.keys(self.options.essid))
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
             cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame)
@@ -541,7 +553,7 @@ class Pyrit_CLI(object):
                 cracker.enqueue(results)
                 totalResCount += len(results)
                 self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
-                            (totalResCount, 100.0 * (idx+1) / len(self.passwdstore), 
+                            (totalResCount, 100.0 * (idx+1) / wucount, 
                              totalResCount / (time.time() - startTime)), end=None, sep=None)
                 if cracker.solution:
                     break
@@ -552,7 +564,7 @@ class Pyrit_CLI(object):
         if cracker.solution:
             self.tell("\nThe password is '%s'.\n" % cracker.solution)
         else:
-            raise PyritRuntimeError("\n\nPassword was not found.\n")
+            raise PyritRuntimeError("\nPassword was not found.\n")
 
     def benchmark(self, timeout=60):
         from cpyrit import cpyrit

@@ -37,6 +37,7 @@
 from __future__ import with_statement
 
 import cStringIO
+import gzip
 import hashlib
 import itertools
 import os
@@ -75,18 +76,6 @@ ncpus = _detect_ncpus()
 def genCowpHeader(essid):
     """Return a header-section in cowpatty's binary format for the given ESSID"""
     return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
-
-
-class CowpattyWriter(object):
-    def __init__(self, essid, f):
-        self.f = open(f, 'wb') if isinstance(f, str) else f
-        self.f.write(genCowpHeader(essid))
-        
-    def write(self, results):
-        self.f.write(genCowpEntries(results))
-        
-    def close(self):
-        self.f.close()
 
 
 class ScapyImportError(ImportError):
@@ -169,20 +158,43 @@ class PassthroughIterator(object):
         raise StopIteration
 
 
+class CowpattyWriter(object):
+    def __init__(self, essid, f):
+        self.f = open(f, 'wb') if isinstance(f, str) else f
+        self.f.write(genCowpHeader(essid))
+        
+    def write(self, results):
+        self.f.write(genCowpEntries(results))
+        
+    def close(self):
+        self.f.close()
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+
 class AsyncFileWriter(threading.Thread):
-    """A buffered, asynchronous file-like object to be wrapped around an already
-       opened file handle.
+    """A buffered, asynchronous file-like object.
     
        Writing to this object will only block if the internal buffer
        exceeded it's maximum size. The call to .write() is done in a seperate thread.
     """ 
-    def __init__(self, filehndl, maxsize=10*1024**2):
+    def __init__(self, f, maxsize=10*1024**2):
         """Create a instance writing to the given file-like-object and buffering
            maxsize before blocking."""
         threading.Thread.__init__(self)
+        if isinstance(f, str):
+            if f == '-':
+                self.filehndl = sys.stdout
+            else:
+                self.filehndl = gzip.open(f, 'wb') if f.endswith('.gz') else open(f, 'wb')
+        else:
+            self.filehndl = f
         self.shallstop = False
         self.hasstopped = False
-        self.filehndl = filehndl
         self.maxsize = maxsize
         self.excp = None
         self.buf = cStringIO.StringIO()
@@ -408,22 +420,22 @@ class EssidStore(object):
             raise KeyError, "ESSID not in store."
         return key in self.essids[essid][1]
 
-    def iterkeys(self, essid):
-        """Iterate over all keys that can currently be used to receive results
+    def keys(self, essid):
+        """Returns a collection of keys that can currently be used to receive results
            for the given ESSID.
         """
         if essid not in self.essids:
             raise KeyError, "ESSID not in store."
-        return set(self.essids[essid][1]).__iter__()
+        return frozenset(self.essids[essid][1])
         
     def iterresults(self, essid):
         """Iterate over all results currently stored for the given ESSID."""
-        for key in self.iterkeys(essid):
+        for key in self.keys(essid):
             yield self[essid, key]
 
     def iteritems(self, essid):
         """Iterate over all keys and results currently stored for the given ESSID."""
-        for key in self.iterkeys(essid):
+        for key in self.keys(essid):
             yield (key, self[essid, key])
 
     def create_essid(self, essid):

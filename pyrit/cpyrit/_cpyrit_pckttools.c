@@ -108,7 +108,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     result_seq = PyObject_GetIter(result_seq);
     if (!result_seq)
     {
-        PyErr_NoMemory();
+        PyErr_SetString(PyExc_ValueError, "Parameter must be a iterable of (password, PMK)-sequences.");
         return NULL;
     }
     
@@ -124,26 +124,41 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
             buffersize += 50000;
             t = PyMem_Realloc(pmk_buffer, buffersize*32);
             if (!t)
+            {
+                PyErr_NoMemory();
                 goto out;
+            }
             pmk_buffer = t;
             t_obj = PyMem_Realloc(passwd_objbuffer, buffersize*sizeof(PyObject*));
             if (!t_obj)
+            {
+                PyErr_NoMemory();
                 goto out;
+            }
             passwd_objbuffer = t_obj;
         }
         
         passwd_obj = PySequence_GetItem(result_obj, 0);
-        if (!passwd_obj)
+        if (!(passwd_obj && PyString_Check(passwd_obj)))
+        {
+            PyErr_SetString(PyExc_ValueError, "Expected password as first item in a sequence-object.");
+            Py_XDECREF(passwd_obj);
             goto out;
+        }
         passwd_objbuffer[itemcount] = passwd_obj;
         
         pmk_obj = PySequence_GetItem(result_obj, 1);
         if (!pmk_obj)
+        {
+            PyErr_SetString(PyExc_ValueError, "Expected Pairwise Master Key as second item in a sequence-object.");
+            Py_DECREF(passwd_obj);
             goto out;
+        }
         pmk = PyString_AsString(pmk_obj);
         if (pmk == NULL || PyString_Size(pmk_obj) != 32)
         {
             PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
+            Py_DECREF(passwd_obj);
             Py_DECREF(pmk_obj);
             goto out;
         }
@@ -173,17 +188,17 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     }
     if (!solution_obj)
         solution_obj = Py_None;
+    Py_INCREF(solution_obj);
     
     out:
     Py_DECREF(result_seq);
     if (pmk_buffer)
         PyMem_Free(pmk_buffer);
     if (passwd_objbuffer)
+        for (i = 0; i < itemcount; i++)
+            Py_DECREF(passwd_objbuffer[i]);
         PyMem_Free(passwd_objbuffer);
-    for (i = 0; i < itemcount; i++)
-        Py_DECREF(passwd_objbuffer[i]);
 
-    Py_INCREF(solution_obj);
     return solution_obj;
 }
 
