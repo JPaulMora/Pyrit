@@ -166,6 +166,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
         Py_DECREF(pmk_obj);
         
         itemcount += 1;
+        Py_DECREF(result_obj);
     }
     
     if (itemcount > 0)
@@ -191,6 +192,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     Py_INCREF(solution_obj);
     
     out:
+    Py_XDECREF(result_obj);
     Py_DECREF(result_seq);
     if (pmk_buffer)
         PyMem_Free(pmk_buffer);
