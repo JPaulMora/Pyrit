@@ -4,6 +4,6 @@ if __name__ == "__main__":
     import sys
     try:
         pyrit_cli.Pyrit_CLI().initFromArgv()
-    except pyrit_cli.PyritRuntimeError, e:
+    except (pyrit_cli.PyritRuntimeError, KeyboardInterrupt, SystemExit), e:
         sys.exit(e)
 

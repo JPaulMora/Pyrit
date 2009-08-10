@@ -49,11 +49,6 @@ import zlib
 from _cpyrit_util import genCowpEntries
 from _cpyrit_util import VERSION
 
-
-def genCowpHeader(essid):
-    """Return a header-section in cowpatty's binary format for the given ESSID"""
-    return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
-
 # Snippet taken from ParallelPython
 def _detect_ncpus():
     """Detect the number of effective CPUs in the system"""
@@ -76,8 +71,103 @@ def _detect_ncpus():
     return 1
 ncpus = _detect_ncpus()
 
+
+def genCowpHeader(essid):
+    """Return a header-section in cowpatty's binary format for the given ESSID"""
+    return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
+
+
+class CowpattyWriter(object):
+    def __init__(self, essid, f):
+        self.f = open(f, 'wb') if isinstance(f, str) else f
+        self.f.write(genCowpHeader(essid))
+        
+    def write(self, results):
+        self.f.write(genCowpEntries(results))
+        
+    def close(self):
+        self.f.close()
+
+
 class ScapyImportError(ImportError):
     pass
+
+
+class DatabaseIterator(object):
+    def __init__(self, essidstore, passwdstore, essid, yieldOldResults=True, yieldNewResults=True):
+        if yieldNewResults:
+            import cpyrit
+            self.cp = cpyrit.CPyrit()
+        else:
+            self.cp = None
+        self.workunits = []
+        self.essid = essid
+        self.essidstore = essidstore
+        self.passwdstore = passwdstore
+        self.yieldOldResults = yieldOldResults
+        self.yieldNewResults = yieldNewResults
+        self.keys = iter(self.passwdstore)
+        
+    def __iter__(self):
+        return self
+        
+    def next(self):
+        for key in self.keys:
+            if self.essidstore.containskey(self.essid, key):
+                if self.yieldOldResults:
+                    return self.essidstore[self.essid, key]
+            else:
+                if self.yieldNewResults:
+                    passwords = self.passwdstore[key]
+                    self.workunits.append((self.essid, key, passwords))
+                    self.cp.enqueue(self.essid, passwords)
+                    solvedPMKs = self.cp.dequeue(block=False)
+                    if solvedPMKs is not None:
+                        solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
+                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        self.essidstore[solvedEssid, solvedKey] = solvedResults
+                        return solvedResults
+        if self.yieldNewResults:
+            for solvedPMKs in self.cp:
+                solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
+                solvedResults = zip(solvedPasswords, solvedPMKs)
+                self.essidstore[solvedEssid, solvedKey] = solvedResults
+                return solvedResults
+        raise StopIteration
+
+
+class PassthroughIterator(object):
+    def __init__(self, essid, iterable, buffersize=20000):
+        import cpyrit
+        self.cp = cpyrit.CPyrit()
+        self.essid = essid
+        self.iterator = iter(iterable)
+        self.workunits = []
+        self.buffersize = buffersize
+
+    def __iter__(self):
+        return self
+        
+    def next(self):
+        pwbuffer = []
+        for line in self.iterator:
+            pw = line.strip()[:63]
+            if len(pw) >= 8:
+                pwbuffer.append(pw)
+            if len(pwbuffer) > self.buffersize:
+                self.workunits.append(pwbuffer)
+                self.cp.enqueue(self.essid, self.workunits[-1])
+                pwbuffer = []
+                solvedPMKs = self.cp.dequeue(block=False)
+                if solvedPMKs is not None:
+                    return zip(self.workunits.pop(0), solvedPMKs)
+        if len(pwbuffer) > 0:
+            self.workunits.append(pwbuffer)
+            self.cp.enqueue(self.essid, self.workunits[-1])
+        for solvedPMKs in self.cp:
+            return zip(self.workunits.pop(0), solvedPMKs)
+        raise StopIteration
+
 
 class AsyncFileWriter(threading.Thread):
     """A buffered, asynchronous file-like object to be wrapped around an already
@@ -111,15 +201,15 @@ class AsyncFileWriter(threading.Thread):
     def close(self):
         """Stop the writer and wait for it to finish.
         
-           It is the caller's responsibility to close the file handle that was
-           used for initialization. Exceptions in the writer-thread are
-           re-raised after the writer is closed.
+           The file handle that was used for initialization is closed.
+           Exceptions in the writer-thread are re-raised after the writer is closed.
         """
         with self.cv:
             self.shallstop = True
             self.cv.notifyAll()
             while not self.hasstopped:
                 self.cv.wait()
+            self.filehndl.close()
             self._raise()
 
     def write(self, data):
@@ -140,7 +230,9 @@ class AsyncFileWriter(threading.Thread):
     def closeAsync(self):
         """Signal the writer to stop and return to caller immediately.
         
-           The caller should not close the file handle given at initialization
+           The file handle that was used for initialization is not closed by a
+           call to closeAsync().
+           The caller must call join() before trying to close the file handle
            to prevent this instance from writing to a closed file handle.
            Exceptions are not re-raised.
         """
