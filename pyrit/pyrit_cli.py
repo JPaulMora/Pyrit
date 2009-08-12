@@ -455,10 +455,10 @@ class Pyrit_CLI(object):
                     self.tell("Processed %i/%i workunits so far (%.1f%%); %i PMKs per second.\r" % \
                               (idx+1, len(self.passwdstore), 100.0 * (idx+1) / len(self.passwdstore),
                               totalResCount / (time.time() - startTime)), end=None, sep=None)
+                self.tell("Processed all workunits for ESSID '%s'; %i PMKs per second." % \
+                          (essid, totalResCount / (time.time() - startTime)))
                 self._printCoreStats(dbiterator.cp, startTime)
-                self.tell("Processed %i/%i workunits so far (%.1f%%); %i PMKs per second." % \
-                          (idx+1, len(self.passwdstore), 100.0 * (idx+1) / len(self.passwdstore),
-                          totalResCount / (time.time() - startTime)))
+                self.tell('')
         except IOError:
             self.tell("IOError while batchprocessing. Exiting gracefully...")
         finally:
@@ -644,33 +644,30 @@ class Pyrit_CLI(object):
         err = False
         startTime = time.time()
         workunits = []
-        try: 
-            for essid in essids:
-                self.tell("Verifying ESSID '%s'" % essid)
-                for key, results in self.essidstore.iteritems(essid):
-                    sample = random.sample(results, int(len(results) * 0.1))
-                    if len(sample) > 0:
-                        pws, pmks = zip(*sample)
-                        workunits.append((essid, key, tuple(pmks)))
-                        cp.enqueue(essid, pws)
-                        solvedPMKs = cp.dequeue(block=False)
-                        if solvedPMKs is not None:
-                            totalResCount += len(solvedPMKs)
-                            testedEssid, testedKey, testedPMKs = workunits.pop(0)
-                            if testedPMKs != solvedPMKs:
-                                self.tell("Workunit %s for ESSID '%s' seems corrupted." % (testedKey, testedEssid), stream=sys.stderr)
-                                err = True
-                    tdiff = time.time() - startTime
-                    self.tell("Computed %i PMKs so far; %i PMKs per second.\r" % (totalResCount, totalResCount / tdiff), end=None, sep=None)
-                for solvedPMKs in cp:
-                    totalResCount += len(solvedPMKs)
-                    testedEssid, testedKey, testedPMKs = workunits.pop(0)
-                    if testedPMKs != solvedPMKs:
-                        self.tell("Workunit %s for ESSID '%s' seems corrupted." % (testedKey, testedEssid), stream=sys.stderr)
-                        err = True
-            self.tell("\nVerified %i PMKs with %.2f PMKs/s." % (totalResCount, totalResCount / (time.time() - startTime)))
-        except (KeyboardInterrupt, SystemExit):
-            self.tell("Exiting...")
+        for essid in essids:
+            self.tell("Verifying ESSID '%s'" % essid)
+            for key, results in self.essidstore.iteritems(essid):
+                sample = random.sample(results, int(len(results) * 0.1))
+                if len(sample) > 0:
+                    pws, pmks = zip(*sample)
+                    workunits.append((essid, key, tuple(pmks)))
+                    cp.enqueue(essid, pws)
+                    solvedPMKs = cp.dequeue(block=False)
+                    if solvedPMKs is not None:
+                        totalResCount += len(solvedPMKs)
+                        testedEssid, testedKey, testedPMKs = workunits.pop(0)
+                        if testedPMKs != solvedPMKs:
+                            self.tell("Workunit %s for ESSID '%s' seems corrupted." % (testedKey, testedEssid), stream=sys.stderr)
+                            err = True
+                tdiff = time.time() - startTime
+                self.tell("Computed %i PMKs so far; %i PMKs per second.\r" % (totalResCount, totalResCount / tdiff), end=None, sep=None)
+            for solvedPMKs in cp:
+                totalResCount += len(solvedPMKs)
+                testedEssid, testedKey, testedPMKs = workunits.pop(0)
+                if testedPMKs != solvedPMKs:
+                    self.tell("Workunit %s for ESSID '%s' seems corrupted." % (testedKey, testedEssid), stream=sys.stderr)
+                    err = True
+        self.tell("\nVerified %i PMKs with %.2f PMKs/s." % (totalResCount, totalResCount / (time.time() - startTime)))
         if err:
             raise PyritRuntimeError(
                     "\nAt least one workunit-file contains invalid results. There are two options now:\n"\
