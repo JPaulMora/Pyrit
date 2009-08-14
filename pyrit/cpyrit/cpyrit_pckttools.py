@@ -259,10 +259,11 @@ class PacketParser(object):
                 auth.keymic = wpakey_pckt.WPAKeyMIC
                 auth.snonce = wpakey_pckt.Nonce
                 auth.frames[1] = pckt.copy()
-                # We need a revirginized version of the whole EAPOL-frame.
+                # We need a revirginized version of the EAPOL-frame which produced that MIC.
                 eapolframe = dot11_pckt[scapy.layers.dot11.EAPOL].copy()
                 eapolframe.WPAKeyMIC = '\x00'* len(eapolframe.WPAKeyMIC)
-                auth.keymic_frame = str(eapolframe)
+                # Strip padding and cruft
+                auth.keymic_frame = str(eapolframe)[:eapolframe.len + 4]
                 
             # Frame 3: pairwise set, install set, ack set, mic set
             # Results in ANonce
