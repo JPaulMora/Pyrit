@@ -25,7 +25,7 @@ def _genCowpEntries(self, res):
     return ''.join(map(''.join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in res]))
 */
 static PyObject *
-cpyrit_gencowpentries(PyObject *self, PyObject *args)
+util_gencowpentries(PyObject *self, PyObject *args)
 {
     PyObject *result_seq, *result_obj, *passwd_obj, *pmk_obj, *result;
     char *passwd, *pmk;
@@ -102,14 +102,14 @@ cpyrit_gencowpentries(PyObject *self, PyObject *args)
     return NULL;
 }
 
-static PyMethodDef CPyritUtilMethods[] = {
-    {"genCowpEntries", cpyrit_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from a iterable of password:PMK tuples."},
+static PyMethodDef UtilMethods[] = {
+    {"genCowpEntries", util_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from a iterable of password:PMK tuples."},
     {NULL, NULL, 0, NULL}
 };
 
 PyMODINIT_FUNC
-init_cpyrit_util(void)
+init_util(void)
 {
-    PyModule_AddStringConstant(Py_InitModule("_cpyrit_util", CPyritUtilMethods), "VERSION", VERSION);
+    PyModule_AddStringConstant(Py_InitModule("_util", UtilMethods), "VERSION", VERSION);
 }
 

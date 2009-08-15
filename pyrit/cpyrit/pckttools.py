@@ -31,8 +31,8 @@
 import threading
 import Queue
 
-import cpyrit_util as util
-import _cpyrit_pckttools
+import util
+import _pckttools
 
 try:
     import scapy.config
@@ -176,7 +176,9 @@ class AccessPoint(object):
                     yield auth
 
     def isCompleted(self):
+        """Returns True if this instance includes at least one valid authentication."""
         return any(station.isCompleted() for station in self)
+
 
 class Station(object):
     def __init__(self, mac, ap):
@@ -194,7 +196,9 @@ class Station(object):
         return len(self.auths)
 
     def isCompleted(self):
+        """Returns True if this instance includes at least one valid authentication."""
         return any(auth.isCompleted() for auth in self)
+
 
 class EAPOLAuthentication(object):
     def __init__(self, station):
@@ -207,6 +211,9 @@ class EAPOLAuthentication(object):
         self.frames = dict.fromkeys(range(3))
 
     def isCompleted(self):
+        """Returns True if all bits and parts required to attack this instance
+           are set.
+        """
         return all((self.version, self.snonce, self.anonce, self.keymic, self.keymic_frame))
 
     def getpke(self):
@@ -221,11 +228,11 @@ class EAPOLAuthentication(object):
     pke = property(getpke)
 
 
-class EAPOLCrackerThread(threading.Thread, _cpyrit_pckttools.EAPOLCracker):
+class EAPOLCrackerThread(threading.Thread, _pckttools.EAPOLCracker):
     def __init__(self, workqueue, auth):
         threading.Thread.__init__(self)
-        _cpyrit_pckttools.EAPOLCracker.__init__(self, auth.version, auth.pke,
-                                                auth.keymic, auth.keymic_frame)
+        _pckttools.EAPOLCracker.__init__(self, auth.version, auth.pke,
+                                        auth.keymic, auth.keymic_frame)
         self.workqueue = workqueue
         self.solution = None
         self.setDaemon(True)
@@ -309,7 +316,7 @@ class PacketParser(object):
                 if ap.essid is not None:
                     continue
                 for elt_pckt in dot11_pckt[scapy.layers.dot11.Dot11Beacon].iterSubPackets(scapy.layers.dot11.Dot11Elt):
-                    if elt_pckt.isFlagSet('ID','SSID'):
+                    if elt_pckt.isFlagSet('ID','SSID') and not all(c == '\x00' for c in elt_pckt.info):
                         ap.essid = elt_pckt.info
                         ap.essidframe = pckt.copy()
                         break
@@ -321,7 +328,7 @@ class PacketParser(object):
                 if ap.essid is not None:
                     continue
                 for elt_pckt in dot11_pckt[scapy.layers.dot11.Dot11AssoReq].iterSubPackets(scapy.layers.dot11.Dot11Elt):
-                    if elt_pckt.isFlagSet('ID', 'SSID'):
+                    if elt_pckt.isFlagSet('ID', 'SSID') and not all(c == '\x00' for c in elt_pckt.info):
                         ap.essid = elt_pckt.info
                         ap.essidframe = pckt.copy()
                         break

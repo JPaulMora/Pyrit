@@ -214,7 +214,7 @@ static PyMethodDef EAPOLCracker_methods[] =
 static PyTypeObject EAPOLCracker_type = {
     PyObject_HEAD_INIT(NULL)
     0,                          /*ob_size*/
-    "_cpyrit_pckttools.EAPOLCracker", /*tp_name*/
+    "_pckttools.EAPOLCracker",  /*tp_name*/
     sizeof(EAPOLCracker),       /*tp_basicsize*/
     0,                          /*tp_itemsize*/
     (destructor)eapolcracker_dealloc,   /*tp_dealloc*/
@@ -257,7 +257,7 @@ static PyTypeObject EAPOLCracker_type = {
 };
 
 PyMODINIT_FUNC
-init_cpyrit_pckttools(void)
+init_pckttools(void)
 {
     PyObject *m;
 
@@ -269,7 +269,7 @@ init_cpyrit_pckttools(void)
     if (PyType_Ready(&EAPOLCracker_type) < 0)
 	    return;
     
-    m = Py_InitModule("_cpyrit_pckttools", NULL);
+    m = Py_InitModule("_pckttools", NULL);
 
     Py_INCREF(&EAPOLCracker_type);
     PyModule_AddObject(m, "EAPOLCracker", (PyObject*)&EAPOLCracker_type);

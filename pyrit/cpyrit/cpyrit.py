@@ -32,7 +32,7 @@ from __future__ import with_statement
 import sys
 import time
 import threading
-import cpyrit_util as util
+import util
 
 class Core(threading.Thread):
     """The class Core provides basic scheduling and testing. It should not be used directly

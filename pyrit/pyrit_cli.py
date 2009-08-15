@@ -30,9 +30,9 @@ import sys
 import threading
 import time
 
-import cpyrit.cpyrit_util as util
+from cpyrit import util
 try:
-    import cpyrit.cpyrit_pckttools as pckttools
+    from cpyrit import pckttools
 except util.ScapyImportError:
     pass
 
@@ -165,7 +165,7 @@ class Pyrit_CLI(object):
         """Decorate a function to check for cpyrit.cpyrit_pckttools before execution."""
         def check_pkttools(f):
             def new_f(*args, **kwds):
-                if 'cpyrit.cpyrit_pckttools' not in sys.modules:
+                if 'cpyrit.pckttools' not in sys.modules:
                     raise PyritRuntimeError("The scapy-module is required to use Pyrit's analyze/attack functions but seems to be unavailable.")
                 f(*args, **kwds)
             new_f.func_name = f.func_name
