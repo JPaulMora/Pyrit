@@ -3,10 +3,11 @@ pyrit_cli.py
 setup.py
 cpyrit/__init__.py
 cpyrit/cpyrit.py
-cpyrit/cpyrit_util.py
+cpyrit/util.py
+cpyrit/pckttools.py
 cpyrit/_cpyrit_cpu.c
 cpyrit/_cpyrit_cpu.h
 cpyrit/_cpyrit_cpu_sse2.S
-cpyrit/_cpyrit_util.c
-cpyrit/_cpyrit_pckttools.c
+cpyrit/_util.c
+cpyrit/_pckttools.c
 MANIFEST

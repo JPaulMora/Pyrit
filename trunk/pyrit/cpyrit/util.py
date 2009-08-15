@@ -25,8 +25,11 @@
    
    AsyncFileWriter is used for threaded, buffered output.
    
-   genCowpHeader and genCowEntries are used to convert results to cowpatty's
-   binary format.
+   DatabaseIterator and PassthroughIterator encapsulate the repetitive task of
+   getting workunits from the database, passing them to the hardware if necessary
+   and yielding the results to a client.
+   
+   CowpattyWriter eases writing files in cowpatty's binary format.
    
    ncpus equals number of available CPUs in the system.
    
@@ -47,8 +50,8 @@ import sys
 import threading
 import zlib
 
-import _cpyrit_util
-from _cpyrit_util import VERSION
+import _util
+from _util import VERSION
 
 # Snippet taken from ParallelPython
 def _detect_ncpus():
@@ -72,7 +75,7 @@ def _detect_ncpus():
     return 1
 
 ncpus = _detect_ncpus()
-""" Number of effective CPUs (in the moment the module was loaded). """
+""" Number of effective CPUs (in the moment the module was loaded)."""
 
 def str2hex(string):
     """Convert a string to it's hex-decimal representation."""
@@ -88,6 +91,9 @@ class ScapyImportError(ImportError):
 
 
 class DatabaseIterator(object):
+    """Iterates over the database, computes new Pairwise Master Keys if necessary
+       and requested and yields tuples of (password,PMK)-tuples.
+    """
     def __init__(self, essidstore, passwdstore, essid, yieldOldResults=True, yieldNewResults=True):
         self.cp = None
         self.workunits = []
@@ -130,6 +136,10 @@ class DatabaseIterator(object):
 
 
 class PassthroughIterator(object):
+    """A iterator that takes an ESSID and an iterable of passwords, computes the
+       corresponding Pairwise Master Keys and and yields tuples of
+       (password,PMK)-tuples.
+    """
     def __init__(self, essid, iterable, buffersize=20000):
         import cpyrit
         self.cp = cpyrit.CPyrit()
