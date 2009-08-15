@@ -20,6 +20,7 @@
 from __future__ import with_statement
 
 import getopt
+import glob
 import gzip
 import hashlib
 import itertools
@@ -172,6 +173,8 @@ class Pyrit_CLI(object):
         return check_pkttools
 
     def _printCoreStats(self, cp, startTime):
+        if cp is None:
+            return
         totalResCount = sum((c.resCount for c in cp.cores))
         if totalResCount > 0:
             tdiff = time.time() - startTime
@@ -182,39 +185,44 @@ class Pyrit_CLI(object):
                self.tell("#%i: '%s': %.1f PMKs/s (Occ. %.1f%%; RTT %.1f)" % \
                             (i+1, core.name, perf, core.compTime * 100.0 / tdiff, rtt))
 
-    def _getParser(self, capturefile):
-        self.tell("Parsing file '%s'..." % capturefile, end=None) 
-        parser = pckttools.PacketParser(capturefile)
+    def _getParser(self, capturefilemask):
+        filelist = glob.glob(capturefilemask)
+        if len(filelist) == 0:
+            raise PyritRuntimeError("No file found that matches '%s'" % capturefilemask)
+        parser = pckttools.PacketParser()
+        for idx, capturefile in enumerate(filelist):
+            self.tell("Parsing file '%s' (%i/%i)..." % (capturefile, idx+1, len(filelist)))
+            parser.parse(capturefile)
         self.tell("%i packets (%i 802.11-packets), %i APs\n" % (parser.pcktcount, parser.dot11_pcktcount, len(parser)))
         return parser
 
     def _fuzzyGetAP(self, parser):
-        if not self.options.bssid and not self.options.essid:
+        if self.options.bssid is None and self.options.essid is None:
             for ap in parser:
-                if len(ap) > 0 and ap.essid:
+                if ap.isCompleted() and ap.essid is not None:
                     self.tell("Picked Access-Point %s ('%s') automatically..." % (ap, ap.essid))
                     self.options.essid = ap.essid
                     return ap
-            raise PyritRuntimeError("Specify a AccessPoint's BSSID or ESSID using the options -b or -e. See 'help'")
-        if self.options.bssid:
+            raise PyritRuntimeError("Specify an Access-Point's BSSID or ESSID using the options -b and -e. See 'help'")
+        if self.options.bssid is not None:
             if self.options.bssid not in parser:
                 raise PyritRuntimeError("No Access-Point with BSSID '%s' found in the capture file..." % self.options.bssid)
             ap = parser[self.options.bssid]
         else:
             ap = None
-        if self.options.essid:
-            if not ap:
-                aps = filter(lambda ap:(not ap.essid or ap.essid == self.options.essid) and len(ap) > 0, parser)
+        if self.options.essid is not None:
+            if ap is None:
+                aps = filter(lambda ap:(ap.essid is None or ap.essid == self.options.essid) and ap.isCompleted(), parser)
                 if len(aps) > 0:
                     ap = aps[0]
                     self.tell("Picked Access-Point %s automatically..." % ap)
                 else:
                     raise PyritRuntimeError("No suitable Access-Point with that ESSID in the capture file...")
             else:
-                if ap.essid and ap.essid != self.options.essid:
+                if ap.essid is not None and ap.essid != self.options.essid:
                     self.tell("Warning: Access-Point %s has ESSID '%s'. Using '%s' anyway..." % (ap, ap.essid, self.options.essid), stream=sys.stderr)
         else:
-            if not ap.essid:
+            if ap.essid is None:
                 raise PyritRuntimeError("The ESSID for Access-Point %s is not known from the capture file. Specify it using the option -e." % ap)
             self.options.essid = ap.essid
         return ap
@@ -326,31 +334,34 @@ class Pyrit_CLI(object):
             self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
             for j, sta in enumerate(ap):
                 self.tell("  #%i: Station %s" % (j, sta), end=None, sep=None)
-                self.tell(", handshake found" if ap[sta].iscomplete() else '')
-        if not any(len(ap) > 0 and ap.essid for ap in parser):
+                self.tell(", handshake found" if sta.isCompleted() else '')
+        if not any(ap.isCompleted() and ap.essid is not None for ap in parser):
             raise PyritRuntimeError("No valid EAOPL-handshake detected.")
 
     @requires_pckttools()
     @requires_options('capturefile', 'file')
     def stripCapture(self):
         parser = self._getParser(self.options.capturefile)
-        writer = pckttools.PcapWriter(self.options.file, linktype=parser.linktype, gz=self.options.file.endswith('.gz'))
         pcktcount = 0
-        for i, ap in enumerate((self._fuzzyGetAP(parser),) if self.options.essid or self.options.bssid else parser):
-            self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
-            if ap.essidframe:
-                writer.write(ap.essidframe)
-                pcktcount += 1
-            for j, sta in enumerate(ap):
-                self.tell("  #%i: Station %s  [" % (j, sta), end=None, sep=None)
-                auth = ap[sta]
-                for idx in range(3):
-                    if auth.frames[idx]:
-                        writer.write(auth.frames[idx])
-                        pcktcount += 1
-                    self.tell('#' if auth.frames[idx] else ' ', end=None, sep=None)
-                self.tell(']')
-        writer.close()
+        if self.options.essid is not None or self.options.bssid is not None:
+            ap_iter = (self._fuzzyGetAP(parser),)
+        else:
+            ap_iter = parser
+        with pckttools.Dot11PacketWriter(self.options.file) as writer:
+            for i, ap in enumerate(ap_iter):
+                self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
+                if ap.essidframe:
+                    writer.write(ap.essidframe)
+                    pcktcount += 1
+                for j, sta in enumerate(ap):
+                    if not sta.isCompleted():
+                        continue
+                    self.tell("  #%i: Station %s (%i authentications)" % (j, sta, len(sta)))
+                    for auth in sta:
+                        for idx in xrange(3):
+                            if auth.frames[idx] is not None:
+                                writer.write(auth.frames[idx])
+                                pcktcount += 1
         self.tell("\nNew pcap-file written (%i out of %i packets)" % (pcktcount, parser.pcktcount))
 
     @requires_options('file')
@@ -470,7 +481,7 @@ class Pyrit_CLI(object):
     @requires_options('file', 'capturefile')
     def attack_passthrough(self):
         ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
-        if len(ap) == 0:
+        if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
         if self.options.file == '-':
             f = sys.stdin
@@ -483,7 +494,7 @@ class Pyrit_CLI(object):
         startTime = time.time()
         crackers = []
         for auth in ap.getCompletedAuthentications():
-            crackers.append(pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame))
+            crackers.append(pckttools.EAPOLCracker(auth))
         for results in resultiterator:
             for cracker in crackers:
                 cracker.enqueue(results)
@@ -507,31 +518,29 @@ class Pyrit_CLI(object):
     @requires_options('capturefile')
     def attack_batch(self):
         ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
-        if len(ap) == 0:
+        if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
         if self.options.essid not in self.essidstore:
             self.essidstore.create_essid(self.options.essid)
         totalResCount = 0
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
-            cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame)
-            dbiterator = util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid)
-            self.tell("Attacking handshake with Station %s..." % auth.sta)
-            for idx, results in enumerate(dbiterator):
-                cracker.enqueue(results)
-                totalResCount += len(results)
-                self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
-                            (totalResCount, 100.0 * (idx+1) / len(self.passwdstore), 
-                             totalResCount / (time.time() - startTime)), end=None, sep=None)
-                if cracker.solution:
-                    break
-            self.tell('')
-            self._printCoreStats(dbiterator.cp, startTime)
-            cracker.join()
-            if cracker.solution:
+            with pckttools.EAPOLCracker(auth) as cracker:
+                dbiterator = util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid)
+                self.tell("Attacking handshake with Station %s..." % auth.station)
+                for idx, results in enumerate(dbiterator):
+                    cracker.enqueue(results)
+                    totalResCount += len(results)
+                    self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
+                                (totalResCount, 100.0 * (idx+1) / len(self.passwdstore), 
+                                 totalResCount / (time.time() - startTime)), end=None, sep=None)
+                    if cracker.solution:
+                        break
+                self.tell('')
+                self._printCoreStats(dbiterator.cp, startTime)
+            if cracker.solution is not None:
+                self.tell("\nThe password is '%s'.\n" % cracker.solution)
                 break
-        if cracker.solution:
-            self.tell("\nThe password is '%s'.\n" % cracker.solution)
         else:
             raise PyritRuntimeError("\nThe password was not found.\n")
 
@@ -539,30 +548,28 @@ class Pyrit_CLI(object):
     @requires_options('capturefile')
     def attack_db(self):
         ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
-        if len(ap) == 0:
+        if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
         if self.options.essid not in self.essidstore:
             raise PyritRuntimeError("The ESSID you specified can't be found in the database.")
         totalResCount = 0
-        wucount = len(self.essidstore.keys(self.options.essid))
+        WUcount = len(self.essidstore.keys(self.options.essid))
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
-            cracker = pckttools.EAPOLCracker(auth.version, ap.getpke(auth.sta), auth.keymic, auth.keymic_frame)
-            self.tell("Attacking handshake with Station %s..." % auth.sta)
-            for idx, results in enumerate(util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid, yieldNewResults=False)):
-                cracker.enqueue(results)
-                totalResCount += len(results)
-                self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
-                            (totalResCount, 100.0 * (idx+1) / wucount, 
-                             totalResCount / (time.time() - startTime)), end=None, sep=None)
-                if cracker.solution:
-                    break
-            self.tell('')
-            cracker.join()
-            if cracker.solution:
+            with pckttools.EAPOLCracker(auth) as cracker:
+                self.tell("Attacking handshake with Station %s..." % auth.station)
+                for idx, results in enumerate(util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid, yieldNewResults=False)):
+                    cracker.enqueue(results)
+                    totalResCount += len(results)
+                    self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
+                                (totalResCount, 100.0 * (idx+1) / WUcount, 
+                                 totalResCount / (time.time() - startTime)), end=None, sep=None)
+                    if cracker.solution:
+                        break
+                self.tell('')
+            if cracker.solution is not None:
+                self.tell("\nThe password is '%s'.\n" % cracker.solution)
                 break
-        if cracker.solution:
-            self.tell("\nThe password is '%s'.\n" % cracker.solution)
         else:
             raise PyritRuntimeError("\nPassword was not found.\n")
 

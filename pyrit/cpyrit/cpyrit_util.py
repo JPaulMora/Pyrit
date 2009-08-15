@@ -47,7 +47,7 @@ import sys
 import threading
 import zlib
 
-from _cpyrit_util import genCowpEntries
+import _cpyrit_util
 from _cpyrit_util import VERSION
 
 # Snippet taken from ParallelPython
@@ -70,25 +70,26 @@ def _detect_ncpus():
             return ncpus
     #return the default value
     return 1
+
 ncpus = _detect_ncpus()
+""" Number of effective CPUs (in the moment the module was loaded). """
 
-
-def genCowpHeader(essid):
-    """Return a header-section in cowpatty's binary format for the given ESSID"""
-    return "APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid))
+def str2hex(string):
+    """Convert a string to it's hex-decimal representation."""
+    return ''.join('%02x' % c for c in map(ord, string))
 
 
 class ScapyImportError(ImportError):
+    """ ScapyImportError is used to indicate failure to import scapy's modules.
+        It's main use is to separate other ImportErrors so code that tries to
+        import cpyrit_pckttools can continue in case Scapy is simply not installed.
+    """
     pass
 
 
 class DatabaseIterator(object):
     def __init__(self, essidstore, passwdstore, essid, yieldOldResults=True, yieldNewResults=True):
-        if yieldNewResults:
-            import cpyrit
-            self.cp = cpyrit.CPyrit()
-        else:
-            self.cp = None
+        self.cp = None
         self.workunits = []
         self.essid = essid
         self.essidstore = essidstore
@@ -107,6 +108,9 @@ class DatabaseIterator(object):
                     return self.essidstore[self.essid, key]
             else:
                 if self.yieldNewResults:
+                    if self.cp is None:
+                        import cpyrit
+                        self.cp = cpyrit.CPyrit()
                     passwords = self.passwdstore[key]
                     self.workunits.append((self.essid, key, passwords))
                     self.cp.enqueue(self.essid, passwords)
@@ -116,7 +120,7 @@ class DatabaseIterator(object):
                         solvedResults = zip(solvedPasswords, solvedPMKs)
                         self.essidstore[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
-        if self.yieldNewResults:
+        if self.yieldNewResults and self.cp is not None:
             for solvedPMKs in self.cp:
                 solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
                 solvedResults = zip(solvedPasswords, solvedPMKs)
@@ -159,12 +163,15 @@ class PassthroughIterator(object):
 
 
 class CowpattyWriter(object):
+    """ A simple file-like object that generates & writes (password,PMK)-tuples
+        to a file or another file-like object in cowpatty's binary format.
+    """
     def __init__(self, essid, f):
         self.f = open(f, 'wb') if isinstance(f, str) else f
-        self.f.write(genCowpHeader(essid))
+        self.f.write("APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid)))
         
     def write(self, results):
-        self.f.write(genCowpEntries(results))
+        self.f.write(_cpyrit_util.genCowpEntries(results))
         
     def close(self):
         self.f.close()
