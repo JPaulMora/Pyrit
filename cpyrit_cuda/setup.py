@@ -41,9 +41,9 @@ else:
 
 try:
     svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.4-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+    version_string = '0.2.4 (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = '0.2.4-dev'
+    version_string = '0.2.4'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
