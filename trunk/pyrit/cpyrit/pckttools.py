@@ -285,11 +285,14 @@ class Dot11PacketWriter(object):
             raise RuntimeError("No Dot11-frame in packet.")
         self.writer.write(pckt[scapy.layers.dot11.Dot11])
 
+    def close(self):
+        self.writer.close()
+
     def __enter__(self):
         return self
         
     def __exit__(self, type, value, traceback):
-        self.writer.close()
+        self.close()
 
 
 class PacketParser(object):

@@ -25,13 +25,13 @@
    
    AsyncFileWriter is used for threaded, buffered output.
    
-   DatabaseIterator and PassthroughIterator encapsulate the repetitive task of
+   StorageIterator and PassthroughIterator encapsulate the repetitive task of
    getting workunits from the database, passing them to the hardware if necessary
    and yielding the results to a client.
    
    CowpattyWriter eases writing files in cowpatty's binary format.
    
-   ncpus equals number of available CPUs in the system.
+   ncpus equals the number of available CPUs in the system.
    
    PMK_TESTVECTORS has two ESSIDs and ten password:PMK pairs each to verify
    local installations.
@@ -90,47 +90,46 @@ class ScapyImportError(ImportError):
     pass
 
 
-class DatabaseIterator(object):
+class StorageIterator(object):
     """Iterates over the database, computes new Pairwise Master Keys if necessary
        and requested and yields tuples of (password,PMK)-tuples.
     """
-    def __init__(self, essidstore, passwdstore, essid, yieldOldResults=True, yieldNewResults=True):
+    def __init__(self, storage, essid, yieldOldResults=True, yieldNewResults=True):
         self.cp = None
         self.workunits = []
         self.essid = essid
-        self.essidstore = essidstore
-        self.passwdstore = passwdstore
+        self.storage = storage
+        self.keys = iter(list(self.storage.passwords))
         self.yieldOldResults = yieldOldResults
         self.yieldNewResults = yieldNewResults
-        self.keys = iter(self.passwdstore)
         
     def __iter__(self):
         return self
         
     def next(self):
         for key in self.keys:
-            if self.essidstore.containskey(self.essid, key):
+            if self.storage.essids.containskey(self.essid, key):
                 if self.yieldOldResults:
-                    return self.essidstore[self.essid, key]
+                    return self.storage.essids[self.essid, key]
             else:
                 if self.yieldNewResults:
                     if self.cp is None:
                         import cpyrit
                         self.cp = cpyrit.CPyrit()
-                    passwords = self.passwdstore[key]
+                    passwords = self.storage.passwords[key]
                     self.workunits.append((self.essid, key, passwords))
                     self.cp.enqueue(self.essid, passwords)
                     solvedPMKs = self.cp.dequeue(block=False)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
                         solvedResults = zip(solvedPasswords, solvedPMKs)
-                        self.essidstore[solvedEssid, solvedKey] = solvedResults
+                        self.storage.essids[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
         if self.yieldNewResults and self.cp is not None:
             for solvedPMKs in self.cp:
                 solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
                 solvedResults = zip(solvedPasswords, solvedPMKs)
-                self.essidstore[solvedEssid, solvedKey] = solvedResults
+                self.storage.essids[solvedEssid, solvedKey] = solvedResults
                 return solvedResults
         raise StopIteration
 
@@ -173,7 +172,7 @@ class PassthroughIterator(object):
 
 
 class CowpattyWriter(object):
-    """ A simple file-like object that generates & writes (password,PMK)-tuples
+    """ A simple file-like object that writes (password,PMK)-tuples
         to a file or another file-like object in cowpatty's binary format.
     """
     def __init__(self, essid, f):
@@ -312,6 +311,18 @@ class AsyncFileWriter(threading.Thread):
             with self.cv:
                 self.shallstop = self.hasstopped = True
                 self.cv.notifyAll()
+
+
+class Storage(object):
+    def __init__(self, basepath=os.path.expanduser(os.path.join('~','.pyrit','blobspace'))):
+        self.essids = EssidStore(os.path.join(basepath, 'essid'))
+        self.passwords = PasswordStore(os.path.join(basepath, 'password'))
+
+    def iterresults(self, essid):
+        return self.essids.iterresults(essid)
+        
+    def iterpasswords(self):
+        return self.passwords.iterpasswords()
 
 
 class EssidStore(object):

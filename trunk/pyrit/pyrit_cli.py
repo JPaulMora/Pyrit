@@ -40,11 +40,10 @@ except util.ScapyImportError:
 class PyritRuntimeError(RuntimeError):
     pass
 
+
 class Pyrit_CLI(object):
     class options(object):
         def __init__(self):
-            self.essidstore_path = os.path.expanduser(os.path.join('~','.pyrit','blobspace','essid'))
-            self.passwdstore_path = os.path.expanduser(os.path.join('~','.pyrit','blobspace','password'))
             self.essid = None
             self.bssid = None
             self.file = None
@@ -82,12 +81,11 @@ class Pyrit_CLI(object):
         if self.options.file == '-' or 'passthrough' in commands:
             self.options.verbose = False
 
-        self.essidstore = util.EssidStore(self.options.essidstore_path)
-        self.passwdstore = util.PasswordStore(self.options.passwdstore_path)
+        self.storage = util.Storage()
 
         self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com\n" \
                   "This code is distributed under the GNU General Public License v3\n" % util.VERSION)
-        if len(self.essidstore) == 0 and len(commands) > 0 and commands[0] != 'create_essid':
+        if len(self.storage.essids) == 0 and len(commands) > 0 and commands[0] != 'create_essid':
             self.tell('The ESSID-blobspace seems to be empty; you should create an ESSID...\n', stream=sys.stderr)
 
         {'export_cowpatty': self.export_cowpatty,
@@ -229,16 +227,16 @@ class Pyrit_CLI(object):
 
     @requires_options('essid')
     def create_essid(self):
-        if self.options.essid in self.essidstore:
+        if self.options.essid in self.storage.essids:
             # Not an error for reasons of convenience
             self.tell("ESSID already created")
         else:
-            self.essidstore.create_essid(self.options.essid)
+            self.storage.essids.create_essid(self.options.essid)
             self.tell("Created ESSID '%s'" % self.options.essid)
 
     @requires_options('essid')
     def delete_essid(self, confirm=True):
-        if self.options.essid not in self.essidstore:
+        if self.options.essid not in self.storage.essids:
             raise PyritRuntimeError("ESSID not found...")
         else:
             if confirm:
@@ -246,7 +244,7 @@ class Pyrit_CLI(object):
                 if sys.stdin.readline().strip() != 'y':
                     self.tell("aborted.")
             self.tell("deleting...")
-            del self.essidstore[self.options.essid]
+            del self.storage.essids[self.options.essid]
             self.tell("Deleted ESSID '%s'." % self.options.essid)
 
     def list_cores(self):
@@ -258,25 +256,25 @@ class Pyrit_CLI(object):
 
     def list_essids(self):
         self.tell("Listing ESSIDs and estimated percentage of computed results...\n")
-        essid_results = dict.fromkeys(self.essidstore, 0)
-        pwcount = len(self.passwdstore)
-        for i, key in enumerate(self.passwdstore.iterkeys()):
+        essid_results = dict.fromkeys(self.storage.essids, 0)
+        pwcount = len(self.storage.passwords)
+        for i, key in enumerate(self.storage.passwords.iterkeys()):
             for essid in essid_results:
-                essid_results[essid] += 1 if self.essidstore.containskey(essid, key) else 0
+                essid_results[essid] += 1 if self.storage.essids.containskey(essid, key) else 0
         for essid, rescount in sorted(essid_results.iteritems()):
             self.tell("ESSID '%s'\t(%.2f%%)" % (essid, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
         self.tell("")    
 
     def eval_results(self):
-        essid_results = dict.fromkeys(self.essidstore, 0)
+        essid_results = dict.fromkeys(self.storage.essids, 0)
         pwcount = 0
-        for i, (key, passwords) in enumerate(self.passwdstore.iteritems()):
+        for i, (key, passwords) in enumerate(self.storage.passwords.iteritems()):
             pwcount += len(passwords)
             if i % 10 == 0:
                 self.tell("Passwords available:\t%i\r" % pwcount, end=None, sep=None)
             for essid in essid_results:
-                # Let's assume that the presence of the key in the essidstore means that the file is valid and completed...
-                essid_results[essid] += len(passwords) if self.essidstore.containskey(essid, key) else 0
+                # Let's assume that the presence of the key in the storage means that the file is valid and completed...
+                essid_results[essid] += len(passwords) if self.storage.essids.containskey(essid, key) else 0
         self.tell("Passwords available:\t%i\n" % pwcount)
         for essid, rescount in sorted(essid_results.iteritems()):
             self.tell("ESSID '%s':\t%i (%.2f%%)" % (essid, rescount, (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
@@ -291,34 +289,34 @@ class Pyrit_CLI(object):
         else:
             f = open(self.options.file, 'r')
         for i, line in enumerate(f):
-            self.passwdstore.store_password(line)
+            self.storage.passwords.store_password(line)
             if i % 100000 == 0:
                 self.tell("\r%i lines read." % i, end=None, flush=True)
         f.close()
         self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
-        self.passwdstore.flush_buffer()
+        self.storage.passwords.flush_buffer()
         self.tell('All done.')
 
     @requires_options('file')
     def export_passwords(self):
         lines = 0
         with util.AsyncFileWriter(self.options.file) as awriter:
-            for idx, pwset in enumerate(self.passwdstore.iterpasswords()):
+            for idx, pwset in enumerate(self.storage.iterpasswords()):
                 awriter.write('\n'.join(pwset))
                 awriter.write('\n')
                 lines += len(pwset)
-                self.tell("%i lines written (%.1f%%)\r" % (lines, (idx+1)*100.0 / len(self.passwdstore)), end=None, sep=None)
+                self.tell("%i lines written (%.1f%%)\r" % (lines, (idx+1)*100.0 / len(self.storage.passwords)), end=None, sep=None)
         self.tell("\nAll done")
     
     @requires_options('file', 'essid')
     def export_cowpatty(self):
-        if self.options.essid not in self.essidstore:
+        if self.options.essid not in self.storage.essids:
             raise PyritRuntimeError("The ESSID you specified can't be found in the storage.")
         lines = 0
         self.tell("Exporting to '%s'..." % self.options.file)
         try:
             with util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(self.options.file)) as cowpwriter:
-                for results in self.essidstore.iterresults(self.options.essid):
+                for results in self.storage.iterresults(self.options.essid):
                     cowpwriter.write(results)
                     lines += len(results)
                     self.tell("\r%i entries written..." % lines, end=None, sep=None)
@@ -367,7 +365,7 @@ class Pyrit_CLI(object):
     @requires_options('file')
     def export_hashdb(self):
         import sqlite3
-        essids = list(self.essidstore) if self.options.essid is None else [self.options.essid]
+        essids = list(self.storage.essids) if self.options.essid is None else [self.options.essid]
         con = sqlite3.connect(self.options.file)
         con.text_factory = str
         cur = con.cursor()
@@ -399,7 +397,7 @@ class Pyrit_CLI(object):
             cur.execute("PRAGMA synchronous = 1")
             i = 0
             print "Writing passwords..."
-            for pwset in self.passwdstore.iterpasswords():
+            for pwset in self.storage.iterpasswords():
                 i += len(pwset)
                 cur.executemany('INSERT OR IGNORE INTO passwd (passwd) VALUES (?)', [(pw,) for pw in pwset])
                 self.tell("Wrote %i lines...\r" % i, end=None, sep=None)
@@ -409,7 +407,7 @@ class Pyrit_CLI(object):
                 cur.execute('INSERT OR IGNORE INTO essid (essid) VALUES (?)', (essid,))
                 essid_id = cur.execute('SELECT essid_id FROM essid WHERE essid = ?', (essid,)).fetchone()[0]
                 i = 0
-                for results in self.essidstore.iterresults(essid):
+                for results in self.storage.iterresults(essid):
                     i += len(results)
                     cur.executemany('INSERT OR IGNORE INTO pmk (essid_id, passwd_id, pmk) SELECT ?, passwd_id, ? FROM passwd WHERE passwd = ?',
                                     ((essid_id, buffer(pmk), pw) for pw, pmk in results))
@@ -444,11 +442,11 @@ class Pyrit_CLI(object):
         if self.options.file and not self.options.essid:
             raise PyritRuntimeError("Results will be written to a file while batchprocessing. This requires to specify a single ESSID.")
         if self.options.essid is not None:
-            if self.options.essid not in self.essidstore:
-                self.essidstore.create_essid(self.options.essid)
+            if self.options.essid not in self.storage.essids:
+                self.storage.essids.create_essid(self.options.essid)
             essids = [self.options.essid]
         else:
-            essids = list(self.essidstore)
+            essids = list(self.storage.essids)
         totalResCount = 0
         startTime = time.time()
         if self.options.file:
@@ -458,13 +456,13 @@ class Pyrit_CLI(object):
         try:
             for essid in essids:
                 self.tell("Working on ESSID '%s'" % essid)
-                dbiterator = util.DatabaseIterator(self.essidstore, self.passwdstore, essid, yieldOldResults=cowpwriter is not None)
+                dbiterator = util.StorageIterator(self.storage, essid, yieldOldResults=cowpwriter is not None)
                 for idx, results in enumerate(dbiterator):
                     totalResCount += len(results)
                     if cowpwriter:
                         cowpwriter.write(results)
                     self.tell("Processed %i/%i workunits so far (%.1f%%); %i PMKs per second.\r" % \
-                              (idx+1, len(self.passwdstore), 100.0 * (idx+1) / len(self.passwdstore),
+                              (idx+1, len(self.storage.passwords), 100.0 * (idx+1) / len(self.storage.passwords),
                               totalResCount / (time.time() - startTime)), end=None, sep=None)
                 self.tell("Processed all workunits for ESSID '%s'; %i PMKs per second." % \
                           (essid, totalResCount / (time.time() - startTime)))
@@ -520,19 +518,19 @@ class Pyrit_CLI(object):
         ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
         if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
-        if self.options.essid not in self.essidstore:
-            self.essidstore.create_essid(self.options.essid)
+        if self.options.essid not in self.storage.essids:
+            self.storage.essids.create_essid(self.options.essid)
         totalResCount = 0
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
             with pckttools.EAPOLCracker(auth) as cracker:
-                dbiterator = util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid)
+                dbiterator = util.StorageIterator(self.storage, self.options.essid)
                 self.tell("Attacking handshake with Station %s..." % auth.station)
                 for idx, results in enumerate(dbiterator):
                     cracker.enqueue(results)
                     totalResCount += len(results)
                     self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
-                                (totalResCount, 100.0 * (idx+1) / len(self.passwdstore), 
+                                (totalResCount, 100.0 * (idx+1) / len(self.storage.passwords), 
                                  totalResCount / (time.time() - startTime)), end=None, sep=None)
                     if cracker.solution:
                         break
@@ -550,15 +548,15 @@ class Pyrit_CLI(object):
         ap = self._fuzzyGetAP(self._getParser(self.options.capturefile))
         if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s found in the capture file." % ap)
-        if self.options.essid not in self.essidstore:
+        if self.options.essid not in self.storage.essids:
             raise PyritRuntimeError("The ESSID you specified can't be found in the database.")
         totalResCount = 0
-        WUcount = len(self.essidstore.keys(self.options.essid))
+        WUcount = len(self.storage.essids.keys(self.options.essid))
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
             with pckttools.EAPOLCracker(auth) as cracker:
                 self.tell("Attacking handshake with Station %s..." % auth.station)
-                for idx, results in enumerate(util.DatabaseIterator(self.essidstore, self.passwdstore, self.options.essid, yieldNewResults=False)):
+                for idx, results in enumerate(util.StorageIterator(self.storage, self.options.essid, yieldNewResults=False)):
                     cracker.enqueue(results)
                     totalResCount += len(results)
                     self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
@@ -641,19 +639,19 @@ class Pyrit_CLI(object):
         from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
         if self.options.essid is not None:
-            if self.options.essid not in self.essidstore:
+            if self.options.essid not in self.storage.essids:
                 raise PyritRuntimeError("The ESSID '%s' is not found in the repository" % self.options.essid)
             else:
                 essids = [self.options.essid]
         else:
-            essids = list(self.essidstore)
+            essids = list(self.storage.essids)
         totalResCount = 0
         err = False
         startTime = time.time()
         workunits = []
         for essid in essids:
             self.tell("Verifying ESSID '%s'" % essid)
-            for key, results in self.essidstore.iteritems(essid):
+            for key, results in self.storage.essids.iteritems(essid):
                 sample = random.sample(results, int(len(results) * 0.1))
                 if len(sample) > 0:
                     pws, pmks = zip(*sample)
