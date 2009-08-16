@@ -27,9 +27,9 @@ UnixCCompiler.src_extensions.append('.S')
 
 try:
     svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.4 (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+    version_string = '0.2.5-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = '0.2.4'
+    version_string = '0.2.5-dev'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
@@ -48,7 +48,7 @@ pckttools_extension = Extension(name='cpyrit._pckttools',
 
 setup_args = dict(
         name = 'Pyrit',
-        version = '0.2.4',
+        version = '0.2.5',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
