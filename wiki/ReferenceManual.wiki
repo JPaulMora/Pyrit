@@ -16,43 +16,43 @@ If _command_ succeeds, _pyrit_'s process exit status is set to 0; otherwise it i
 
 Pyrit recognizes the following options:
 
-    * *-b _(0.2.4)_*
+    * *-b*
     Specifies a BSSID. Can be used to restrict commands to certain Access-Points.
     * *-e*
     Specifies the ESSID. Commands usually refer to all ESSIDs in the database when this option is omitted.
     * *-f*
     Specifies a filename. Beware that depending on the given _command_ this may be a file that is read from or written to. The special filename '-' can be used for _stdin_/_stdout_.
-    * *-r _(0.2.4)_*
+    * *-r*
     Specifies a packet-capture file in pcap format (possibly gzip-compressed).
 
 === Commands ===
 
-    * *analyze _(0.2.4)_*
-    Parse a packet-capture file (in pcap-format) and try to detect Access-Points, Stations and EAPOL-handshakes. For example:
-        `pyrit -r test.pcap analyze`
+    * *analyze*
+    Parse one or more packet-capture files (in pcap-format, possibly gzip-compressed) and try to detect Access-Points, Stations and EAPOL-handshakes. For example:
+        `pyrit -r "test*.pcap" analyze`
         
     The suffix _'handshake found'_ is appended to the Station's BSSID if the communication between the Access-Point and the Station seems to include a valid EAPOL-handshake.
 
 
-    * *attack _(0.2.4)_*
+    * *attack*
     Synonym for *attack_batch*
 
 
-    * *attack_batch _(0.2.4)_*
-    Attack an EAPOL-handshake found in the packet-capture file given by the option *-r* using the Pairwise Master Keys and passwords stored in the database. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
+    * *attack_batch*
+    Attack an EAPOL-handshake found in the packet-capture file(s) given by the option *-r* using the Pairwise Master Keys and passwords stored in the database. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
         `pyrit -r test.pcap -e MyNetwork -b 00:de:ad:c0:de:00 attack_batch`
         
     Pairwise Master Keys that previously have been computed and stored in the database are taken from there; all other passwords will first be translated into their respective Pairwise Master Keys and stored in the database for later re-use. ESSIDs are created automatically in the database if necessary.
 
     
-    * *attack_db _(0.2.4)_*
-    Attack an EAPOL-handshake found in the packet-capture file given by the option *-r* using the Pairwise Master Keys stored in the database. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
+    * *attack_db*
+    Attack an EAPOL-handshake found in the packet-capture file(s) given by the option *-r* using the Pairwise Master Keys stored in the database. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
         `pyrit -r test.pcap -e MyOtherNetwork attack_db`
 
     Only Pairwise Master Keys that previously have been computed and stored in the database are used by *attack_db*.
 
 
-    * *attack_passthrough _(0.2.4)_*
+    * *attack_passthrough*
     Attack an EAPOL-handshake found in the packet-capture file given by the option *-r* using the passwords read from the file given by the option *-f*. The options *-b* and *-e* can be used to specify the Access-Point to attack; it is picked automatically if both options are omitted. For example:
         `pyrit -r test.pcap -b 00:de:ad:be:ef:00 -f words.txt attack_passthrough`
 
@@ -91,7 +91,7 @@ Pyrit recognizes the following options:
 
     * *export_passwords*
     Write all passwords that are currently stored in the database to a new file given by *-f*. Passwords are terminated by a single newline-character (`\n`). Existing files are overwritten without confirmation. For example:
-        `pyrit -f - export_passwords | gzip > mywords.gz`
+        `pyrit -f myword.txt.gz export_passwords`
 
 
     * *export_cowpatty*
@@ -122,7 +122,7 @@ Pyrit recognizes the following options:
     * *passthrough*
     Read passwords from the file given by *-f* and compute their PMKs for the ESSID given by *-e*. The results are written to _stdout_ in _cowpatty_'s binary format and are not stored in the database for later use. This command therefor circumvents the entire database and should only be used if storage-space is a problem (e.g. when using _pyrit_ on a LiveCD). The *batch*-command provides exactly the same functionality as *passthrough* but can give much better performance as results may be read from the database instead of recomputing them. 
     For example:
-        `pyrit -f dirty_words.txt -e NETGEAR passthrough | cowpatty -d - -r wpatestcapture.cap -s NETGEAR` 
+        `pyrit -f dirty_words.txt.gz -e NETGEAR passthrough | cowpatty -d - -r wpatestcapture.cap -s NETGEAR` 
 
 
     * *selftest*
@@ -130,11 +130,9 @@ Pyrit recognizes the following options:
         `pyrit selftest`
 
     
-    * *strip _(0.2.4)_*
-    Parse a packet-capture file given by the option *-r*, extract only packets that are necessary for EAPOL-handshake detection and write a new dump to the filename given by the option *-f*. The options *-e* and *-b* can be used to filter certain Access-Points. For example:
-        `pyrit -r large_dump.pcap -e MyNetwork -f tiny_dump_MyNetwork.dump strip`
-
-    The new file is automatically gzip-compressed if the filename specified by *-f* ends in '.gz'.
+    * *strip*
+    Parse one or more packet-capture files given by the option *-r*, extract only packets that are necessary for EAPOL-handshake detection and write a new dump to the filename given by the option *-f*. The options *-e* and *-b* can be used to filter certain Access-Points. For example:
+        `pyrit -r "large_dumps_*.pcap" -e MyNetwork -f tiny_compressed_dump_MyNetwork.dump.gz strip`
         
  
     * *verify*

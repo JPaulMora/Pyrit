@@ -255,10 +255,11 @@ class EAPOLCracker(object):
             self.workers.append(EAPOLCrackerThread(self.queue, authentication))
 
     def _getSolution(self):
-        if not self.solution:
-            finished_workers = filter(lambda w: w.solution, self.workers)
-            if len(finished_workers) > 0:
-                self.solution = finished_workers[0].solution
+        if self.solution is None:
+            for worker in self.workers:
+                if worker.solution is not None:
+                    self.solution = worker.solution
+                    break
         
     def enqueue(self, results):
         self.queue.put(results)
@@ -272,7 +273,7 @@ class EAPOLCracker(object):
         return self
         
     def __exit__(self, type, value, traceback):
-        self.queue.join()
+        self.join()
 
 
 class Dot11PacketWriter(object):

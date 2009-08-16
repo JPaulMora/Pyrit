@@ -166,7 +166,7 @@ class Pyrit_CLI(object):
         def check_pkttools(f):
             def new_f(*args, **kwds):
                 if 'cpyrit.pckttools' not in sys.modules:
-                    raise PyritRuntimeError("The scapy-module is required to use Pyrit's analyze/attack functions but seems to be unavailable.")
+                    raise PyritRuntimeError("Scapy 2.x is required to use Pyrit's analyze/attack functions but seems to be unavailable.")
                 f(*args, **kwds)
             new_f.func_name = f.func_name
             return new_f
@@ -316,15 +316,15 @@ class Pyrit_CLI(object):
             raise PyritRuntimeError("The ESSID you specified can't be found in the storage.")
         lines = 0
         self.tell("Exporting to '%s'..." % self.options.file)
-        with util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(self.options.file)) as cowpwriter:
-            try:
+        try:
+            with util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(self.options.file)) as cowpwriter:
                 for results in self.essidstore.iterresults(self.options.essid):
                     cowpwriter.write(results)
                     lines += len(results)
                     self.tell("\r%i entries written..." % lines, end=None, sep=None)
                 self.tell("\r%i entries written. All done." % lines)
-            except IOError:
-                self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
+        except IOError:
+            self.tell("IOError while exporting to stdout ignored...", stream=sys.stderr)
 
     @requires_pckttools()
     @requires_options('capturefile')
@@ -433,12 +433,12 @@ class Pyrit_CLI(object):
             f = gzip.open(self.options.file, 'r')
         else:
             f = open(self.options.file, 'r')
-        with util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(sys.stdout)) as cowpwriter:
-            try:
+        try:
+            with util.CowpattyWriter(self.options.essid, util.AsyncFileWriter(sys.stdout)) as cowpwriter:
                 for results in util.PassthroughIterator(self.options.essid, f):
                     cowpwriter.write(results)
-            except IOError:
-                self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
+        except IOError:
+            self.tell("IOError while writing to stdout ignored...", stream=sys.stderr)
 
     def batchprocess(self):
         if self.options.file and not self.options.essid:
@@ -501,14 +501,14 @@ class Pyrit_CLI(object):
             totalResCount += len(results)
             self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
                         (totalResCount, totalResCount / (time.time() - startTime)), end=None, sep=None)
-            if any(cracker.solution for cracker in crackers):
+            if any(cracker.solution is not None for cracker in crackers):
                 break
         self.tell("Tried %i PMKs so far; %i PMKs per second." % \
                     (totalResCount, totalResCount / (time.time() - startTime)))
         self._printCoreStats(resultiterator.cp, startTime)
         for cracker in crackers:
             cracker.join()
-            if cracker.solution:
+            if cracker.solution is not None:
                 self.tell("\nThe password is '%s'.\n" % cracker.solution)
                 break
         else:
@@ -564,7 +564,7 @@ class Pyrit_CLI(object):
                     self.tell("Tried %i PMKs so far (%.1f%%); %i PMKs per second.\r" % \
                                 (totalResCount, 100.0 * (idx+1) / WUcount, 
                                  totalResCount / (time.time() - startTime)), end=None, sep=None)
-                    if cracker.solution:
+                    if cracker.solution is not None:
                         break
                 self.tell('')
             if cracker.solution is not None:

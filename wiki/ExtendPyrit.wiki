@@ -1,7 +1,7 @@
 #summary Extending Pyrit to new hardware-platforms
 #labels Featured
 
-= Introduction =
+=== Introduction ===
 
 Adding support for more hardware-platforms to Pyrit is *very* easy. There are only a few steps besides the obvious requirement to write a library that implements the [http://en.wikipedia.org/wiki/PBKDF2 PBKDF2]-[http://en.wikipedia.org/wiki/Hmac HMAC]-[http://en.wikipedia.org/wiki/SHA_hash_functions SHA-1]-algorithm used for computing Pairwise Master Keys. This boils down to having the fastest (or most parallel) possible implementation of [http://en.wikipedia.org/wiki/SHA_hash_functions SHA-1].
 
@@ -30,7 +30,7 @@ This document will not go any deeper into how to write extension modules for Pyt
 
 Every hardware-module may introduce it's own kind of limits and constraints due to details of the implementation or restrictions in the underlying hardware-platform. The `Core`-class hides all this in order to make the hardware-modules available to Pyrit's scheduling-routine more easily.
 
-First of all, the `Core`-class is a sub-class of Python's `threading.Thread` so every instance of every sub-class of `Core` lives in it's own thread. The instances usually spend most of their time in `Thread`'s run()-function, trying to gather work (passwords) from the global work-queue, computing the corresponding results (Pairwise Master Keys) and pushing those back to the queue. The `Core`-class already provides this functionality. It also tries to calibrate itself so every call to `solve` - which gets introduced by also sub-classing the class provided by the respective hardware-module - takes exactly three seconds of wall-clock-time. This usually leads to good efficiency on the hardware-side (small overhead per call to hardware) and reasonable interactivity.
+First of all, the `Core`-class is a sub-class of Python's `threading.Thread` so every instance of every sub-class of `Core` lives in it's own thread. The instances usually spend most of their time in `Thread`'s run()-function, trying to gather work (passwords) from the global work-queue, computing the corresponding results (Pairwise Master Keys) and pushing those back to the queue. The `Core`-class already provides this functionality. It also tries to calibrate itself so every call to `solve` takes exactly three seconds of wall-clock-time. This usually leads to good efficiency on the hardware-side (small overhead per call to hardware) and reasonable interactivity.
 
 All that sub-classes of `Core` must do is to set the `.name`-attribute to a human-readable description of the underlying hardware-platform. They may also need to set the `.minBufferSize`- and `.maxBufferSize`-attributes to values arbitrary to the underlying hardware-platform. For example the `StreamCore`-class sets `.maxBufferSize` to 8192 because the current implementation for ATI-Stream can only take exactly that amount of passwords per call to hardware.
 
@@ -58,7 +58,7 @@ Things to note here:
 Instances of `CPyrit` enumerate the available hardware-modules, instantiate them if possible and provide scheduling between the hardware and the caller. Although neither side should ever need to care about the inner workings of `CPyrit`, you should take note of some design goals of it's current implementation:
  # We assume that there is an endless amount of work waiting to be put on the queue.
  # We assume that there is no further (bandwidth-) latency inside `CPyrit`.
- # We assume that instances of `Core` have different speeds, should be able to return results in random order and be able to get more work any time.
+ # We assume that instances of `Core` have different speeds, must be able to return results in random order and must be able to get more work any time.
  # Callers of `CPyrit` can enqueue passwords by calling the `.enqueue()`-function. The function usually does not block and can be called many times before ever calling `.dequeue()`.
  # Results are returned to the caller through the `.dequeue()`-function once they are available. The `CPyrit`-class guarantees that calls to `.enqueue()` and `.dequeue()` correspond in FIFO-order, no matter in which order the hardware actually returned the results. The call to `.dequeue()` can block until the current results are available.
  # Instances of `Core` call `_gather()` with a desired number of passwords to get work from the queue. The function blocks until unsolved passwords are available on the queue and may return less but not more than the desired number. The calling instance of `Core` is now responsible to call either `_scatter()` to return results or `_revoke()` in case of failure.
