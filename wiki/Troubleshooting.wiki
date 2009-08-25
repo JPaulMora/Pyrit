@@ -48,13 +48,13 @@ Pyrit suppresses most errors that occur while loading the GPU-extensions as they
 For CPyrit-Stream:
 
 {{{
-python -c 'from _cpyrit import _cpyrit_stream'
+python -c 'from cpyrit import _cpyrit_stream'
 }}}
 
 For CPyrit-CUDA:
 
 {{{
-python -c 'from _cpyrit import _cpyrit_cuda'
+python -c 'from cpyrit import _cpyrit_cuda'
 }}}
 
 There is no output at all if the module was loaded successfully. Some of the errors you might get include:
