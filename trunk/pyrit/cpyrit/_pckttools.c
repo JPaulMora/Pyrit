@@ -197,9 +197,11 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     if (pmk_buffer)
         PyMem_Free(pmk_buffer);
     if (passwd_objbuffer)
+    {
         for (i = 0; i < itemcount; i++)
             Py_DECREF(passwd_objbuffer[i]);
         PyMem_Free(passwd_objbuffer);
+    } 
 
     return solution_obj;
 }
