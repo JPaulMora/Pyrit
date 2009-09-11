@@ -50,8 +50,8 @@ import sys
 import threading
 import zlib
 
-import _util
-from _util import VERSION
+import _cpyrit_cpu
+from _cpyrit_cpu import VERSION
 
 # Snippet taken from ParallelPython
 def _detect_ncpus():
@@ -84,7 +84,7 @@ def str2hex(string):
 
 class ScapyImportError(ImportError):
     """ ScapyImportError is used to indicate failure to import scapy's modules.
-        It's main use is to separate other ImportErrors so code that tries to
+        Used to o separate other ImportErrors so code that tries to
         import pckttools can continue in case Scapy is simply not installed.
     """
     pass
@@ -180,7 +180,7 @@ class CowpattyWriter(object):
         self.f.write("APWC\00\00\00" + chr(len(essid)) + essid + '\00'*(32-len(essid)))
         
     def write(self, results):
-        self.f.write(_util.genCowpEntries(results))
+        self.f.write(_cpyrit_cpu.genCowpEntries(results))
         
     def close(self):
         self.f.close()

@@ -32,7 +32,7 @@ import threading
 import Queue
 
 import util
-import _pckttools
+import _cpyrit_cpu
 
 try:
     import scapy.config
@@ -228,10 +228,10 @@ class EAPOLAuthentication(object):
     pke = property(getpke)
 
 
-class EAPOLCrackerThread(threading.Thread, _pckttools.EAPOLCracker):
+class EAPOLCrackerThread(threading.Thread, _cpyrit_cpu.EAPOLCracker):
     def __init__(self, workqueue, auth):
         threading.Thread.__init__(self)
-        _pckttools.EAPOLCracker.__init__(self, auth.version, auth.pke,
+        _cpyrit_cpu.EAPOLCracker.__init__(self, auth.version, auth.pke,
                                         auth.keymic, auth.keymic_frame)
         self.workqueue = workqueue
         self.solution = None
