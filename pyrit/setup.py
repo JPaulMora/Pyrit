@@ -35,16 +35,8 @@ EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
                     sources = ['cpyrit/_cpyrit_cpu.c', 'cpyrit/_cpyrit_cpu_sse2.S'],
-                    libraries = ['ssl'])
-
-util_extension = Extension(name='cpyrit._util',
-                    sources = ['cpyrit/_util.c'],
+                    libraries = ['ssl'],
                     extra_compile_args=EXTRA_COMPILE_ARGS)
-
-pckttools_extension = Extension(name='cpyrit._pckttools',
-                    sources = ['cpyrit/_pckttools.c'],
-                    libraries = ['ssl'])
-
 
 setup_args = dict(
         name = 'Pyrit',
@@ -57,7 +49,7 @@ setup_args = dict(
         packages = ['cpyrit'],
         py_modules = ['pyrit_cli', 'cpyrit.cpyrit', 'cpyrit.util', 'cpyrit.pckttools'],
         scripts = ['pyrit'],
-        ext_modules = [cpu_extension, util_extension, pckttools_extension],
+        ext_modules = [cpu_extension],
         options = {'install':{'optimize':1}}
         )
 

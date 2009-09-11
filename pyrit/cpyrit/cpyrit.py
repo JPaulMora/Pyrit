@@ -34,6 +34,15 @@ import time
 import threading
 import util
 
+import _cpyrit_cpu
+
+def version_check(mod):
+    ver = getattr(mod, "VERSION", "unknown")
+    if ver != _cpyrit_cpu.VERSION:
+        print >>sys.stderr, "WARNING: Version mismatch between %s ('%s') and %s ('%s')\n"\
+                            % (_cpyrit_cpu, _cpyrit_cpu.VERSION, mod, ver)
+
+
 class Core(threading.Thread):
     """The class Core provides basic scheduling and testing. It should not be used directly
        but through sub-classes.
@@ -87,11 +96,6 @@ class Core(threading.Thread):
 
 
 ## CPU
-try:
-    import _cpyrit_cpu
-except:
-    print >>sys.stderr, "Failed to load Pyrit's CPU-driven core; this module should always be available. Sorry, we can't continue."
-    raise
 class CPUCore(Core, _cpyrit_cpu.CPUDevice):
     """Standard-CPU implementation. The underlying C-code may use VIA Padlock,
        SSE2 or a generic OpenSSL-interface to compute results."""
@@ -106,15 +110,12 @@ class CPUCore(Core, _cpyrit_cpu.CPUDevice):
 ## CUDA
 try:
     import _cpyrit_cuda
-    cpyrit_cuda_ver = getattr(_cpyrit_cuda, "VERSION", "unknown")
-    if cpyrit_cuda_ver != util.VERSION:
-        print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-CUDA ('%s')\n"\
-                            % (util.VERSION, cpyrit_cuda_ver)
 except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
 else:
+    version_check(_cpyrit_cuda)
     class CUDACore(Core, _cpyrit_cuda.CUDADevice):
         """Computes results on Nvidia-CUDA capable devices."""
         def __init__(self, queue, dev_idx):
@@ -130,15 +131,12 @@ else:
 ## OpenCL
 try:
     import _cpyrit_opencl
-    cpyrit_opencl_ver = getattr(_cpyrit_opencl, "VERSION", "unknown")
-    if cpyrit_opencl_ver != util.VERSION:
-        print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-OpenCL ('%s')\n"\
-                            % (util.VERSION, cpyrit_opencl_ver)
 except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
 else:
+    version_check(_cpyrit_opencl)
     class OpenCLCore(Core, _cpyrit_opencl.OpenCLDevice):
         """Computes results on OpenCL-capable devices."""
         def __init__(self, queue, dev_idx):
@@ -154,15 +152,12 @@ else:
 ## Stream
 try:
     import _cpyrit_stream
-    cpyrit_stream_ver = getattr(_cpyrit_stream, "VERSION", "unknown")
-    if cpyrit_stream_ver != util.VERSION:
-        print >>sys.stderr, "WARNING: Version mismatch between main module ('%s') and CPyrit-Stream ('%s')\n"\
-                            % (util.VERSION, cpyrit_stream_ver)
 except ImportError:
     pass
 except Exception, e:
     print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
 else:
+    version_check(_cpyrit_stream)
     class StreamCore(Core, _cpyrit_stream.StreamDevice):
         """Computes results on ATI-Stream devices."""
         def __init__(self, queue, dev_idx):

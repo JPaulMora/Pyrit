@@ -38,3 +38,7 @@
 #if (defined(__i386__) || defined(__x86_64__))
     #define COMPILE_SSE2
 #endif
+
+#define HMAC_MD5_RC4 0
+#define HMAC_SHA1_AES 1
+
