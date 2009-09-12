@@ -30,7 +30,7 @@ import sys
 import threading
 import time
 
-from cpyrit import util
+from cpyrit import util, storage
 try:
     from cpyrit import pckttools
 except util.ScapyImportError:
@@ -81,7 +81,7 @@ class Pyrit_CLI(object):
         if self.options.file == '-' or 'passthrough' in commands:
             self.options.verbose = False
 
-        self.storage = util.Storage()
+        self.storage = storage.Storage()
 
         self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg http://pyrit.googlecode.com\n" \
                   "This code is distributed under the GNU General Public License v3\n" % util.VERSION)
@@ -109,6 +109,7 @@ class Pyrit_CLI(object):
          'attack_batch': self.attack_batch,
          'attack_passthrough': self.attack_passthrough,
          'strip': self.stripCapture,
+         'strip_live': self.stripLive,
          'help': self.print_help
         }.setdefault(commands[0] if len(commands) > 0 else 'help', self.print_help)()
 
@@ -190,7 +191,7 @@ class Pyrit_CLI(object):
         parser = pckttools.PacketParser()
         for idx, capturefile in enumerate(filelist):
             self.tell("Parsing file '%s' (%i/%i)..." % (capturefile, idx+1, len(filelist)))
-            parser.parse(capturefile)
+            parser.parse_file(capturefile)
         self.tell("%i packets (%i 802.11-packets), %i APs\n" % (parser.pcktcount, parser.dot11_pcktcount, len(parser)))
         return parser
 
@@ -340,7 +341,6 @@ class Pyrit_CLI(object):
     @requires_options('capturefile', 'file')
     def stripCapture(self):
         parser = self._getParser(self.options.capturefile)
-        pcktcount = 0
         if self.options.essid is not None or self.options.bssid is not None:
             ap_iter = (self._fuzzyGetAP(parser),)
         else:
@@ -350,7 +350,6 @@ class Pyrit_CLI(object):
                 self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
                 if ap.essidframe:
                     writer.write(ap.essidframe)
-                    pcktcount += 1
                 for j, sta in enumerate(ap):
                     if not sta.isCompleted():
                         continue
@@ -359,8 +358,28 @@ class Pyrit_CLI(object):
                         for idx in xrange(3):
                             if auth.frames[idx] is not None:
                                 writer.write(auth.frames[idx])
-                                pcktcount += 1
-        self.tell("\nNew pcap-file written (%i out of %i packets)" % (pcktcount, parser.pcktcount))
+        self.tell("\nNew pcap-file written (%i out of %i packets)" % (writer.pcktcount, parser.pcktcount))
+
+    @requires_pckttools()
+    @requires_options('capturefile', 'file')
+    def stripLive(self):
+        writer = pckttools.Dot11PacketWriter(self.options.file)
+        parser = pckttools.PacketParser()
+        parser.new_ap_callback = lambda ap: writer.write(ap.essidframe)
+        parser.new_auth_callback = lambda auth: [writer.write(auth.frames[i]) for i in xrange(3) if auth.frames[i] is not None]
+        try:
+            parser.parse_file(self.options.capturefile)
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        finally:
+            writer.close()
+        for i, ap in enumerate(parser):
+            self.tell("#%i: AccessPoint %s ('%s')" % (i+1, ap, ap.essid))
+            for j, sta in enumerate(ap):
+                if not sta.isCompleted():
+                    continue
+                self.tell("  #%i: Station %s (%i authentications)" % (j, sta, len(sta)))
+        self.tell("\nNew pcap-file written (%i out of %i packets)" % (writer.pcktcount, parser.pcktcount))
 
     @requires_options('file')
     def export_hashdb(self):
