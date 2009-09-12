@@ -79,6 +79,8 @@ del areFlagsNotSet
 
 def iterSubPackets(self, cls):
     """Iterate over all layers of the given type in packet 'self'."""
+    if cls not in self:
+        return
     elt = self[cls]
     while elt:
         yield elt
@@ -279,11 +281,13 @@ class EAPOLCracker(object):
 class Dot11PacketWriter(object):
     def __init__(self, pcapfile):
         self.writer = scapy.utils.PcapWriter(pcapfile, linktype=105, gz=pcapfile.endswith('.gz'))
+        self.pcktcount = 0
 
     def write(self, pckt):
         if not scapy.layers.dot11.Dot11 in pckt:
             raise RuntimeError("No Dot11-frame in packet.")
         self.writer.write(pckt[scapy.layers.dot11.Dot11])
+        self.pcktcount += 1
 
     def close(self):
         self.writer.close()
@@ -296,113 +300,132 @@ class Dot11PacketWriter(object):
 
 
 class PacketParser(object):
-    def __init__(self, pcapfile=None):
+    def __init__(self, pcapfile=None, new_ap_callback=None, new_station_callback=None, new_auth_callback=None):
         self.air = {}
         self.pcktcount = 0
         self.dot11_pcktcount = 0
+        self.new_ap_callback = new_ap_callback
+        self.new_station_callback = new_station_callback
+        self.new_auth_callback = new_auth_callback
         if pcapfile is not None:
-            self.parse(pcapfile)
-        
-    def parse(self, pcapfile):
+            self.parsefile(pcapfile)
+    
+    def _find_ssid(self, pckt):
+        for elt_pckt in pckt.iterSubPackets(scapy.layers.dot11.Dot11Elt):
+            if elt_pckt.isFlagSet('ID', 'SSID') and not all(c == '\x00' for c in elt_pckt.info):
+                return elt_pckt.info
+
+    def _add_ap(self, ap_mac, pckt):
+        ap = self.air.setdefault(ap_mac, AccessPoint(ap_mac))
+        if ap.essid is None:
+            essid = self._find_ssid(pckt)
+            if essid is not None:
+                ap.essid = essid
+                ap.essidframe = pckt.copy()
+                if self.new_ap_callback is not None:
+                    self.new_ap_callback(ap)
+    
+    def _add_station(self, ap, sta_mac):
+        if sta_mac not in ap:
+            sta = Station(sta_mac, ap)
+            ap[sta_mac] = sta
+            if self.new_station_callback is not None:
+                self.new_station_callback(sta)
+    
+    def parse_file(self, pcapfile):
         for pckt in scapy.utils.PcapReader(pcapfile):
             self.pcktcount += 1
-            if not scapy.layers.dot11.Dot11 in pckt:
-                continue
-            dot11_pckt = pckt[scapy.layers.dot11.Dot11]
-            self.dot11_pcktcount += 1
+            self.parse_packet(pckt)
 
-            if dot11_pckt.isFlagSet('type', 'Control'):
-                continue
-            
-            # Get a AP and a ESSID from a Beacon
-            if scapy.layers.dot11.Dot11Beacon in dot11_pckt:
-                ap = self.air.setdefault(dot11_pckt.addr2, AccessPoint(dot11_pckt.addr2))
-                if ap.essid is not None:
-                    continue
-                for elt_pckt in dot11_pckt[scapy.layers.dot11.Dot11Beacon].iterSubPackets(scapy.layers.dot11.Dot11Elt):
-                    if elt_pckt.isFlagSet('ID','SSID') and not all(c == '\x00' for c in elt_pckt.info):
-                        ap.essid = elt_pckt.info
-                        ap.essidframe = pckt.copy()
-                        break
-                continue
+    def parse_packet(self, pckt):
+        if not scapy.layers.dot11.Dot11 in pckt:
+            return
+        dot11_pckt = pckt[scapy.layers.dot11.Dot11]
+        self.dot11_pcktcount += 1
 
-            # Get a AP and it's ESSID from a AssociationRequest
-            if scapy.layers.dot11.Dot11AssoReq in dot11_pckt:
-                ap = self.air.setdefault(dot11_pckt.addr1, AccessPoint(dot11_pckt.addr1))
-                if ap.essid is not None:
-                    continue
-                for elt_pckt in dot11_pckt[scapy.layers.dot11.Dot11AssoReq].iterSubPackets(scapy.layers.dot11.Dot11Elt):
-                    if elt_pckt.isFlagSet('ID', 'SSID') and not all(c == '\x00' for c in elt_pckt.info):
-                        ap.essid = elt_pckt.info
-                        ap.essidframe = pckt.copy()
-                        break
-                continue
-
-            # From now on we are only interested in targeted packets
-            if dot11_pckt.isFlagSet('FCfield', 'to-DS') and dot11_pckt.addr2 != 'ff:ff:ff:ff:ff:ff':
-                ap_mac = dot11_pckt.addr1
-                sta_mac = dot11_pckt.addr2
-            elif dot11_pckt.isFlagSet('FCfield', 'from-DS') and dot11_pckt.addr1 != 'ff:ff:ff:ff:ff:ff':
-                ap_mac = dot11_pckt.addr2
-                sta_mac = dot11_pckt.addr1
-            else:
-                continue
+        if dot11_pckt.isFlagSet('type', 'Control'):
+            return
+        
+        # Get a AP and a ESSID from a Beacon
+        if scapy.layers.dot11.Dot11Beacon in dot11_pckt:
+            self._add_ap(dot11_pckt.addr2, dot11_pckt)
+            return            
+        
+        # Get a AP and it's ESSID from a AssociationRequest
+        if scapy.layers.dot11.Dot11AssoReq in dot11_pckt:
+            self._add_ap(dot11_pckt.addr1, dot11_pckt)
             
-            ap = self.air.setdefault(ap_mac, AccessPoint(ap_mac))
-            if sta_mac not in ap:
-                sta = Station(sta_mac, ap)
-                ap[sta_mac] = sta
-            else:
-                sta = ap[sta_mac]
+        # From now on we are only interested in targeted packets
+        if dot11_pckt.isFlagSet('FCfield', 'to-DS') and dot11_pckt.addr2 != 'ff:ff:ff:ff:ff:ff':
+            ap_mac = dot11_pckt.addr1
+            sta_mac = dot11_pckt.addr2
+        elif dot11_pckt.isFlagSet('FCfield', 'from-DS') and dot11_pckt.addr1 != 'ff:ff:ff:ff:ff:ff':
+            ap_mac = dot11_pckt.addr2
+            sta_mac = dot11_pckt.addr1
+        else:
+            return
+        
+        # May result in 'anonymous' AP
+        self._add_ap(ap_mac, dot11_pckt)
+        ap = self.air[ap_mac]
+        
+        self._add_station(ap, sta_mac)
+        sta = ap[sta_mac]
+        
+        if EAPOL_WPAKey in dot11_pckt:
+            wpakey_pckt = dot11_pckt[EAPOL_WPAKey]
+        elif EAPOL_RSNKey in dot11_pckt:
+            wpakey_pckt = dot11_pckt[EAPOL_RSNKey]
+        else:
+            return
+        
+        # TODO For now we guess that there is only one consecutive, non-overlapping
+        # authentication between ap and sta. We need a better way to deal
+        # with multiple authentications than that...
+        if len(sta.auths) > 0:
+            auth = sta.auths[0]
+        else:
+            auth = EAPOLAuthentication(sta)
+            sta.auths.append(auth)
             
-            if EAPOL_WPAKey in dot11_pckt:
-                wpakey_pckt = dot11_pckt[EAPOL_WPAKey]
-            elif EAPOL_RSNKey in dot11_pckt:
-                wpakey_pckt = dot11_pckt[EAPOL_RSNKey]
-            else:
-                continue
-            
-            # TODO For now we guess that there is only one consecutive, non-overlapping
-            # authentication between ap and sta. We need a better way to deal
-            # with multiple authentications than that...
-            if len(sta.auths) > 0:
-                auth = sta.auths[0]
-            else:
-                auth = EAPOLAuthentication(sta)
-                sta.auths.append(auth)
+        if auth.version is None:
+            auth.version = wpakey_pckt.keyscheme
                 
-            if auth.version is None:
-                auth.version = wpakey_pckt.keyscheme
-                    
-            # Frame 1: pairwise set, install unset, ack set, mic unset
-            # results in ANonce
-            if wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'ack')) \
-             and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'mic')):
-                auth.anonce = wpakey_pckt.Nonce
-                auth.frames[0] = pckt.copy()
-               
-            # Frame 2: pairwise set, install unset, ack unset, mic set, WPAKeyLength > 0
-            # results in MIC and keymic_frame
-            elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'mic')) \
-             and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'ack')) \
-             and wpakey_pckt.WPAKeyLength > 0:
-                auth.keymic = wpakey_pckt.WPAKeyMIC
-                auth.snonce = wpakey_pckt.Nonce
-                auth.frames[1] = pckt.copy()
-                # We need a revirginized version of the EAPOL-frame which produced that MIC.
-                frame = dot11_pckt[scapy.layers.dot11.EAPOL].copy()
-                frame.WPAKeyMIC = '\x00'* len(frame.WPAKeyMIC)
-                # Strip padding and cruft
-                auth.keymic_frame = str(frame)[:frame.len + 4]
-                
-            # Frame 3: pairwise set, install set, ack set, mic set
-            # Results in ANonce
-            elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'install', 'ack', 'mic')):
-                auth.anonce = wpakey_pckt.Nonce
-                auth.frames[2] = pckt.copy()
+        # Frame 1: pairwise set, install unset, ack set, mic unset
+        # results in ANonce
+        if wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'ack')) \
+         and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'mic')):
+            auth.anonce = wpakey_pckt.Nonce
+            auth.frames[0] = pckt.copy()
+            if self.new_auth_callback is not None and auth.isCompleted():
+                self.new_auth_callback(auth)
+           
+        # Frame 2: pairwise set, install unset, ack unset, mic set, WPAKeyLength > 0
+        # results in MIC and keymic_frame
+        elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'mic')) \
+         and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'ack')) \
+         and wpakey_pckt.WPAKeyLength > 0:
+            auth.keymic = wpakey_pckt.WPAKeyMIC
+            auth.snonce = wpakey_pckt.Nonce
+            auth.frames[1] = pckt.copy()
+            # We need a revirginized version of the EAPOL-frame which produced that MIC.
+            frame = dot11_pckt[scapy.layers.dot11.EAPOL].copy()
+            frame.WPAKeyMIC = '\x00'* len(frame.WPAKeyMIC)
+            # Strip padding and cruft
+            auth.keymic_frame = str(frame)[:frame.len + 4]
+            if self.new_auth_callback is not None and auth.isCompleted():
+                self.new_auth_callback(auth)
+            
+        # Frame 3: pairwise set, install set, ack set, mic set
+        # Results in ANonce
+        elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'install', 'ack', 'mic')):
+            auth.anonce = wpakey_pckt.Nonce
+            auth.frames[2] = pckt.copy()
+            if self.new_auth_callback is not None and auth.isCompleted():
+                self.new_auth_callback(auth)
 
     def __iter__(self):
-        return self.air.values().__iter__()
+        return [ap for essid, ap in sorted([(ap.essid, ap) for ap in self.air.itervalues()])].__iter__()
 
     def __getitem__(self, bssid):
         return self.air[bssid]
