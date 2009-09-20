@@ -26,15 +26,18 @@ import re
 UnixCCompiler.src_extensions.append('.S')
 
 try:
-    svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.5-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+    svn_info = subprocess.Popen(('svn', 'info'), \
+                                stdout=subprocess.PIPE).stdout.read()
+    version_string = '0.2.5-dev (svn r%i)' % \
+                    int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     version_string = '0.2.5-dev'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
-                    sources = ['cpyrit/_cpyrit_cpu.c', 'cpyrit/_cpyrit_cpu_sse2.S'],
+                    sources = ['cpyrit/_cpyrit_cpu.c',
+                               'cpyrit/_cpyrit_cpu_sse2.S'],
                     libraries = ['ssl'],
                     extra_compile_args=EXTRA_COMPILE_ARGS)
 
@@ -47,12 +50,11 @@ setup_args = dict(
         author_email = 'lukas.lueg@gmail.com',
         url = 'http://pyrit.googlecode.com',
         packages = ['cpyrit'],
-        py_modules = ['pyrit_cli', 'cpyrit.cpyrit', 'cpyrit.util', 'cpyrit.pckttools'],
+        py_modules = ['pyrit_cli', 'cpyrit.cpyrit',
+                      'cpyrit.util', 'cpyrit.pckttools'],
         scripts = ['pyrit'],
         ext_modules = [cpu_extension],
-        options = {'install':{'optimize':1}}
-        )
+        options = {'install': {'optimize': 1}})
 
 if __name__ == '__main__':
     setup(**setup_args)
-
