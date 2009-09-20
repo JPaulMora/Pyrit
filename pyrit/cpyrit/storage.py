@@ -17,32 +17,44 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
+"""EssidStore and PasswordStore are the primary storage classes. Details of
+   their implementation are reasonably well hidden behind the concept of
+   key:value interaction.
+
+"""
+
+from __future__ import with_statement
+
 import hashlib
 import os
 import struct
 import zlib
 
+
 class Storage(object):
-    def __init__(self, basepath=os.path.expanduser(os.path.join('~','.pyrit','blobspace'))):
+
+    def __init__(self, basepath=
+                 os.path.expanduser(os.path.join('~', '.pyrit', 'blobspace'))):
         self.essids = EssidStore(os.path.join(basepath, 'essid'))
         self.passwords = PasswordStore(os.path.join(basepath, 'password'))
 
     def iterresults(self, essid):
         return self.essids.iterresults(essid)
-        
+
     def iterpasswords(self):
         return self.passwords.iterpasswords()
 
 
 class EssidStore(object):
     """Storage-class responsible for ESSID and PMKs.
-    
+
        Callers can use the iterator to cycle over available ESSIDs.
-       Results are indexed by keys and returned as iterables of tuples. The keys may be
-       received from .iterkeys() or from PasswordStore.
+       Results are indexed by keys and returned as iterables of tuples. The
+       keys may be received from .iterkeys() or from PasswordStore.
     """
-    _pyr_preheadfmt = '<4sH'
-    _pyr_preheadfmt_size = struct.calcsize(_pyr_preheadfmt)
+    _pyr_head = '<4sH'
+    _pyr_len = struct.calcsize(_pyr_head)
+
     def __init__(self, basepath):
         self.basepath = basepath
         if not os.path.exists(self.basepath):
@@ -54,15 +66,17 @@ class EssidStore(object):
                 essid = f.read()
             if essid_hash == hashlib.md5(essid).hexdigest()[:8]:
                 self.essids[essid] = (essidpath, {})
-                for pyrfile in [p for p in os.listdir(essidpath) if p[-4:] == '.pyr']:
-                    self.essids[essid][1][pyrfile[:len(pyrfile)-4]] = os.path.join(essidpath, pyrfile)
+                for pyrfile in os.listdir(essidpath):
+                    if pyrfile.endswith('.pyr'):
+                        self.essids[essid][1][pyrfile[:len(pyrfile)-4]] = \
+                                            os.path.join(essidpath, pyrfile)
             else:
-                print >>sys.stderr, "ESSID %s seems to be corrupted." % essid_hash
+                print >>sys.stderr, "ESSID %s is corrupted." % essid_hash
 
     def __getitem__(self, (essid, key)):
         """Receive a iterable of (password,PMK)-tuples stored under
            the given ESSID and key.
-           
+
            Returns a empty iterable if the key is not stored. Raises a KeyError
            if the ESSID is not stored.
         """
@@ -72,20 +86,23 @@ class EssidStore(object):
             with open(self.essids[essid][1][key], 'rb') as f:
                 buf = f.read()
             md = hashlib.md5()
-            magic, essidlen = struct.unpack(EssidStore._pyr_preheadfmt, buf[:EssidStore._pyr_preheadfmt_size])
+            magic, essidlen = struct.unpack(EssidStore._pyr_head, \
+                                        buf[:EssidStore._pyr_len])
             if magic == 'PYR2' or magic == 'PYRT':
                 headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
                 headsize = struct.calcsize(headfmt)
-                file_essid, numElems, digest = struct.unpack(headfmt, buf[EssidStore._pyr_preheadfmt_size:EssidStore._pyr_preheadfmt_size+headsize])
+                file_essid, numElems, digest = struct.unpack(headfmt, \
+                        buf[EssidStore._pyr_len:EssidStore._pyr_len+headsize])
                 if file_essid != essid:
-                    raise IOError, "ESSID in result-file mismatches."
-                pmkoffset = EssidStore._pyr_preheadfmt_size + headsize
+                    raise IOError("ESSID in result-file mismatches.")
+                pmkoffset = EssidStore._pyr_len + headsize
                 pwoffset = pmkoffset + numElems * 32
                 md.update(file_essid)
                 if magic == 'PYR2':
                     md.update(buf[pmkoffset:])
                     if md.digest() != digest:
-                        raise IOError, "Digest check failed on PYR2-file '%s'." % filename
+                        raise IOError("Digest check failed on PYR2-file '%s'."\
+                                        % filename)
                     results = tuple(zip(zlib.decompress(buf[pwoffset:]).split('\n'),
                                   [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]))
                 elif magic == 'PYRT':
@@ -96,38 +113,40 @@ class EssidStore(object):
                     assert len(pwbuffer) == numElems
                     md.update(''.join(pwbuffer))
                     if md.digest() != digest:
-                        raise IOError, "Digest check failed on PYRT-file '%s'." % filename
+                        raise IOError("Digest check failed on PYRT-file '%s'." % filename)
                     results = tuple(zip(pwbuffer, [pmkbuffer[i*32:i*32+32] for i in xrange(numElems)]))
             else:
-                raise IOError, "File-format for '%s' unknown." % filename
+                raise IOError("File-format for '%s' unknown." % filename)
             if len(results) != numElems:
-                raise IOError, "Header announced %i results but %i unpacked" % (numElems, len(results))
+                raise IOError("Header announced %i results but %i unpacked" % (numElems, len(results)))
             return results
         except:
             print >>sys.stderr, "Error while loading results %s for ESSID '%s'" % (key, essid)
             raise
-    
+
     def __setitem__(self, (essid, key), results):
-        """Store a iterable of (password,PMK)-tuples under the given ESSID and key."""
+        """Store a iterable of (password,PMK)-tuples under the given
+           ESSID and key.
+        """
         if essid not in self.essids:
-            raise KeyError, "ESSID not in store."
+            raise KeyError("ESSID not in store.")
         pws, pmks = zip(*results)
         pwbuffer = zlib.compress('\n'.join(pws), 1)
         # Sanity check. Accept keys coming from PAWD- and PAW2-format.
         if hashlib.md5(pwbuffer).hexdigest() != key and hashlib.md5(''.join(pws)).hexdigest() != key:
-            raise ValueError, "Results and key mismatch."
+            raise ValueError("Results and key mismatch.")
         pmkbuffer = ''.join(pmks)
         md = hashlib.md5()
         md.update(essid)
         md.update(pmkbuffer)
-        md.update(pwbuffer)        
+        md.update(pwbuffer)
         filename = os.path.join(self.essids[essid][0], key) + '.pyr'
         with open(filename, 'wb') as f:
             f.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
             f.write(pmkbuffer)
             f.write(pwbuffer)
         self.essids[essid][1][key] = filename
-        
+
     def __len__(self):
         """Return the number of ESSIDs currently stored."""
         return len(self.essids)
@@ -135,7 +154,7 @@ class EssidStore(object):
     def __iter__(self):
         """Iterate over all essids currently stored."""
         return sorted(self.essids).__iter__()
-            
+
     def __contains__(self, essid):
         """Return True if the given ESSID is currently stored."""
         return essid in self.essids
@@ -143,7 +162,7 @@ class EssidStore(object):
     def __delitem__(self, essid):
         """Delete the given ESSID and all results from the storage."""
         if essid not in self:
-            raise KeyError, "ESSID not in store."
+            raise KeyError("ESSID not in store.")
         essid_root, pyrfiles = self.essids[essid]
         del self.essids[essid]
         for fname in pyrfiles.itervalues():
@@ -154,50 +173,53 @@ class EssidStore(object):
     def containskey(self, essid, key):
         """Return True if the given (ESSID,key) combination is stored."""
         if essid not in self.essids:
-            raise KeyError, "ESSID not in store."
+            raise KeyError("ESSID not in store.")
         return key in self.essids[essid][1]
 
     def keys(self, essid):
-        """Returns a collection of keys that can currently be used to receive results
-           for the given ESSID.
+        """Returns a collection of keys that can currently be used to receive
+           results for the given ESSID.
         """
         if essid not in self.essids:
-            raise KeyError, "ESSID not in store."
+            raise KeyError("ESSID not in store.")
         return frozenset(self.essids[essid][1])
-        
+
     def iterresults(self, essid):
         """Iterate over all results currently stored for the given ESSID."""
         for key in self.keys(essid):
             yield self[essid, key]
 
     def iteritems(self, essid):
-        """Iterate over all keys and results currently stored for the given ESSID."""
+        """Iterate over all keys and results currently stored for the given
+           ESSID.
+        """
         for key in self.keys(essid):
             yield (key, self[essid, key])
 
     def create_essid(self, essid):
         """Create the given ESSID in the storage.
-        
+
            Re-creating a ESSID is a no-op.
         """
         if len(essid) < 1 or len(essid) > 32:
-            raise ValueError, "ESSID invalid."
-        essid_root = os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8])
-        if not os.path.exists(essid_root):
-            os.makedirs(essid_root)
-            with open(os.path.join(essid_root, 'essid'), 'wb') as f:
+            raise ValueError("ESSID invalid.")
+        root = os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8])
+        if not os.path.exists(root):
+            os.makedirs(root)
+            with open(os.path.join(root, 'essid'), 'wb') as f:
                 f.write(essid)
-            self.essids[essid] = (essid_root, {})
+            self.essids[essid] = (root, {})
 
 
 class PasswordStore(object):
     """Storage-class responsible for passwords.
-    
+
        Passwords are indexed by keys and are returned as iterables.
        The iterator cycles over all available keys.
     """
     h1_list = ["%02.2X" % i for i in xrange(256)]
     del i
+
     def __init__(self, basepath):
         self.basepath = basepath
         if not os.path.exists(self.basepath):
@@ -222,11 +244,13 @@ class PasswordStore(object):
         return self.pwfiles.keys().__iter__()
 
     def __len__(self):
-        """Return the number of keys that can be used to receive password-sets."""
+        """Return the number of keys that can be used to receive
+           password-sets.
+        """
         return len(self.pwfiles)
 
     def __getitem__(self, key):
-        """Return the collection of passwords indexed by the given key.""" 
+        """Return the collection of passwords indexed by the given key."""
         filename = os.path.join(self.pwfiles[key], key) + '.pw'
         with open(filename, 'rb') as f:
             buf = f.read()
@@ -234,26 +258,26 @@ class PasswordStore(object):
             md = hashlib.md5()
             md.update(buf[4+md.digest_size:])
             if md.digest() != buf[4:4+md.digest_size]:
-                raise IOError, "Digest check failed for %s" % filename
+                raise IOError("Digest check failed for %s" % filename)
             if md.hexdigest() != key:
-                raise IOError, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
+                raise IOError("File '%s' doesn't match the key '%s'." % (filename, md.hexdigest()))
             return tuple(zlib.decompress(buf[4+md.digest_size:]).split('\n'))
         elif buf[:4] == "PAWD":
             md = hashlib.md5()
             inp = tuple(buf[4+md.digest_size:].split('\00'))
             md.update(''.join(inp))
             if buf[4:4+md.digest_size] != md.digest():
-                raise IOError, "Digest check failed for %s" % filename
+                raise IOError("Digest check failed for %s" % filename)
             if filename[-3-md.digest_size*2:-3] != key:
-                raise IOError, "File '%s' doesn't match the key '%s'." % (filename, md.hexdigest())
+                raise IOError("File '%s' doesn't match the key '%s'." % (filename, md.hexdigest()))
             return inp
         else:
-            raise IOError, "'%s' is not a PasswordFile." % filename
+            raise IOError("'%s' is not a PasswordFile." % filename)
 
     def iterkeys(self):
         """Equivalent to self.__iter__"""
         return self.__iter__()
-    
+
     def iterpasswords(self):
         """Iterate over all available passwords-sets."""
         for key in self:
@@ -286,7 +310,7 @@ class PasswordStore(object):
 
     def flush_buffer(self):
         """Flush all passwords currently buffered to the storage.
-           
+
            For efficiency reasons this function should not be called if the
            caller wants to add more passwords in the foreseeable future.
         """
@@ -297,7 +321,7 @@ class PasswordStore(object):
     def store_password(self, passwd):
         """Add the given password to storage. The implementation ensures that
            passwords remain unique over the entire storage.
-           
+
            Passwords passed to this function are buffered in memory for better
            performance and efficiency. It is the caller's responsibility to
            call .flush_buffer() when he is done.
@@ -311,4 +335,3 @@ class PasswordStore(object):
         if len(pw_bucket) >= 20000:
             self._flush_bucket(pw_h1, pw_bucket)
             self.pwbuffer[pw_h1] = set()
-
