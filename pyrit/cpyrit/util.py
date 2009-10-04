@@ -95,9 +95,13 @@ class StorageIterator(object):
         self.workunits = []
         self.essid = essid
         self.storage = storage
-        self.keys = iter(list(self.storage.passwords))
+        self.keys = iter(self.storage.passwords)
+        self.len = len(self.storage.passwords)
         self.yieldOldResults = yieldOldResults
         self.yieldNewResults = yieldNewResults
+
+    def __len__(self):
+        return self.len
 
     def __iter__(self):
         return self
@@ -107,6 +111,8 @@ class StorageIterator(object):
             if self.storage.essids.containskey(self.essid, key):
                 if self.yieldOldResults:
                     return self.storage.essids[self.essid, key]
+                else:
+                    self.len -= 1
             else:
                 if self.yieldNewResults:
                     if self.cp is None:
@@ -118,10 +124,10 @@ class StorageIterator(object):
                     solvedPMKs = self.cp.dequeue(block=False)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = \
-                                                        self.workunits.pop(0)
+                            self.workunits.pop(0)
                         solvedResults = zip(solvedPasswords, solvedPMKs)
                         self.storage.essids[solvedEssid, solvedKey] = \
-                                                                solvedResults
+                            solvedResults
                         return solvedResults
         if self.yieldNewResults and self.cp is not None:
             for solvedPMKs in self.cp:
@@ -170,9 +176,36 @@ class PassthroughIterator(object):
         raise StopIteration
 
 
+class FileReader(object):
+    """A wrapper for easy stdin/gzip-reading"""
+
+    def __init__(self, filename, mode='rb'):
+        if isinstance(filename, str):
+            if filename == '-':
+                self.f = sys.stdin
+            elif filename.endswith('.gz'):
+                self.f = gzip.open(filename, mode)
+            else:
+                self.f = open(filename, mode)
+        else:
+            self.f = filename
+
+    def close(self):
+        self.f.close()
+        
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, type, value, traceback):
+        self.close()
+        
+    def __iter__(self):
+        return self.f.__iter__()
+
+
 class CowpattyWriter(object):
-    """ A simple file-like object that writes (password,PMK)-tuples
-        to a file or another file-like object in cowpatty's binary format.
+    """A simple file-like object that writes (password,PMK)-tuples
+       to a file or another file-like object in cowpatty's binary format.
     """
 
     def __init__(self, essid, f):
