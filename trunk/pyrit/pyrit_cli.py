@@ -395,8 +395,8 @@ class Pyrit_CLI(object):
         writer = pckttools.Dot11PacketWriter(filename)
         parser = pckttools.PacketParser()
         parser.new_ap_callback = lambda ap: __new_ap(self, parser, writer, ap)
-        parser.new_sta_callback = lambda sta: __new_sta(self, parser, writer, \
-                                                        sta)
+        parser.new_station_callback = lambda sta: __new_sta(self, parser, \
+                                                            writer, sta)
         parser.new_auth_callback = lambda auth: __new_auth(self, parser, \
                                                             writer, auth)
 
@@ -824,8 +824,9 @@ class Pyrit_CLI(object):
                     self.tell("Workunit %s for ESSID '%s' seems corrupted." % \
                             (testedKey, testedEssid), stream=sys.stderr)
                     err = True
+        tdiff = time.time() - startTime
         self.tell("\nVerified %i PMKs with %.2f PMKs/s." % \
-                (totalResCount, totalResCount / (time.time() - startTime)))
+                (totalResCount, (totalResCount / tdiff) if tdiff > 0 else 0.0))
         if err:
             raise PyritRuntimeError(
                     "\nAt least one workunit-file contains invalid results." \
