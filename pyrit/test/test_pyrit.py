@@ -84,8 +84,8 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testImportPasswords(self):
         self.assertEqual(len(self.cli.storage.passwords), 0)
         # valid_passwds should get accepted, short_passwds ignored
-        valid_passwds = ['test123%i' % i  for i in xrange(10)]
-        short_passwds = ['shrt%i' % i for i in xrange(3)]
+        valid_passwds = ['test123%i' % i  for i in xrange(100000)]
+        short_passwds = ['x%i' % i for i in xrange(30000)]
         test_passwds = valid_passwds + short_passwds
         random.shuffle(test_passwds)
         with open(self.tempfile, 'w') as f:
@@ -189,6 +189,12 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testExportCowpatty(self):
         self._createDatabase()
         self.cli.export_cowpatty(essid='linksys', filename=self.tempfile)
+        fileresults = list(util.CowpattyReader(self.tempfile))
+        dbresults = []
+        for results in util.StorageIterator(self.cli.storage, 'linksys', \
+                                            yieldNewResults=False):
+            dbresults.extend(results)
+        self.assertEqual(sorted(fileresults), sorted(dbresults))
 
     def testExportHashdb(self):
         self._createDatabase()

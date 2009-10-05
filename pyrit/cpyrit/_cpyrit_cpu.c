@@ -644,6 +644,64 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     return solution_obj;
 }
 
+static PyObject *
+util_unpackcowpentries(PyObject *self, PyObject *args)
+{
+    PyObject *result, *result_results, *entry_tuple;
+    int i, stringsize, consumed, itemcount, entrylen, pwlen;
+    char *string, *entry;
+    
+    if (!PyArg_ParseTuple(args, "s#", &string, &stringsize))
+        return NULL;
+        
+    if (stringsize < 1+8+32)
+    {
+        PyErr_SetString(PyExc_ValueError, "Input-string is too short.");
+        return NULL;
+    }
+
+    entry = string;    
+    consumed = 0;
+    itemcount = 0;
+    do
+    {
+        entrylen = (int)entry[0];
+        if (entrylen < 1+8+32 || entrylen > 1+8+63)
+        {
+            PyErr_Format(PyExc_ValueError, "Entry of invalid size: %i", entrylen);
+            return NULL;
+        }
+        if (consumed + entrylen > stringsize)
+        {
+            break;
+        }
+        itemcount++;
+        consumed += entrylen;
+        entry += entrylen;
+    } while (consumed + entrylen < stringsize);
+
+    result_results = PyTuple_New(itemcount);
+    entry = string;
+    consumed = 0;
+    for (i = 0; i < itemcount; i++)
+    {
+        entrylen = (int)entry[0];
+        pwlen = entrylen - (32 + 1);
+        entry_tuple = PyTuple_New(2);
+        PyTuple_SetItem(entry_tuple, 0, PyString_FromStringAndSize(entry + 1, pwlen));
+        PyTuple_SetItem(entry_tuple, 1, PyString_FromStringAndSize(entry + 1 + pwlen, 32));
+        PyTuple_SetItem(result_results, i, entry_tuple);
+        consumed += entrylen;
+        entry += entrylen;
+    }
+
+    result = PyTuple_New(2);
+    PyTuple_SetItem(result, 0, result_results);
+    PyTuple_SetItem(result, 1, PyString_FromStringAndSize(entry, stringsize - consumed));
+    
+    return result;
+
+}
 /*
 def _genCowpEntries(self, res):
     return ''.join(map(''.join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in res]))
@@ -831,6 +889,7 @@ static PyTypeObject EAPOLCracker_type = {
 static PyMethodDef CPyritCPUMethods[] = {
     {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine CPU-type/name"},
     {"genCowpEntries", util_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from a iterable of password:PMK tuples."},
+    {"unpackCowpEntries", util_unpackcowpentries, METH_VARARGS, "Unpack a data-string in cowpatty-like format and return a tuple with results and unfinished tail."},
     {NULL, NULL, 0, NULL}
 };
 

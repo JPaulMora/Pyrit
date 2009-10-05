@@ -40,6 +40,7 @@ import gzip
 import os
 import Queue
 import sys
+import struct
 import threading
 
 import _cpyrit_cpu
@@ -190,6 +191,9 @@ class FileReader(object):
         else:
             self.f = filename
 
+    def read(self, size=None):
+        return self.f.read(size)
+
     def close(self):
         self.f.close()
         
@@ -225,6 +229,51 @@ class CowpattyWriter(object):
 
     def __exit__(self, type, value, traceback):
         self.close()
+
+class CowpattyReader(object):
+    """A file-like object that reads cowpatty-like files"""
+    def __init__(self, filename):
+        self.f = FileReader(filename)
+        magic, essidlen, essid = struct.unpack(">4si32s", self.f.read(40))
+        if magic != 'APWC':
+            raise RuntimeError("Not a cowpatty-file.")
+        if essidlen < 1 or essidlen > 32:
+            raise RuntimeError("Invalid ESSID")
+        self.essid = essid[:essidlen]
+        self.tail = ''
+        self.iter = ().__iter__()
+        self.eof = False
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        try:
+            return self.iter.next()
+        except StopIteration:
+            if self.eof:
+                raise StopIteration
+            b = self.f.read(1024**2)
+            self.tail = self.tail + b
+            if len(self.tail) == 0:
+                self.eof = True
+                raise StopIteration
+            results, self.tail = _cpyrit_cpu.unpackCowpEntries(self.tail)
+            self.iter = results.__iter__()
+            return self.iter.next()
+
+    def close(self):
+        self.f.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+    def reset(self):
+        self.f.seek(40, os.SEEK_SET)
+        self.tail = ''
 
 
 class AsyncFileWriter(threading.Thread):
