@@ -26,15 +26,15 @@ The more adventurous among you may instead want to try the latest source-code in
 
 Download the source-code package for Pyrit and (optionally) a extension-module.
 
-  * Pyrit (required): [http://pyrit.googlecode.com/files/Pyrit-0.2.3.tar.gz Version 0.2.3]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.3.tar.gz Version 0.2.3]
-  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.3.tar.gz Version 0.2.3]
-  * CPyrit-OpenCL (optional, for compatible hardware): [http://pyrit.googlecode.com/files/CPyrit-OpenCL-0.2.3.tar.gz Version 0.2.3]
+  * Pyrit (required): [http://pyrit.googlecode.com/files/Pyrit-0.2.4.tar.gz Version 0.2.4]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.4.tar.gz Version 0.2.4]
+  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.4.tar.gz Version 0.2.4]
+  * CPyrit-OpenCL (optional, for compatible hardware): [http://pyrit.googlecode.com/files/CPyrit-OpenCL-0.2.4.tar.gz Version 0.2.4]
 
 Now unpack the source-code into a new directory like this:
 {{{
-tar xvzf Pyrit-0.2.3.tar.gz
-tar xvzf CPyrit-CUDA-0.2.3.tar.gz
+tar xvzf Pyrit-0.2.4.tar.gz
+tar xvzf CPyrit-CUDA-0.2.4.tar.gz
 }}}
 
 Continue with the compiling as explained below.
@@ -52,10 +52,10 @@ This will create a new directory _'pyrit_svn'_ that holds all of Pyrit's latest 
 
 ==== ... the main module ====
 
-Switch to the main module's directory which should be 'Pyrit-0.2.3' (if you used a source-code package) or 'pyrit_svn/pyrit' (if you're on svn). We use Python's _distutils_ to compile and install the code:
+Switch to the main module's directory which should be 'Pyrit-0.2.4' (if you used a source-code package) or 'pyrit_svn/pyrit' (if you're on svn). We use Python's _distutils_ to compile and install the code:
 
 {{{
-cd Pyrit-0.2.3
+cd Pyrit-0.2.4
 python setup.py build
 }}}
 
@@ -74,7 +74,7 @@ Get yourself a copy of the CUDA-*Toolkit* from [http://www.nvidia.com/object/cud
 Switch to the directory holding CPyrit-CUDA's source-code and compile and install it just like you did with Pyrit:
 
 {{{
-cd CPyrit-CUDA-0.2.3
+cd CPyrit-CUDA-0.2.4
 python setup.py build
 sudo python setup.py install
 }}}
@@ -88,7 +88,7 @@ Download the ATI-Stream SDK from [http://developer.amd.com/gpu/ATIStreamSDK/Page
 Switch to the directory holding CPyrit-Stream's source-code and compile and install it just like you did with Pyrit:
 
 {{{
-cd CPyrit-Stream-0.2.3
+cd CPyrit-Stream-0.2.4
 python setup.py build
 sudo python setup.py install
 }}}
@@ -101,7 +101,7 @@ Vendor-support for OpenCL is in a very early stage and currently Nvidia is the o
 
 You can use Pyrit's OpenCL-core if you happen to have a working OpenCL-environment:
 {{{
-cd CPyrit-OpenCL-0.2.3
+cd CPyrit-OpenCL-0.2.4
 python setup.py build
 sudo python setup.py install
 }}}
