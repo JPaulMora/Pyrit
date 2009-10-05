@@ -237,7 +237,7 @@ class CPyrit(object):
         if 'cpyrit._cpyrit_opencl' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_opencl.listDevices()):
                 if device[1] != 'NVIDIA Corporation' \
-                 or '_cpyrit._cpyrit_cuda' not in sys.modules:
+                 or 'cpyrit._cpyrit_cuda' not in sys.modules:
                     self.cores.append(OpenCLCore(queue=self, dev_idx=dev_idx))
                     ncpus -= 1
         # ATI
