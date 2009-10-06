@@ -647,8 +647,8 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
 static PyObject *
 util_unpackcowpentries(PyObject *self, PyObject *args)
 {
-    PyObject *result, *result_results, *entry_tuple;
-    int i, stringsize, consumed, itemcount, entrylen, pwlen;
+    PyObject *result, *result_list, *entry_tuple;
+    int stringsize, entrylen;
     char *string, *entry;
     
     if (!PyArg_ParseTuple(args, "s#", &string, &stringsize))
@@ -660,46 +660,49 @@ util_unpackcowpentries(PyObject *self, PyObject *args)
         return NULL;
     }
 
-    entry = string;    
-    consumed = 0;
-    itemcount = 0;
+    entry = string;
+    result_list = PyList_New(0);
     do
     {
         entrylen = (int)entry[0];
         if (entrylen < 1+8+32 || entrylen > 1+8+63)
         {
             PyErr_Format(PyExc_ValueError, "Entry of invalid size: %i", entrylen);
-            return NULL;
+            goto errout;
         }
-        if (consumed + entrylen > stringsize)
-        {
+        if ((entry - string) + entrylen > stringsize)
             break;
-        }
-        itemcount++;
-        consumed += entrylen;
-        entry += entrylen;
-    } while (consumed + entrylen < stringsize);
-
-    result_results = PyTuple_New(itemcount);
-    entry = string;
-    consumed = 0;
-    for (i = 0; i < itemcount; i++)
-    {
-        entrylen = (int)entry[0];
-        pwlen = entrylen - (32 + 1);
         entry_tuple = PyTuple_New(2);
-        PyTuple_SetItem(entry_tuple, 0, PyString_FromStringAndSize(entry + 1, pwlen));
-        PyTuple_SetItem(entry_tuple, 1, PyString_FromStringAndSize(entry + 1 + pwlen, 32));
-        PyTuple_SetItem(result_results, i, entry_tuple);
-        consumed += entrylen;
+        if (entry_tuple == NULL)
+        {
+            PyErr_NoMemory();
+            goto errout;
+        }
+        PyTuple_SetItem(entry_tuple, 0, PyString_FromStringAndSize(entry + 1, entrylen - (32 + 1)));
+        PyTuple_SetItem(entry_tuple, 1, PyString_FromStringAndSize(entry + entrylen - 32, 32));
+        if (PyList_Append(result_list, entry_tuple) == -1)
+        {
+            PyErr_NoMemory();
+            goto errout;
+        }
+        Py_DECREF(entry_tuple);
         entry += entrylen;
-    }
+    } while ((entry - string) + entrylen < stringsize);
 
     result = PyTuple_New(2);
-    PyTuple_SetItem(result, 0, result_results);
-    PyTuple_SetItem(result, 1, PyString_FromStringAndSize(entry, stringsize - consumed));
+    if (result == NULL)
+    {
+        PyErr_NoMemory();
+        goto errout;
+    }
+    PyTuple_SetItem(result, 0, result_list);
+    PyTuple_SetItem(result, 1, PyString_FromStringAndSize(entry, stringsize - (entry - string)));
     
     return result;
+
+errout:
+    Py_DECREF(result_list);
+    return NULL;
 
 }
 /*

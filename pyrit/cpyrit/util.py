@@ -177,26 +177,45 @@ class PassthroughIterator(object):
         raise StopIteration
 
 
-class FileReader(object):
-    """A wrapper for easy stdin/gzip-reading"""
+class FileWrapper(object):
+    """A wrapper for easy stdin/stdout/gzip-handling"""
 
     def __init__(self, filename, mode='rb'):
         if isinstance(filename, str):
             if filename == '-':
-                self.f = sys.stdin
+                if 'r' in mode:
+                    self.f = sys.stdin
+                elif 'w' in mode or 'a' in mode:
+                    self.f = sys.stdout
+                else:
+                    raise ValueError("Unknown filemode '%s'" % mode)
             elif filename.endswith('.gz'):
-                self.f = gzip.open(filename, mode)
+                self.f = gzip.open(filename, mode, 6)
             else:
                 self.f = open(filename, mode)
         else:
             self.f = filename
+        self.isclosed = False
 
     def read(self, size=None):
         return self.f.read(size)
 
+    def write(self, buf):
+        self.f.write(buf)
+
+    def flush(self):
+        self.f.flush()
+
     def close(self):
-        self.f.close()
-        
+        if not self.isclosed:
+            try:
+                self.f.close()
+            finally:
+                self.isclosed = True
+
+    def readlines(self):
+        return self.f.readlines()
+    
     def __enter__(self):
         return self
         
@@ -213,7 +232,7 @@ class CowpattyWriter(object):
     """
 
     def __init__(self, essid, f):
-        self.f = open(f, 'wb') if isinstance(f, str) else f
+        self.f = FileWrapper(f, 'wb')
         self.f.write("APWC\00\00\00" + \
                     chr(len(essid)) + essid + \
                     '\00' * (32 - len(essid)))
@@ -230,10 +249,11 @@ class CowpattyWriter(object):
     def __exit__(self, type, value, traceback):
         self.close()
 
+
 class CowpattyReader(object):
     """A file-like object that reads cowpatty-like files"""
     def __init__(self, filename):
-        self.f = FileReader(filename)
+        self.f = FileWrapper(filename)
         magic, essidlen, essid = struct.unpack(">4si32s", self.f.read(40))
         if magic != 'APWC':
             raise RuntimeError("Not a cowpatty-file.")
@@ -241,26 +261,18 @@ class CowpattyReader(object):
             raise RuntimeError("Invalid ESSID")
         self.essid = essid[:essidlen]
         self.tail = ''
-        self.iter = ().__iter__()
         self.eof = False
 
     def __iter__(self):
         return self
 
     def next(self):
-        try:
-            return self.iter.next()
-        except StopIteration:
-            if self.eof:
-                raise StopIteration
-            b = self.f.read(1024**2)
-            self.tail = self.tail + b
-            if len(self.tail) == 0:
-                self.eof = True
-                raise StopIteration
-            results, self.tail = _cpyrit_cpu.unpackCowpEntries(self.tail)
-            self.iter = results.__iter__()
-            return self.iter.next()
+        self.tail = self.tail + self.f.read(50 * 1024)
+        if len(self.tail) == 0:
+            self.eof = True
+            raise StopIteration
+        results, self.tail = _cpyrit_cpu.unpackCowpEntries(self.tail)
+        return results
 
     def close(self):
         self.f.close()
@@ -289,15 +301,7 @@ class AsyncFileWriter(threading.Thread):
            buffering maxsize before blocking.
         """
         threading.Thread.__init__(self)
-        if isinstance(f, str):
-            if f == '-':
-                self.filehndl = sys.stdout
-            elif f.endswith('gz'):
-                self.filehndl = gzip.open(f, 'wb')
-            else:
-                self.filehndl = open(f, 'wb')
-        else:
-            self.filehndl = f
+        self.filehndl = FileWrapper(f, 'wb')
         self.shallstop = False
         self.hasstopped = False
         self.maxsize = maxsize

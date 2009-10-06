@@ -288,7 +288,7 @@ class Pyrit_CLI(object):
     def import_passwords(self, filename):
         """Import passwords from a file"""
         i = 0
-        with util.FileReader(filename) as reader:
+        with util.FileWrapper(filename) as reader:
             for i, line in enumerate(reader):
                 self.storage.passwords.store_password(line)
                 if i % 100000 == 0:
@@ -531,7 +531,7 @@ class Pyrit_CLI(object):
 
     def passthrough(self, essid, filename):
         """Compute PMKs on the fly and write to a file"""
-        with util.FileReader(filename) as reader:
+        with util.FileWrapper(filename) as reader:
             with util.AsyncFileWriter(filename) as writer:
                 with util.CowpattyWriter(essid, writer) as cowpwriter:
                     try:
@@ -605,8 +605,8 @@ class Pyrit_CLI(object):
         crackers = []
         for auth in ap.getCompletedAuthentications():
             crackers.append(pckttools.EAPOLCracker(auth))
-        with util.FileReader(filename) as filereader:
-            resultiterator = util.PassthroughIterator(essid, filereader)
+        with util.FileWrapper(filename) as reader:
+            resultiterator = util.PassthroughIterator(essid, reader)
             for results in resultiterator:
                 for cracker in crackers:
                     cracker.enqueue(results)
@@ -663,12 +663,12 @@ class Pyrit_CLI(object):
                 break
         else:
             raise PyritRuntimeError("\nThe password was not found.\n")
-    attack_batch.cli_options = (('-r'), ('-e', '-b'))
+    attack_batch.cli_options = (('-r', ), ('-e', '-b'))
 
     @requires_pckttools()
     def attack_db(self, capturefile, bssid=None, essid=None):
         """Attack a handshake with PMKs from the db"""
-        ap = self._fuzzyGetAP(self._getParser(capturefile))
+        ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint " \
                                     "%s found in the capture file." % ap)
@@ -703,7 +703,46 @@ class Pyrit_CLI(object):
                 break
         else:
             raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_db.cli_options = (('-r'), ('-e', '-b'))
+    attack_db.cli_options = (('-r', ), ('-e', '-b'))
+
+    @requires_pckttools()
+    def attack_cowpatty(self, capturefile, filename, bssid=None, essid=None):
+        """Attack a handshake with PMKs from a cowpatty-file"""
+        with util.CowpattyReader(filename) as cowreader:
+            if essid is None:
+                essid = cowreader.essid
+            ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
+            if not ap.isCompleted():
+                raise PyritRuntimeError("No valid handshakes for AccessPoint " \
+                                        "%s found in the capture file." % ap)
+            if essid is None:
+                essid = ap.essid
+            if essid != cowreader.essid:
+                raise PyritRuntimeError("Chosen ESSID '%s' and file's ESSID " \
+                                        "'%s' do not match" % \
+                                        (essid, cowreader.essid))
+            totalResCount = 0
+            startTime = time.time()
+            for auth in ap.getCompletedAuthentications():
+                with pckttools.EAPOLCracker(auth) as cracker:
+                    self.tell("Attacking handshake with " \
+                              "Station %s..." % auth.station)
+                    for results in cowreader:
+                        cracker.enqueue(results)
+                        totalResCount += len(results)
+                        self.tell("Tried %i PMKs so far; " \
+                                  "%i PMKs per second.\r" % (totalResCount,
+                                     totalResCount / (time.time() - startTime)),
+                                     end=None, sep=None)
+                        if cracker.solution is not None:
+                            break
+                    self.tell('')
+                if cracker.solution is not None:
+                    self.tell("\nThe password is '%s'.\n" % cracker.solution)
+                    break
+            else:
+                raise PyritRuntimeError("\nPassword was not found.\n")
+    attack_cowpatty.cli_options = (('-r', '-f'), ('-e', '-b'))
 
     def benchmark(self, timeout=60):
         """Determine performance of available cores"""
@@ -840,10 +879,11 @@ class Pyrit_CLI(object):
                     "in order to tell the two options apart.")
         else:
             self.tell("Everything seems OK.")
-    verify.cli_options = ((), ('-e'))
+    verify.cli_options = ((), ('-e', ))
 
     commands = {'analyze': analyze,
                 'attack_batch': attack_batch,
+                'attack_cowpatty': attack_cowpatty,
                 'attack_db': attack_db,
                 'attack_passthrough': attack_passthrough,
                 'batch': batchprocess,

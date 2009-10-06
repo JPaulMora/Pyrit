@@ -32,7 +32,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
     def setUp(self):
         self.storage_path = tempfile.mkdtemp()
-        self.tempfile = os.path.join(self.storage_path, 'testfile')
+        self.tempfile = os.path.join(self.storage_path, 'testfile.gz')
         self.cli = pyrit_cli.Pyrit_CLI()
         self.cli.storage = storage.Storage(self.storage_path)
         self.cli.verbose = False
@@ -40,15 +40,15 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def tearDown(self):
         pass
 
-    def _createPasswords(self, filename, count=2000):
+    def _createPasswords(self, filename, count=5000):
         test_passwds = ['test123%i' % i for i in xrange(count-1)]
         test_passwds += ['dictionary']
         random.shuffle(test_passwds)
-        with open(filename, 'w') as f:
+        with util.AsyncFileWriter(filename) as f:
             f.write('\n'.join(test_passwds))
         return test_passwds
 
-    def _createDatabase(self, essid='linksys', count=2000):
+    def _createDatabase(self, essid='linksys', count=5000):
         self.cli.create_essid(essid='linksys')
         self._createPasswords(self.tempfile, count)
         self.cli.import_passwords(self.tempfile)
@@ -58,8 +58,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.assertEqual(l, count)
 
     def testListEssids(self):
-        self.cli.create_essid(essid='test1234')
-        self.cli.create_essid(essid='test1235')
+        self._createDatabase()
         self.cli.list_essids()
 
     def testListCores(self):
@@ -84,11 +83,11 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testImportPasswords(self):
         self.assertEqual(len(self.cli.storage.passwords), 0)
         # valid_passwds should get accepted, short_passwds ignored
-        valid_passwds = ['test123%i' % i  for i in xrange(100000)]
-        short_passwds = ['x%i' % i for i in xrange(30000)]
+        valid_passwds = ['test123%i' % i  for i in xrange(1000000)]
+        short_passwds = ['x%i' % i for i in xrange(300000)]
         test_passwds = valid_passwds + short_passwds
         random.shuffle(test_passwds)
-        with open(self.tempfile, 'w') as f:
+        with util.AsyncFileWriter(self.tempfile) as f:
             f.write('\n'.join(test_passwds))
         self.cli.import_passwords(filename=self.tempfile)
         new_passwds = set()
@@ -97,7 +96,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.assertEqual(new_passwds, set(valid_passwds))
         # There should be no duplicates
         random.shuffle(test_passwds)
-        with open(self.tempfile, 'a') as f:
+        with util.FileWrapper(self.tempfile, 'a') as f:
             f.write('\n')
             f.write('\n'.join(test_passwds))
         self.cli.import_passwords(filename=self.tempfile)
@@ -114,6 +113,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.analyze(capturefile='wpa2psk-linksys.dump')
 
     def testStripCapture(self):
+        self._createDatabase()
         self.cli.stripCapture(capturefile='wpapsk-linksys.dump', \
                             filename=self.tempfile)
         parser = self.cli._getParser(self.tempfile)
@@ -121,8 +121,10 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.assertEqual(parser['00:0b:86:c2:a4:85'].essid, 'linksys')
         self.assertTrue('00:13:ce:55:98:ef' in parser['00:0b:86:c2:a4:85'])
         self.assertTrue(parser['00:0b:86:c2:a4:85'].isCompleted())
+        self.cli.attack_db(capturefile=self.tempfile)
 
     def testStripLive(self):
+        self._createDatabase()
         self.cli.stripCapture(capturefile='wpa2psk-linksys.dump', \
                             filename=self.tempfile)
         parser = self.cli._getParser(self.tempfile)
@@ -130,6 +132,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.assertEqual(parser['00:0b:86:c2:a4:85'].essid, 'linksys')
         self.assertTrue('00:13:ce:55:98:ef' in parser['00:0b:86:c2:a4:85'])
         self.assertTrue(parser['00:0b:86:c2:a4:85'].isCompleted())
+        self.cli.attack_db(capturefile=self.tempfile)
 
     def testAttackPassthrough(self):
         self._createPasswords(self.tempfile)
@@ -143,16 +146,24 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.attack_db(capturefile='wpapsk-linksys.dump')
         self.cli.attack_db(capturefile='wpa2psk-linksys.dump')
 
+    def testAttackCowpatty(self):
+        self._createDatabase()
+        self.cli.export_cowpatty(essid='linksys', filename=self.tempfile)
+        self.cli.attack_cowpatty(capturefile='wpapsk-linksys.dump', \
+                                 filename=self.tempfile)
+        self.cli.attack_cowpatty(capturefile='wpa2psk-linksys.dump', \
+                                 filename=self.tempfile)
+
     def testAttackBatch(self):
         self._createPasswords(self.tempfile)
         self.cli.import_passwords(filename=self.tempfile)
         self.cli.attack_batch(capturefile='wpapsk-linksys.dump')
 
     def testSelfTest(self):
-        self.cli.selftest(timeout=3)
+        self.cli.selftest(timeout=10)
 
     def testBenchmark(self):
-        self.cli.benchmark(timeout=3)
+        self.cli.benchmark(timeout=10)
 
     def testBatch(self):
         test_passwds = self._createPasswords(self.tempfile)
@@ -161,6 +172,14 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.batchprocess()
         self.assertEqual(len(self.cli.storage.passwords), \
                         len(self.cli.storage.essids.keys('test1234')))
+        keys = self.cli.storage.essids.keys('test1234')
+        for key in keys:
+            self.assertTrue(key in self.cli.storage.passwords)
+        for key in self.cli.storage.passwords:
+            self.assertTrue(key in keys)
+            passwords = self.cli.storage.passwords[key]
+            results = self.cli.storage.essids['test1234', key]
+            self.assertTrue(sorted((pw for pw, pmk in results)) == sorted(passwords))
 
     def testBatchWithFile(self):
         test_passwds = self._createPasswords(self.tempfile)
@@ -169,6 +188,14 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.batchprocess(essid='test1234', filename=self.tempfile)
         self.assertEqual(len(self.cli.storage.passwords), \
                         len(self.cli.storage.essids.keys('test1234')))
+        fileresults = []
+        for results in util.CowpattyReader(self.tempfile):
+            fileresults.extend(results)
+        dbresults = []
+        for results in util.StorageIterator(self.cli.storage, 'test1234', \
+                                            yieldNewResults=False):
+            dbresults.extend(results)
+        self.assertEqual(sorted(fileresults), sorted(dbresults))
 
     def testEval(self):
         self._createDatabase()
@@ -176,20 +203,29 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
     def testVerify(self):
         self._createDatabase()
+        # Should be OK
         self.cli.verify()
+        key = random.choice(list(self.cli.storage.essids.keys('linksys')))
+        results = self.cli.storage.essids['linksys', key]
+        corrupted = tuple((pw, 'x'*32) for pw, pmk in results)
+        self.cli.storage.essids['linksys', key] = corrupted
+        # Should fail
+        self.assertRaises(pyrit_cli.PyritRuntimeError, self.cli.verify)
 
     def testExportPasswords(self):
         test_passwds = self._createPasswords(self.tempfile)
         self.cli.import_passwords(self.tempfile)
         self.cli.export_passwords(self.tempfile)
-        with open(self.tempfile, 'r') as f:
+        with util.FileWrapper(self.tempfile) as f:
             new_passwds = map(str.strip, f.readlines())
         self.assertEqual(sorted(test_passwds), sorted(new_passwds))
 
     def testExportCowpatty(self):
         self._createDatabase()
         self.cli.export_cowpatty(essid='linksys', filename=self.tempfile)
-        fileresults = list(util.CowpattyReader(self.tempfile))
+        fileresults = []
+        for results in util.CowpattyReader(self.tempfile):
+            fileresults.extend(results)
         dbresults = []
         for results in util.StorageIterator(self.cli.storage, 'linksys', \
                                             yieldNewResults=False):
