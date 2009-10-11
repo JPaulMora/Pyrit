@@ -58,11 +58,6 @@ class Pyrit_CLI(object):
                 stream.flush()
 
     def initFromArgv(self):
-        self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg " \
-                  "http://pyrit.googlecode.com\n" \
-                  "This code is distributed under the GNU General Public " \
-                  "License v3\n" % util.VERSION)
-
         options = {}
         args, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:f:r:b:')
         args = dict(args)
@@ -74,6 +69,11 @@ class Pyrit_CLI(object):
         else:
             command = 'help'
         func = self.commands[command]
+
+        # Passthrough needs stdout
+        if command == "passthrough":
+            self.verbose = False
+
         req_params, opt_params = func.cli_options
         for param in req_params:
             if param not in args:
@@ -98,6 +98,11 @@ class Pyrit_CLI(object):
             else:
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
+
+        self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg " \
+                  "http://pyrit.googlecode.com\n" \
+                  "This code is distributed under the GNU General Public " \
+                  "License v3\n" % util.VERSION)
         self.commands[command](self, **options)
 
     def print_help(self):
@@ -319,7 +324,7 @@ class Pyrit_CLI(object):
         lines = 0
         self.tell("Exporting to '%s'..." % filename)
         with util.AsyncFileWriter(filename) as filewriter:
-            with util.CowpattyWriter(essid, filewriter) as cowpwriter:
+            with util.CowpattyFile(filewriter, 'w', essid) as cowpwriter:
                 try:
                     for results in self.storage.iterresults(essid):
                         cowpwriter.write(results)
@@ -529,17 +534,17 @@ class Pyrit_CLI(object):
             con.close()
     export_hashdb.cli_options = (('-f', ), ('-e', ))
 
-    def passthrough(self, essid, filename):
-        """Compute PMKs on the fly and write to a file"""
+    def passthrough(self, essid, filename, output=sys.stdout):
+        """Compute PMKs on the fly and write to stdout"""
         with util.FileWrapper(filename) as reader:
-            with util.AsyncFileWriter(filename) as writer:
-                with util.CowpattyWriter(essid, writer) as cowpwriter:
-                    try:
+            try:
+                with util.AsyncFileWriter(output) as writer:
+                    with util.CowpattyFile(writer, 'w', essid) as cowpwriter:
                         for results in util.PassthroughIterator(essid, reader):
                             cowpwriter.write(results)
-                    except IOError:
-                        self.tell("IOError while writing to stdout ignored.", \
-                                    stream=sys.stderr)
+            except IOError:
+                self.tell("IOError while writing to stdout ignored.", \
+                            stream=sys.stderr)
     passthrough.cli_options = (('-f', '-e'), ())
 
     def batchprocess(self, filename=None, essid=None):
@@ -556,8 +561,8 @@ class Pyrit_CLI(object):
             essids = self.storage.essids
         totalResCount = 0
         if filename is not None:
-            cowpwriter = util.CowpattyWriter(essid, \
-                                            util.AsyncFileWriter(filename))
+            cowpwriter = util.CowpattyFile(util.AsyncFileWriter(filename), \
+                                           'w', essid)
         else:
             cowpwriter = None
         try:
@@ -570,16 +575,18 @@ class Pyrit_CLI(object):
                     totalResCount += len(results)
                     if cowpwriter is not None:
                         cowpwriter.write(results)
+                    tdiff = time.time() - startTime
                     self.tell("Processed %i/%i workunits so far (%.1f%%); " \
                               "%i PMKs per second.\r" % (idx + 1, \
                                 len(dbiterator), \
                                 100.0 * (idx + 1) / len(dbiterator),
-                                totalResCount / (time.time() - startTime)), \
+                                (totalResCount / tdiff) if tdiff > 0 else 0), \
                                 end = None, sep = None)
+                tdiff = time.time() - startTime
                 self.tell("Processed all workunits for ESSID '%s'; " \
                           "%i PMKs per second." % \
                           (cur_essid, \
-                          totalResCount / (time.time() - startTime)))
+                          (totalResCount / tdiff) if tdiff > 0 else 0))
                 self._printCoreStats(dbiterator.cp, startTime)
                 self.tell('')
         except IOError:
@@ -708,13 +715,14 @@ class Pyrit_CLI(object):
     @requires_pckttools()
     def attack_cowpatty(self, capturefile, filename, bssid=None, essid=None):
         """Attack a handshake with PMKs from a cowpatty-file"""
-        with util.CowpattyReader(filename) as cowreader:
+        with util.CowpattyFile(filename) as cowreader:
             if essid is None:
                 essid = cowreader.essid
             ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
             if not ap.isCompleted():
-                raise PyritRuntimeError("No valid handshakes for AccessPoint " \
-                                        "%s found in the capture file." % ap)
+                raise PyritRuntimeError("No valid handshakes for " \
+                                        "AccessPoint %s found in the " \
+                                        "capture file." % ap)
             if essid is None:
                 essid = ap.essid
             if essid != cowreader.essid:
@@ -724,6 +732,7 @@ class Pyrit_CLI(object):
             totalResCount = 0
             startTime = time.time()
             for auth in ap.getCompletedAuthentications():
+                cowreader.reset()
                 with pckttools.EAPOLCracker(auth) as cracker:
                     self.tell("Attacking handshake with " \
                               "Station %s..." % auth.station)
@@ -732,8 +741,8 @@ class Pyrit_CLI(object):
                         totalResCount += len(results)
                         self.tell("Tried %i PMKs so far; " \
                                   "%i PMKs per second.\r" % (totalResCount,
-                                     totalResCount / (time.time() - startTime)),
-                                     end=None, sep=None)
+                                   totalResCount / (time.time() - startTime)),
+                                   end=None, sep=None)
                         if cracker.solution is not None:
                             break
                     self.tell('')
@@ -855,7 +864,9 @@ class Pyrit_CLI(object):
                             err = True
                 tdiff = time.time() - startTime
                 self.tell("Computed %i PMKs so far; %i PMKs per second.\r" % \
-                    (totalResCount, totalResCount / tdiff), end=None, sep=None)
+                            (totalResCount, \
+                            (totalResCount / tdiff) if tdiff > 0 else 0.0), \
+                            end=None, sep=None)
             for solvedPMKs in cp:
                 totalResCount += len(solvedPMKs)
                 testedEssid, testedKey, testedPMKs = workunits.pop(0)

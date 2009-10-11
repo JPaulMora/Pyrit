@@ -203,6 +203,9 @@ class FileWrapper(object):
     def write(self, buf):
         self.f.write(buf)
 
+    def seek(self, offset, whence=None):
+        self.f.seek(offset, whence)
+
     def flush(self):
         self.f.flush()
 
@@ -226,22 +229,36 @@ class FileWrapper(object):
         return self.f.__iter__()
 
 
-class CowpattyWriter(object):
-    """A simple file-like object that writes (password,PMK)-tuples
-       to a file or another file-like object in cowpatty's binary format.
-    """
+class CowpattyFile(object):
+    """A file-like object to read and write cowpatty-like files."""
 
-    def __init__(self, essid, f):
-        self.f = FileWrapper(f, 'wb')
-        self.f.write("APWC\00\00\00" + \
-                    chr(len(essid)) + essid + \
-                    '\00' * (32 - len(essid)))
+    def __init__(self, filename, mode='r', essid=None):
+        if mode == 'r':
+            self.f = FileWrapper(filename, 'r')
+            magic, essidlen, essid = struct.unpack(">4si32s", self.f.read(40))
+            if magic != 'APWC':
+                raise RuntimeError("Not a cowpatty-file.")
+            if essidlen < 1 or essidlen > 32:
+                raise RuntimeError("Invalid ESSID")
+            self.essid = essid[:essidlen]
+        elif mode == 'w':
+            if essid is None:
+                raise TypeError("ESSID must be specified when writing.")
+            if len(essid) < 1 or len(essid) > 32:
+                raise ValueError("Invalid ESSID.")
+            self.essid = essid
+            self.f = FileWrapper(filename, 'wb')
+            self.f.write("APWC\00\00\00" + \
+                        chr(len(essid)) + essid + \
+                        '\00' * (32 - len(essid)))
+        else:
+            raise RuntimeError("Invalid mode.")
+        self.tail = ''
+        self.eof = False
+        self.mode = mode
 
-    def write(self, results):
-        self.f.write(_cpyrit_cpu.genCowpEntries(results))
-
-    def close(self):
-        self.f.close()
+    def __iter__(self):
+        return self
 
     def __enter__(self):
         return self
@@ -249,43 +266,29 @@ class CowpattyWriter(object):
     def __exit__(self, type, value, traceback):
         self.close()
 
+    def write(self, results):
+        if self.mode != 'w':
+            raise TypeError("Can't write to read-only file.")
+        self.f.write(_cpyrit_cpu.genCowpEntries(results))
 
-class CowpattyReader(object):
-    """A file-like object that reads cowpatty-like files"""
-    def __init__(self, filename):
-        self.f = FileWrapper(filename)
-        magic, essidlen, essid = struct.unpack(">4si32s", self.f.read(40))
-        if magic != 'APWC':
-            raise RuntimeError("Not a cowpatty-file.")
-        if essidlen < 1 or essidlen > 32:
-            raise RuntimeError("Invalid ESSID")
-        self.essid = essid[:essidlen]
+    def close(self):
+        self.f.close()
+
+    def reset(self):
+        if self.mode != 'r':
+            raise TypeError("Can't read from write-only file.")
+        self.f.seek(40, os.SEEK_SET)
         self.tail = ''
-        self.eof = False
-
-    def __iter__(self):
-        return self
 
     def next(self):
+        if self.mode != 'r':
+            raise TypeError("Can't read from write-only file.")
         self.tail = self.tail + self.f.read(50 * 1024)
         if len(self.tail) == 0:
             self.eof = True
             raise StopIteration
         results, self.tail = _cpyrit_cpu.unpackCowpEntries(self.tail)
         return results
-
-    def close(self):
-        self.f.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, traceback):
-        self.close()
-
-    def reset(self):
-        self.f.seek(40, os.SEEK_SET)
-        self.tail = ''
 
 
 class AsyncFileWriter(threading.Thread):

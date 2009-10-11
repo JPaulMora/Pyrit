@@ -564,6 +564,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
             if (!t)
             {
                 PyErr_NoMemory();
+                Py_DECREF(result_obj);
                 goto out;
             }
             pmk_buffer = t;
@@ -571,6 +572,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
             if (!t_obj)
             {
                 PyErr_NoMemory();
+                Py_DECREF(result_obj);
                 goto out;
             }
             passwd_objbuffer = t_obj;
@@ -580,6 +582,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
         if (!(passwd_obj && PyString_Check(passwd_obj)))
         {
             PyErr_SetString(PyExc_ValueError, "Expected password as first item in a sequence-object.");
+            Py_DECREF(result_obj);
             Py_XDECREF(passwd_obj);
             goto out;
         }
@@ -589,6 +592,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
         if (!pmk_obj)
         {
             PyErr_SetString(PyExc_ValueError, "Expected Pairwise Master Key as second item in a sequence-object.");
+            Py_DECREF(result_obj);
             Py_DECREF(passwd_obj);
             goto out;
         }
@@ -596,6 +600,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
         if (pmk == NULL || PyString_Size(pmk_obj) != 32)
         {
             PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
+            Py_DECREF(result_obj);
             Py_DECREF(passwd_obj);
             Py_DECREF(pmk_obj);
             goto out;
@@ -630,7 +635,6 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     Py_INCREF(solution_obj);
     
     out:
-    Py_XDECREF(result_obj);
     Py_DECREF(result_seq);
     if (pmk_buffer)
         PyMem_Free(pmk_buffer);
