@@ -42,7 +42,7 @@ cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
                     extra_compile_args=EXTRA_COMPILE_ARGS)
 
 setup_args = dict(
-        name = 'Pyrit',
+        name = 'pyrit',
         version = '0.2.5',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',

@@ -30,34 +30,40 @@ import subprocess
 STREAM_LIB_DIRS = []
 STREAM_INC_DIRS = []
 BRCC = 'brcc'
-for path in ('/usr/local/atibrook/sdk','/opt/atibrook/sdk'):
+for path in ('/usr/local/atibrook/sdk', '/opt/atibrook/sdk'):
     if os.path.exists(path):
         STREAM_LIB_DIRS.append(os.path.sep.join((path, 'lib')))
         STREAM_INC_DIRS.append(os.path.sep.join((path, 'include')))
         BRCC = os.path.sep.join((path, 'bin', 'brcc'))
         break
 else:
-    print >>sys.stderr, "The AMD-Stream compiler, headers and libraries required to build the kernel were not found. Trying to continue anyway..."
+    print >>sys.stderr, "The AMD-Stream compiler, headers and libraries " \
+                        "required to build the kernel were not found. " \
+                        "Trying to continue anyway..."
 
 
 try:
-    svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.5-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+    svn_info = subprocess.Popen(('svn', 'info'), \
+                                stdout=subprocess.PIPE).stdout.read()
+    version_string = '0.2.5-dev (svn r%i)' % \
+                    int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     version_string = '0.2.5-dev'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
 class GPUBuilder(build_ext):
+
     def _call(self, comm):
         p = subprocess.Popen(comm, stdout=subprocess.PIPE, shell=True)
         stdo, stde = p.communicate()
         if p.returncode == 0:
             return stdo
         else:
-            print >>sys.stderr, "%s\nFailed to execute command '%s'" % (stde, comm)
+            print >>sys.stderr, "%s\nFailed to execute command '%s'" % \
+                                (stde, comm)
             return None
-            
+
     def _makedirs(self, pathname):
         try:
             os.makedirs(pathname)
@@ -65,16 +71,18 @@ class GPUBuilder(build_ext):
             pass
 
     def run(self):
-        if '_brook_tmp' in os.listdir('./') and '_stream.cpp' in os.listdir('_brook_tmp'):
+        if '_brook_tmp' in os.listdir('./') \
+         and '_stream.cpp' in os.listdir('_brook_tmp'):
             print "Skipping rebuild of AMD-Stream kernel ..."
         else:
             print "Preprocessing AMD-Stream kernel..."
             self._makedirs('./_brook_tmp')
             cpp_o = self._call('cpp -P cpyrit_stream.br')
             if cpp_o is None:
-                raise SystemError, 'Failed to preprocess AMD-Stream kernel'
+                raise SystemError('Failed to preprocess AMD-Stream kernel')
             f = file('./_brook_tmp/cpyrit_stream_pp.br', 'w')
-            f.write(re.sub("W\[(.+?)\]", lambda x: "W_" + str(eval(x.group(1))), cpp_o)) # hack to convert W[21-3] to W_18
+            # hack to convert W[21-3] to W_18
+            f.write(re.sub("W\[(.+?)\]", lambda x: "W_" + str(eval(x.group(1))), cpp_o))
             f.close()
             print "Compiling AMD-Stream kernel..."
             subprocess.check_call(BRCC + ' -p cal -r -o ./_brook_tmp/_stream ./_brook_tmp/cpyrit_stream_pp.br', shell=True)
@@ -83,6 +91,7 @@ class GPUBuilder(build_ext):
 
 
 class GPUCleaner(clean):
+
     def _unlink(self, node):
         try:
             if os.path.isdir(node):
@@ -91,16 +100,18 @@ class GPUCleaner(clean):
                 os.unlink(node)
         except OSError:
             pass
-    
+
     def run(self):
         print "Removing temporary files and pre-built GPU-kernels..."
         try:
-            for f in ('_brook_tmp/_stream.h', '_brook_tmp/_stream_gpu.h', '_brook_tmp/_stream.cpp', '_brook_tmp/cpyrit_stream_pp.br', '_brook_tmp'):
+            for f in ('_brook_tmp/_stream.h', '_brook_tmp/_stream_gpu.h', \
+                      '_brook_tmp/_stream.cpp', \
+                      '_brook_tmp/cpyrit_stream_pp.br', '_brook_tmp'):
                 self._unlink(f)
         except Exception, (errno, sterrno):
-            print >>sys.stderr, "Exception while cleaning temporary files ('%s')" % sterrno
+            print >>sys.stderr, "Exception while cleaning temporary " \
+                                "files ('%s')" % sterrno
         clean.run(self)
-
 
 # ... _brook_tmp/_stream.cpp is put in place by GPUBuilder
 stream_extension = Extension('cpyrit._cpyrit_stream',
@@ -111,7 +122,7 @@ stream_extension = Extension('cpyrit._cpyrit_stream',
                     library_dirs = STREAM_LIB_DIRS)
 
 setup_args = dict(
-        name = 'CPyrit-Stream',
+        name = 'cpyrit-stream',
         version = '0.2.5',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
@@ -119,9 +130,9 @@ setup_args = dict(
         author_email = 'lukas.lueg@gmail.com',
         url = 'http://pyrit.googlecode.com',
         ext_modules = [stream_extension],
-        cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.5-1, libaticalcl.so'}}
-        )
-        
+        cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
+        options = {'install': {'optimize': 1},
+                   'bdist_rpm': {'requires': 'Pyrit = 0.2.5-1, libaticalcl.so'}})
+
 if __name__ == "__main__":
     setup(**setup_args)
