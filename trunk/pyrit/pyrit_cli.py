@@ -68,6 +68,7 @@ class Pyrit_CLI(object):
             command = commands[0]
         else:
             command = 'help'
+            args = {}
         func = self.commands[command]
 
         # Passthrough needs stdout
@@ -265,7 +266,7 @@ class Pyrit_CLI(object):
                     essid_results[essid] += 1
         for essid, rescount in sorted(essid_results.items()):
             self.tell("ESSID '%s'\t(%.2f%%)" % (essid, \
-            (rescount * 100.0 / wu_count) if wu_count > 0 else 0.0))
+                      (rescount * 100.0 / wu_count) if wu_count > 0 else 0.0))
         self.tell("")
     list_essids.cli_options = ((), ())
 
@@ -277,7 +278,7 @@ class Pyrit_CLI(object):
             pwcount += len(passwds)
             if i % 10 == 0:
                 self.tell("Passwords available:\t%i\r" % \
-                    pwcount, end=None, sep=None)
+                            pwcount, end=None, sep=None)
             for essid in essid_results:
                 # Let's assume that the presence of the key in the storage
                 # means that the file is valid and completed...
@@ -312,8 +313,9 @@ class Pyrit_CLI(object):
                 awriter.write('\n')
                 lines += len(pwset)
                 self.tell("%i lines written (%.1f%%)\r" % \
-                    (lines, (idx+1) * 100.0 / len(self.storage.passwords)), \
-                    end=None, sep=None)
+                            (lines, \
+                            (idx + 1) * 100.0 / len(self.storage.passwords)), \
+                            end=None, sep=None)
         self.tell("\nAll done")
     export_passwords.cli_options = (('-f', ), ())
 
@@ -559,7 +561,6 @@ class Pyrit_CLI(object):
             essids = [essid]
         else:
             essids = self.storage.essids
-        totalResCount = 0
         if filename is not None:
             cowpwriter = util.CowpattyFile(util.AsyncFileWriter(filename), \
                                            'w', essid)
@@ -568,6 +569,7 @@ class Pyrit_CLI(object):
         try:
             for cur_essid in essids:
                 startTime = time.time()
+                totalResCount = 0
                 self.tell("Working on ESSID '%s'" % cur_essid)
                 dbiterator = util.StorageIterator(self.storage, cur_essid, \
                                         yieldOldResults=cowpwriter is not None)
@@ -732,7 +734,6 @@ class Pyrit_CLI(object):
             totalResCount = 0
             startTime = time.time()
             for auth in ap.getCompletedAuthentications():
-                cowreader.reset()
                 with pckttools.EAPOLCracker(auth) as cracker:
                     self.tell("Attacking handshake with " \
                               "Station %s..." % auth.station)

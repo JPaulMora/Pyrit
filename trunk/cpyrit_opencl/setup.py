@@ -29,17 +29,20 @@ import sys
 import zlib
 
 OPENCL_INC_DIRS = []
-for path in ('/usr/local/opencl/OpenCL/common/inc','/opt/opencl/OpenCL/common/inc'):
+for path in ('/usr/local/opencl/OpenCL/common/inc', \
+            '/opt/opencl/OpenCL/common/inc'):
     if os.path.exists(path):
         OPENCL_INC_DIRS.append(path)
         break
 else:
-    print >>sys.stderr, "The headers required to build the OpenCL-kernel were not found. Trying to continue anyway..."
-
+    print >>sys.stderr, "The headers required to build the OpenCL-kernel " \
+                        "were not found. Trying to continue anyway..."
 
 try:
-    svn_info = subprocess.Popen(('svn', 'info'), stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.5-dev (svn r%i)' % int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+    svn_info = subprocess.Popen(('svn', 'info'), \
+                                stdout=subprocess.PIPE).stdout.read()
+    version_string = '0.2.5-dev (svn r%i)' % \
+                    int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     version_string = '0.2.5-dev'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
@@ -54,10 +57,10 @@ class GPUBuilder(build_ext):
         kernel = f.read()
         f.close()
         oclkernel_program = header + '\n' + kernel + '\x00'
-        oclkernel_packed = zlib.compress(oclkernel_program)        
+        oclkernel_inc = zlib.compress(oclkernel_program)        
         f = open("_cpyrit_oclkernel.cl.h", 'wb')
         f.write("unsigned char oclkernel_packedprogram[] = {")
-        f.write(",".join(("0x%02X%s" % (ord(c), "\n" if i % 16 == 0 else "") for i, c in enumerate(oclkernel_packed))))
+        f.write(",".join(("0x%02X" % ord(c) for c in oclkernel_inc)))
         f.write("};\nsize_t oclkernel_size = %i;\n" % len(oclkernel_program))
         f.close()
         
@@ -74,14 +77,15 @@ class GPUCleaner(clean):
                 os.unlink(node)
         except OSError:
             pass
-    
+
     def run(self):
         print "Removing temporary files and pre-built GPU-kernels..."
         try:
             for f in ('_cpyrit_oclkernel.cl.h',):
                 self._unlink(f)
         except Exception, (errno, sterrno):
-            print >>sys.stderr, "Exception while cleaning temporary files ('%s')" % sterrno
+            print >>sys.stderr, "Exception while cleaning temporary " \
+                                "files ('%s')" % sterrno
         clean.run(self)
 
 
@@ -92,7 +96,7 @@ opencl_extension = Extension('cpyrit._cpyrit_opencl',
                     extra_compile_args = EXTRA_COMPILE_ARGS)
 
 setup_args = dict(
-        name = 'CPyrit-OpenCL',
+        name = 'cpyrit-opencl',
         version = '0.2.5',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
@@ -100,8 +104,9 @@ setup_args = dict(
         author_email = 'lukas.lueg@gmail.com',
         url = 'http://pyrit.googlecode.com',
         ext_modules = [opencl_extension],
-        cmdclass = {'build_ext':GPUBuilder, 'clean':GPUCleaner},
-        options = {'install':{'optimize':1},'bdist_rpm':{'requires':'Pyrit = 0.2.5-1'}}
+        cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
+        options = {'install': {'optimize': 1}, \
+                   'bdist_rpm': {'requires': 'Pyrit = 0.2.5-1'}}
         )
         
 if __name__ == "__main__":

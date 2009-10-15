@@ -218,13 +218,13 @@ class FileWrapper(object):
 
     def readlines(self):
         return self.f.readlines()
-    
+
     def __enter__(self):
         return self
-        
+
     def __exit__(self, type, value, traceback):
         self.close()
-        
+
     def __iter__(self):
         return self.f.__iter__()
 
@@ -239,7 +239,7 @@ class CowpattyFile(object):
             if magic != 'APWC':
                 raise RuntimeError("Not a cowpatty-file.")
             if essidlen < 1 or essidlen > 32:
-                raise RuntimeError("Invalid ESSID")
+                raise ValueError("Invalid ESSID")
             self.essid = essid[:essidlen]
         elif mode == 'w':
             if essid is None:
@@ -258,6 +258,10 @@ class CowpattyFile(object):
         self.mode = mode
 
     def __iter__(self):
+        if self.mode != 'r':
+            raise TypeError("Can't read from write-only file.")
+        self.f.seek(40, os.SEEK_SET)
+        self.tail = ''
         return self
 
     def __enter__(self):
@@ -273,12 +277,6 @@ class CowpattyFile(object):
 
     def close(self):
         self.f.close()
-
-    def reset(self):
-        if self.mode != 'r':
-            raise TypeError("Can't read from write-only file.")
-        self.f.seek(40, os.SEEK_SET)
-        self.tail = ''
 
     def next(self):
         if self.mode != 'r':

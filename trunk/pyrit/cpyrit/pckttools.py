@@ -245,7 +245,7 @@ class EAPOLCrackerThread(threading.Thread, _cpyrit_cpu.EAPOLCracker):
     def __init__(self, workqueue, auth):
         threading.Thread.__init__(self)
         _cpyrit_cpu.EAPOLCracker.__init__(self, auth.version, auth.pke,
-                                        auth.keymic, auth.keymic_frame)
+                                            auth.keymic, auth.keymic_frame)
         self.workqueue = workqueue
         self.solution = None
         self.setDaemon(True)
