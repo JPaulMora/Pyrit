@@ -59,7 +59,7 @@ class Pyrit_CLI(object):
 
     def initFromArgv(self):
         options = {}
-        args, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:f:r:b:')
+        args, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:i:o:r:b:')
         args = dict(args)
 
         self.storage = storage.Storage()
@@ -70,10 +70,6 @@ class Pyrit_CLI(object):
             command = 'help'
             args = {}
         func = self.commands[command]
-
-        # Passthrough needs stdout
-        if command == "passthrough":
-            self.verbose = False
 
         req_params, opt_params = func.cli_options
         for param in req_params:
@@ -87,8 +83,10 @@ class Pyrit_CLI(object):
                     options['essid'] = value
                 elif arg == '-b':
                     options['bssid'] = value
-                elif arg == '-f':
-                    options['filename'] = value
+                elif arg == '-i':
+                    options['infile'] = value
+                elif arg == '-o':
+                    options['outfile'] = value
                     # Prevent messages from corrupting stdout
                     if value == '-':
                         self.verbose = False
@@ -113,7 +111,8 @@ class Pyrit_CLI(object):
             '\nRecognized options:'
             '\n  -e    : Filters AccessPoint by ESSID'
             '\n  -b    : Filters AccessPoint by BSSID'
-            "\n  -f    : Filename for input/output ('-' is stdin/stdout)"
+            "\n  -i    : Filename for input ('-' is stdin)"
+            "\n  -o    : Filename for output ('-' is stdout)"
             "\n  -r    : Packet capture source in pcap-format"
             '\n'
             '\nRecognized commands:')
@@ -291,10 +290,10 @@ class Pyrit_CLI(object):
         self.tell('')
     eval_results.cli_options = ((), ())
 
-    def import_passwords(self, filename):
+    def import_passwords(self, infile):
         """Import passwords from a file"""
         i = 0
-        with util.FileWrapper(filename) as reader:
+        with util.FileWrapper(infile) as reader:
             for i, line in enumerate(reader):
                 self.storage.passwords.store_password(line)
                 if i % 100000 == 0:
@@ -302,12 +301,12 @@ class Pyrit_CLI(object):
         self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
         self.storage.passwords.flush_buffer()
         self.tell('All done.')
-    import_passwords.cli_options = (('-f', ), ())
+    import_passwords.cli_options = (('-i', ), ())
 
-    def export_passwords(self, filename):
+    def export_passwords(self, outfile):
         """Export passwords to a file"""
         lines = 0
-        with util.AsyncFileWriter(filename) as awriter:
+        with util.AsyncFileWriter(outfile) as awriter:
             for idx, pwset in enumerate(self.storage.iterpasswords()):
                 awriter.write('\n'.join(pwset))
                 awriter.write('\n')
@@ -317,15 +316,15 @@ class Pyrit_CLI(object):
                             (idx + 1) * 100.0 / len(self.storage.passwords)), \
                             end=None, sep=None)
         self.tell("\nAll done")
-    export_passwords.cli_options = (('-f', ), ())
+    export_passwords.cli_options = (('-o', ), ())
 
-    def export_cowpatty(self, essid, filename):
+    def export_cowpatty(self, essid, outfile):
         """Export results to a new cowpatty file"""
         if essid not in self.storage.essids:
             raise PyritRuntimeError("The ESSID you specified can't be found.")
         lines = 0
-        self.tell("Exporting to '%s'..." % filename)
-        with util.AsyncFileWriter(filename) as filewriter:
+        self.tell("Exporting to '%s'..." % outfile)
+        with util.AsyncFileWriter(outfile) as filewriter:
             with util.CowpattyFile(filewriter, 'w', essid) as cowpwriter:
                 try:
                     for results in self.storage.iterresults(essid):
@@ -337,7 +336,7 @@ class Pyrit_CLI(object):
                     self.tell("IOError while exporting to " \
                               "stdout ignored...", stream=sys.stderr)
         self.tell("\r%i entries written. All done." % lines)
-    export_cowpatty.cli_options = (('-e', '-f'), ())
+    export_cowpatty.cli_options = (('-e', '-o'), ())
 
     @requires_pckttools()
     def analyze(self, capturefile):
@@ -353,14 +352,14 @@ class Pyrit_CLI(object):
     analyze.cli_options = (('-r', ), ())
 
     @requires_pckttools()
-    def stripCapture(self, capturefile, filename, bssid=None, essid=None):
+    def stripCapture(self, capturefile, outfile, bssid=None, essid=None):
         """Strip packet-capture files to the relevant packets"""
         parser = self._getParser(capturefile)
         if essid is not None or bssid is not None:
             ap_iter = (self._fuzzyGetAP(parser, bssid, essid), )
         else:
             ap_iter = parser
-        with pckttools.Dot11PacketWriter(filename) as writer:
+        with pckttools.Dot11PacketWriter(outfile) as writer:
             for i, ap in enumerate(ap_iter):
                 self.tell("#%i: AccessPoint %s ('%s')" % (i + 1, ap, ap.essid))
                 if ap.essidframe:
@@ -374,12 +373,12 @@ class Pyrit_CLI(object):
                         for idx in xrange(3):
                             if auth.frames[idx] is not None:
                                 writer.write(auth.frames[idx])
-        self.tell("\nNew pcap-file written (%i out of %i packets)" % \
-                    (writer.pcktcount, parser.pcktcount))
-    stripCapture.cli_options = (('-r', '-f'), ('-e', '-b'))
+        self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
+                    (outfile, writer.pcktcount, parser.pcktcount))
+    stripCapture.cli_options = (('-r', '-o'), ('-e', '-b'))
 
     @requires_pckttools()
-    def stripLive(self, capturefile, filename):
+    def stripLive(self, capturefile, outfile):
         """Capture relevant packets from a live capture-source"""
 
         def __new_ap(self, parser, writer, ap):
@@ -399,7 +398,7 @@ class Pyrit_CLI(object):
                         (writer.pcktcount, parser.pcktcount, auth.station.ap, \
                         auth.station))
 
-        writer = pckttools.Dot11PacketWriter(filename)
+        writer = pckttools.Dot11PacketWriter(outfile)
         parser = pckttools.PacketParser()
         parser.new_ap_callback = lambda ap: __new_ap(self, parser, writer, ap)
         parser.new_station_callback = lambda sta: __new_sta(self, parser, \
@@ -423,25 +422,25 @@ class Pyrit_CLI(object):
                 if sta.isCompleted():
                     self.tell("  #%i: Station %s (%i authentications)" % \
                                 (j, sta, len(sta)))
-        self.tell("\nNew pcap-file written (%i out of %i packets)" % \
-                    (writer.pcktcount, parser.pcktcount))
-    stripLive.cli_options = (('-r', '-f'), ())
+        self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
+                    (outfile, writer.pcktcount, parser.pcktcount))
+    stripLive.cli_options = (('-r', '-o'), ())
 
-    def export_hashdb(self, filename, essid=None):
+    def export_hashdb(self, outfile, essid=None):
         """Export results to an airolib database"""
         import sqlite3
         if essid is None:
             essids = self.storage.essids
         else:
             essids = [essid]
-        con = sqlite3.connect(filename)
+        con = sqlite3.connect(outfile)
         con.text_factory = str
         cur = con.cursor()
         cur.execute('SELECT * FROM sqlite_master')
         tbls = [x[1] for x in cur.fetchall() if x[0] == u'table']
         if u'pmk' not in tbls or u'essid' not in tbls or u'passwd' not in tbls:
             self.tell("The database '%s' seems to be uninitialized. " % \
-                      filename)
+                      outfile)
             self.tell("Trying to create default table-layout...", end=None)
             try:
                 cur.execute("CREATE TABLE essid (" \
@@ -534,24 +533,37 @@ class Pyrit_CLI(object):
         finally:
             cur.close()
             con.close()
-    export_hashdb.cli_options = (('-f', ), ('-e', ))
+    export_hashdb.cli_options = (('-o', ), ('-e', ))
 
-    def passthrough(self, essid, filename, output=sys.stdout):
+    def passthrough(self, essid, infile, outfile):
         """Compute PMKs on the fly and write to stdout"""
-        with util.FileWrapper(filename) as reader:
+        startTime = time.time()
+        totalResCount = 0
+        with util.FileWrapper(infile) as reader:
             try:
-                with util.AsyncFileWriter(output) as writer:
+                with util.AsyncFileWriter(outfile) as writer:
                     with util.CowpattyFile(writer, 'w', essid) as cowpwriter:
                         for results in util.PassthroughIterator(essid, reader):
                             cowpwriter.write(results)
+                            totalResCount += len(results)
+                            tdiff = time.time() - startTime
+                            perf = (totalResCount / tdiff) if tdiff > 0 else 0
+                            self.tell("Computed %i PMKs so far; %i PMKs per " \
+                                      "second\r" % (totalResCount, perf), \
+                                      end=None, sep=None)
             except IOError:
                 self.tell("IOError while writing to stdout ignored.", \
                             stream=sys.stderr)
-    passthrough.cli_options = (('-f', '-e'), ())
+            finally:
+                tdiff = time.time() - startTime
+                perf = (totalResCount / tdiff) if tdiff > 0 else 0
+                self.tell("Computed %i PMKs total; %i PMKs per second" % \
+                          (totalResCount, perf))
+    passthrough.cli_options = (('-i', '-o', '-e'), ())
 
-    def batchprocess(self, filename=None, essid=None):
+    def batchprocess(self, outfile=None, essid=None):
         """Batchprocess the database"""
-        if filename is not None and essid is None:
+        if outfile is not None and essid is None:
             raise PyritRuntimeError("Results will be written to a file " \
                                     "while batchprocessing. This requires " \
                                     "to specify a single ESSID.")
@@ -561,8 +573,8 @@ class Pyrit_CLI(object):
             essids = [essid]
         else:
             essids = self.storage.essids
-        if filename is not None:
-            cowpwriter = util.CowpattyFile(util.AsyncFileWriter(filename), \
+        if outfile is not None:
+            cowpwriter = util.CowpattyFile(util.AsyncFileWriter(outfile), \
                                            'w', essid)
         else:
             cowpwriter = None
@@ -597,10 +609,10 @@ class Pyrit_CLI(object):
             if cowpwriter is not None:
                 cowpwriter.close()
         self.tell("Batchprocessing done.")
-    batchprocess.cli_options = ((), ('-e', '-f'))
+    batchprocess.cli_options = ((), ('-e', '-o'))
 
     @requires_pckttools()
-    def attack_passthrough(self, filename, capturefile, \
+    def attack_passthrough(self, infile, capturefile, \
                             essid=None, bssid=None):
         """Attack a handshake with passwords from a file"""
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
@@ -614,7 +626,7 @@ class Pyrit_CLI(object):
         crackers = []
         for auth in ap.getCompletedAuthentications():
             crackers.append(pckttools.EAPOLCracker(auth))
-        with util.FileWrapper(filename) as reader:
+        with util.FileWrapper(infile) as reader:
             resultiterator = util.PassthroughIterator(essid, reader)
             for results in resultiterator:
                 for cracker in crackers:
@@ -636,7 +648,7 @@ class Pyrit_CLI(object):
                 break
         else:
             raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_passthrough.cli_options = (('-f', '-r'), ('-e', '-b'))
+    attack_passthrough.cli_options = (('-i', '-r'), ('-e', '-b'))
 
     @requires_pckttools()
     def attack_batch(self, capturefile, essid=None, bssid=None):
@@ -715,9 +727,9 @@ class Pyrit_CLI(object):
     attack_db.cli_options = (('-r', ), ('-e', '-b'))
 
     @requires_pckttools()
-    def attack_cowpatty(self, capturefile, filename, bssid=None, essid=None):
+    def attack_cowpatty(self, capturefile, infile, bssid=None, essid=None):
         """Attack a handshake with PMKs from a cowpatty-file"""
-        with util.CowpattyFile(filename) as cowreader:
+        with util.CowpattyFile(infile) as cowreader:
             if essid is None:
                 essid = cowreader.essid
             ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
@@ -752,7 +764,7 @@ class Pyrit_CLI(object):
                     break
             else:
                 raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_cowpatty.cli_options = (('-r', '-f'), ('-e', '-b'))
+    attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b'))
 
     def benchmark(self, timeout=60):
         """Determine performance of available cores"""

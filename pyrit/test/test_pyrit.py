@@ -91,7 +91,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         random.shuffle(test_passwds)
         with util.AsyncFileWriter(self.tempfile1) as f:
             f.write('\n'.join(test_passwds))
-        self.cli.import_passwords(filename=self.tempfile1)
+        self.cli.import_passwords(infile=self.tempfile1)
         new_passwds = set()
         for key, pwset in self.cli.storage.passwords.iteritems():
             new_passwds.update(pwset)
@@ -101,7 +101,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         with util.FileWrapper(self.tempfile1, 'a') as f:
             f.write('\n')
             f.write('\n'.join(test_passwds))
-        self.cli.import_passwords(filename=self.tempfile1)
+        self.cli.import_passwords(infile=self.tempfile1)
         new_passwds = set()
         i = 0
         for key, pwset in self.cli.storage.passwords.iteritems():
@@ -111,13 +111,13 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.assertEqual(new_passwds, set(valid_passwds))
 
     def testAnalyze(self):
-        self.cli.analyze(capturefile='wpapsk-linksys.dump')
-        self.cli.analyze(capturefile='wpa2psk-linksys.dump')
+        self.cli.analyze(capturefile='wpapsk-linksys.dump.gz')
+        self.cli.analyze(capturefile='wpa2psk-linksys.dump.gz')
 
     def testStripCapture(self):
         self._createDatabase()
-        self.cli.stripCapture(capturefile='wpapsk-linksys.dump', \
-                            filename=self.tempfile1)
+        self.cli.stripCapture(capturefile='wpapsk-linksys.dump.gz', \
+                              outfile=self.tempfile1)
         parser = self.cli._getParser(self.tempfile1)
         self.assertTrue('00:0b:86:c2:a4:85' in parser)
         self.assertEqual(parser['00:0b:86:c2:a4:85'].essid, 'linksys')
@@ -127,8 +127,8 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
     def testStripLive(self):
         self._createDatabase()
-        self.cli.stripCapture(capturefile='wpa2psk-linksys.dump', \
-                            filename=self.tempfile1)
+        self.cli.stripCapture(capturefile='wpa2psk-linksys.dump.gz', \
+                              outfile=self.tempfile1)
         parser = self.cli._getParser(self.tempfile1)
         self.assertTrue('00:0b:86:c2:a4:85' in parser)
         self.assertEqual(parser['00:0b:86:c2:a4:85'].essid, 'linksys')
@@ -138,28 +138,28 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
     def testAttackPassthrough(self):
         self._createPasswords(self.tempfile1)
-        self.cli.attack_passthrough(filename=self.tempfile1, \
-                                    capturefile='wpapsk-linksys.dump')
-        self.cli.attack_passthrough(filename=self.tempfile1, \
-                                    capturefile='wpa2psk-linksys.dump')
+        self.cli.attack_passthrough(infile=self.tempfile1, \
+                                    capturefile='wpapsk-linksys.dump.gz')
+        self.cli.attack_passthrough(infile=self.tempfile1, \
+                                    capturefile='wpa2psk-linksys.dump.gz')
 
     def testAttackDB(self):
         self._createDatabase()
-        self.cli.attack_db(capturefile='wpapsk-linksys.dump')
-        self.cli.attack_db(capturefile='wpa2psk-linksys.dump')
+        self.cli.attack_db(capturefile='wpapsk-linksys.dump.gz')
+        self.cli.attack_db(capturefile='wpa2psk-linksys.dump.gz')
 
     def testAttackCowpatty(self):
         self._createDatabase()
-        self.cli.export_cowpatty(essid='linksys', filename=self.tempfile1)
-        self.cli.attack_cowpatty(capturefile='wpapsk-linksys.dump', \
-                                 filename=self.tempfile1)
-        self.cli.attack_cowpatty(capturefile='wpa2psk-linksys.dump', \
-                                 filename=self.tempfile1)
+        self.cli.export_cowpatty(essid='linksys', outfile=self.tempfile1)
+        self.cli.attack_cowpatty(capturefile='wpapsk-linksys.dump.gz', \
+                                 infile=self.tempfile1)
+        self.cli.attack_cowpatty(capturefile='wpa2psk-linksys.dump.gz', \
+                                 infile=self.tempfile1)
 
     def testAttackBatch(self):
         self._createPasswords(self.tempfile1)
-        self.cli.import_passwords(filename=self.tempfile1)
-        self.cli.attack_batch(capturefile='wpapsk-linksys.dump')
+        self.cli.import_passwords(infile=self.tempfile1)
+        self.cli.attack_batch(capturefile='wpapsk-linksys.dump.gz')
 
     def testSelfTest(self):
         self.cli.selftest(timeout=10)
@@ -169,8 +169,8 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
     def testPassthrough(self):
         self._createDatabase()
-        self.cli.passthrough(essid='linksys', filename=self.tempfile1, \
-                            output=self.tempfile2)
+        self.cli.passthrough(essid='linksys', infile=self.tempfile1, \
+                             outfile=self.tempfile2)
         fileresults = []
         for results in util.CowpattyFile(self.tempfile2):
             fileresults.extend(results)
@@ -200,7 +200,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         test_passwds = self._createPasswords(self.tempfile1)
         self.cli.import_passwords(self.tempfile1)
         self.cli.create_essid('test1234')
-        self.cli.batchprocess(essid='test1234', filename=self.tempfile1)
+        self.cli.batchprocess(essid='test1234', outfile=self.tempfile1)
         self.assertEqual(len(self.cli.storage.passwords), \
                         len(self.cli.storage.essids.keys('test1234')))
         fileresults = []
@@ -237,7 +237,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
     def testExportCowpatty(self):
         self._createDatabase()
-        self.cli.export_cowpatty(essid='linksys', filename=self.tempfile1)
+        self.cli.export_cowpatty(essid='linksys', outfile=self.tempfile1)
         fileresults = []
         for results in util.CowpattyFile(self.tempfile1):
             fileresults.extend(results)
@@ -250,7 +250,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testExportHashdb(self):
         self._createDatabase()
         os.unlink(self.tempfile1)
-        self.cli.export_hashdb(filename=self.tempfile1)
+        self.cli.export_hashdb(outfile=self.tempfile1)
 
 if __name__ == "__main__":
     unittest.main()
