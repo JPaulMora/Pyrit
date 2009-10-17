@@ -37,7 +37,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.tempfile2 = os.path.join(storage_path, 'testfile2')
         self.cli = pyrit_cli.Pyrit_CLI()
         self.cli.storage = storage.Storage(storage_path)
-        #self.cli.verbose = False
+        self.cli.verbose = False
 
     def tearDown(self):
         pass

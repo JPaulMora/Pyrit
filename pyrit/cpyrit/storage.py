@@ -46,6 +46,81 @@ class Storage(object):
         return self.passwords.iterpasswords()
 
 
+class ResultCollection(object):
+    """A abstract collection of (Password,PMK)-tuples"""
+
+    def __init__(self, essid=None, results=None):
+        self.results = results
+        self.essid = essid
+
+    def __iter__(self):
+        return self.results.__iter__()
+
+    def __len__(self):
+        return len(self.results)
+
+
+class BasePYRFile(object):
+    """The PYRT- and PYR2-binary format."""
+    pyr_head = '<4sH'
+    pyr_len = struct.calcsize(pyr_head)
+
+    def unpack(self, buf):
+            md = hashlib.md5()
+            magic, essidlen = struct.unpack(self.pyr_head, buf[:self.pyr_len])
+            if magic == 'PYR2':
+                delimiter = '\n'
+            elif magic == 'PYRT':
+                delimiter = '\00'
+            else:
+                raise ValueError("Not a PYRT- or PYR2-buffer.")
+            headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
+            headsize = struct.calcsize(headfmt)
+            header = struct.unpack(headfmt, \
+                                   buf[self.pyr_len:self.pyr_len + headsize])
+            self.essid, numElems, digest = header
+            pmkoffset = self.pyr_len + headsize
+            pwoffset = pmkoffset + numElems * 32
+            pmkbuffer = buf[pmkoffset:pwoffset]
+            if len(pmkbuffer) % 32 != 0:
+                raise RuntimeError("pmkbuffer seems truncated")
+            pwbuffer = zlib.decompress(buf[pwoffset:]).split(delimiter)
+            if len(pwbuffer) != numElems:
+                raise RuntimeError("Wrong number of elements")
+            md.update(self.essid)
+            if magic == 'PYR2':
+                md.update(buf[pmkoffset:])
+            else:
+                md.update(pmkbuffer)
+                md.update(''.join(pwbuffer))
+            if md.digest() != digest:
+                raise IOError("Digest check failed")
+            results = []
+            for i in xrange(numElems):
+                results.append((pwbuffer[i], pmkbuffer[i*32:i*32+32]))
+            self.results = tuple(results)
+
+
+class PYRTFile(ResultCollection, BasePYRFile):
+    pass
+
+
+class PYR2File(ResultCollection, BasePYRFile):
+
+    def pack(self):
+        pws, pmks = zip(*self.results)
+        pwbuffer = zlib.compress('\n'.join(pws), 1)
+        pmkbuffer = ''.join(pmks)
+        md = hashlib.md5()
+        md.update(self.essid)
+        md.update(pmkbuffer)
+        md.update(pwbuffer)
+        essidlen = len(self.essid)
+        b = struct.pack('<4sH%ssi%ss' % (essidlen, md.digest_size), 'PYR2', \
+                        essidlen, self.essid, len(pws), md.digest())
+        return b + pmkbuffer + pwbuffer
+
+
 class EssidStore(object):
     """Storage-class responsible for ESSID and PMKs.
 
@@ -53,8 +128,6 @@ class EssidStore(object):
        Results are indexed by keys and returned as iterables of tuples. The
        keys may be received from .iterkeys() or from PasswordStore.
     """
-    _pyr_head = '<4sH'
-    _pyr_len = struct.calcsize(_pyr_head)
 
     def __init__(self, basepath):
         self.basepath = basepath
@@ -86,43 +159,19 @@ class EssidStore(object):
         try:
             with open(self.essids[essid][1][key], 'rb') as f:
                 buf = f.read()
-            md = hashlib.md5()
-            magic, essidlen = struct.unpack(EssidStore._pyr_head, \
-                                        buf[:EssidStore._pyr_len])
-            if magic == 'PYR2' or magic == 'PYRT':
-                headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
-                headsize = struct.calcsize(headfmt)
-                file_essid, numElems, digest = struct.unpack(headfmt, \
-                        buf[EssidStore._pyr_len:EssidStore._pyr_len+headsize])
-                if file_essid != essid:
-                    raise IOError("ESSID in result-file mismatches.")
-                pmkoffset = EssidStore._pyr_len + headsize
-                pwoffset = pmkoffset + numElems * 32
-                md.update(file_essid)
-                if magic == 'PYR2':
-                    md.update(buf[pmkoffset:])
-                    if md.digest() != digest:
-                        raise IOError("Digest check failed on PYR2-file '%s'."\
-                                        % filename)
-                    results = tuple(zip(zlib.decompress(buf[pwoffset:]).split('\n'),
-                                  [buf[pmkoffset + i*32:pmkoffset + i*32 + 32] for i in xrange(numElems)]))
-                elif magic == 'PYRT':
-                    pmkbuffer = buf[pmkoffset:pwoffset]
-                    assert len(pmkbuffer) % 32 == 0
-                    md.update(pmkbuffer)
-                    pwbuffer = zlib.decompress(buf[pwoffset:]).split('\00')
-                    assert len(pwbuffer) == numElems
-                    md.update(''.join(pwbuffer))
-                    if md.digest() != digest:
-                        raise IOError("Digest check failed on PYRT-file '%s'." % filename)
-                    results = tuple(zip(pwbuffer, [pmkbuffer[i*32:i*32+32] for i in xrange(numElems)]))
+            if buf.startswith('PYR2'):
+                results = PYR2File()
+            elif buf.startswith('PYRT'):
+                results = PYRTFile()
             else:
                 raise IOError("File-format for '%s' unknown." % filename)
-            if len(results) != numElems:
-                raise IOError("Header announced %i results but %i unpacked" % (numElems, len(results)))
+            results.unpack(buf)
+            if results.essid != essid:
+                raise RuntimeError("Invalid ESSID in result-collection")
             return results
         except:
-            print >>sys.stderr, "Error while loading results %s for ESSID '%s'" % (key, essid)
+            print >>sys.stderr, "Error while loading results %s for " \
+                                "ESSID '%s'" % (key, essid)
             raise
 
     def __setitem__(self, (essid, key), results):
@@ -131,21 +180,9 @@ class EssidStore(object):
         """
         if essid not in self.essids:
             raise KeyError("ESSID not in store.")
-        pws, pmks = zip(*results)
-        pwbuffer = zlib.compress('\n'.join(pws), 1)
-        # Sanity check. Accept keys coming from PAWD- and PAW2-format.
-        if hashlib.md5(pwbuffer).hexdigest() != key and hashlib.md5(''.join(pws)).hexdigest() != key:
-            raise ValueError("Results and key mismatch.")
-        pmkbuffer = ''.join(pmks)
-        md = hashlib.md5()
-        md.update(essid)
-        md.update(pmkbuffer)
-        md.update(pwbuffer)
         filename = os.path.join(self.essids[essid][0], key) + '.pyr'
         with open(filename, 'wb') as f:
-            f.write(struct.pack('<4sH%ssi%ss' % (len(essid), md.digest_size), 'PYR2', len(essid), essid, len(pws), md.digest()))
-            f.write(pmkbuffer)
-            f.write(pwbuffer)
+            f.write(PYR2File(essid, results).pack())
         self.essids[essid][1][key] = filename
 
     def __len__(self):
@@ -212,6 +249,54 @@ class EssidStore(object):
             self.essids[essid] = (root, {})
 
 
+class PasswordCollection(object):
+    """An abstract collection of passwords."""
+
+    def __init__(self, collection=None):
+        if collection is not None:
+            self.collection = sorted(collection)
+
+    def __len__(self):
+        return len(self.collection)
+
+    def __iter__(self):
+        return self.collection.__iter__()
+
+
+class PAWDFile(PasswordCollection):
+
+    def unpack(self, buf):
+        if buf[:4] != "PAWD":
+            raise ValueError("Not a PAWD-buffer.")
+        md = hashlib.md5()
+        inp = tuple(buf[4 + md.digest_size:].split('\00'))
+        md.update(''.join(inp))
+        if buf[4:4 + md.digest_size] != md.digest():
+            raise IOError("Digest check failed.")
+        self.collection = inp
+        self.key = md.hexdigest()
+
+
+class PAW2File(PasswordCollection):
+
+    def pack(self):
+        b = zlib.compress('\n'.join(self.collection), 1)
+        md = hashlib.md5(b)
+        self.key = md.hexdigest()
+        return (md.hexdigest(), 'PAW2' + md.digest() + b)
+
+    def unpack(self, buf):
+        if buf[:4] != "PAW2":
+            raise ValueError("Not a PAW2-buffer.")
+        md = hashlib.md5()
+        md.update(buf[4 + md.digest_size:])
+        if md.digest() != buf[4:4 + md.digest_size]:
+            raise IOError("Digest check failed.")
+        inp = tuple(zlib.decompress(buf[4 + md.digest_size:]).split('\n'))
+        self.collection = inp
+        self.key = md.hexdigest()
+
+
 class PasswordStore(object):
     """Storage-class responsible for passwords.
 
@@ -253,27 +338,22 @@ class PasswordStore(object):
     def __getitem__(self, key):
         """Return the collection of passwords indexed by the given key."""
         filename = os.path.join(self.pwfiles[key], key) + '.pw'
-        with open(filename, 'rb') as f:
-            buf = f.read()
-        if buf[:4] == "PAW2":
-            md = hashlib.md5()
-            md.update(buf[4+md.digest_size:])
-            if md.digest() != buf[4:4+md.digest_size]:
-                raise IOError("Digest check failed for %s" % filename)
-            if md.hexdigest() != key:
-                raise IOError("File '%s' doesn't match the key '%s'." % (filename, md.hexdigest()))
-            return tuple(zlib.decompress(buf[4+md.digest_size:]).split('\n'))
-        elif buf[:4] == "PAWD":
-            md = hashlib.md5()
-            inp = tuple(buf[4+md.digest_size:].split('\00'))
-            md.update(''.join(inp))
-            if buf[4:4+md.digest_size] != md.digest():
-                raise IOError("Digest check failed for %s" % filename)
-            if filename[-3-md.digest_size*2:-3] != key:
-                raise IOError("File '%s' doesn't match the key '%s'." % (filename, md.hexdigest()))
-            return inp
-        else:
-            raise IOError("'%s' is not a PasswordFile." % filename)
+        try:
+            with open(filename, 'rb') as f:
+                buf = f.read()
+            if buf[:4] == "PAW2":
+                inp = PAW2File()
+            elif buf[:4] == "PAWD":
+                inp = PAWDFile()
+            else:
+                raise IOError("'%s' is not a PasswordFile." % filename)
+            inp.unpack(buf)
+            if inp.key != key:
+                raise IOError("File doesn't match the key '%s'." % inp.key)
+        except:
+            print >>sys.stdout, "Error while opening '%s'" % filename
+            raise
+        return inp
 
     def iterkeys(self):
         """Equivalent to self.__iter__"""
@@ -300,12 +380,8 @@ class PasswordStore(object):
         pwpath = os.path.join(self.basepath, pw_h1)
         if not os.path.exists(pwpath):
             os.makedirs(pwpath)
-        b = zlib.compress('\n'.join(sorted(bucket)), 1)
-        md = hashlib.md5(b)
-        key = md.hexdigest()
+        key, b = PAW2File(bucket).pack()
         with open(os.path.join(pwpath, key) + '.pw', 'wb') as f:
-            f.write('PAW2')
-            f.write(md.digest())
             f.write(b)
         self.pwfiles[key] = pwpath
 
