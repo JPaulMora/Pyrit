@@ -102,7 +102,7 @@ class Pyrit_CLI(object):
                   "http://pyrit.googlecode.com\n" \
                   "This code is distributed under the GNU General Public " \
                   "License v3\n" % util.VERSION)
-        self.commands[command](self, **options)
+        func(self, **options)
 
     def print_help(self):
         """Print this help"""
