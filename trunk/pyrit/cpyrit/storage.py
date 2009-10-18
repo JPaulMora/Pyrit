@@ -51,7 +51,7 @@ def getStorage(url):
         return FSStorage(url)
     elif protocol == 'network':
         raise RuntimeError("Yada yada yada")
-    elif protocol in ('sqlite', 'mysql', 'postgresql', 'oracle', 'mssql', \
+    elif protocol in ('sqlite', 'mysql', 'postgres', 'oracle', 'mssql', \
                       'firebird'):
         if 'sqlalchemy' not in sys.modules:
             raise util.SqlalchemyImportError()
