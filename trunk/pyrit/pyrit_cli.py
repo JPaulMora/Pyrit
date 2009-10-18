@@ -62,8 +62,6 @@ class Pyrit_CLI(object):
         args, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:i:o:r:b:')
         args = dict(args)
 
-        self.storage = storage.Storage()
-
         if len(commands) == 1 and commands[0] in self.commands:
             command = commands[0]
         else:
@@ -78,7 +76,7 @@ class Pyrit_CLI(object):
                                         "option '%s'. See 'help'." % \
                                         (command, param))
         for arg, value in args.iteritems():
-            if arg in req_params or arg in opt_params:
+            if arg in req_params or arg in opt_params or arg in ('-u',):
                 if arg == '-e':
                     options['essid'] = value
                 elif arg == '-b':
@@ -92,8 +90,6 @@ class Pyrit_CLI(object):
                         self.verbose = False
                 elif arg == '-r':
                     options['capturefile'] = value
-                else:
-                    raise PyritRuntimeError("Unknown option '%s'" % arg)
             else:
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
@@ -102,6 +98,19 @@ class Pyrit_CLI(object):
                   "http://pyrit.googlecode.com\n" \
                   "This code is distributed under the GNU General Public " \
                   "License v3\n" % util.VERSION)
+
+        storage_url = args['-u'] if '-u' in args else 'file://'
+        self.tell('Connecting to storage...', end=None)
+        try:
+            self.storage = storage.getStorage(storage_url)
+        except util.SqlalchemyImportError:
+            self.tell('')
+            raise PyritRuntimeError("Pyrit requires sqlalchemy to use " \
+                                     "databases as storage. Please install " \
+                                     "sqlalchemy and/or check the " \
+                                     "troubleshooting-page.")
+        self.tell("connected\n") 
+        
         func(self, **options)
 
     def print_help(self):
@@ -114,6 +123,7 @@ class Pyrit_CLI(object):
             "\n  -i    : Filename for input ('-' is stdin)"
             "\n  -o    : Filename for output ('-' is stdout)"
             "\n  -r    : Packet capture source in pcap-format"
+            "\n  -u    : URL of the storage-system to use"
             '\n'
             '\nRecognized commands:')
         m = max([len(command) for command in self.commands])
@@ -275,7 +285,7 @@ class Pyrit_CLI(object):
         pwcount = 0
         for i, (key, passwds) in enumerate(self.storage.passwords.iteritems()):
             pwcount += len(passwds)
-            if i % 10 == 0:
+            if i % 20 == 0:
                 self.tell("Passwords available:\t%i\r" % \
                             pwcount, end=None, sep=None)
             for essid in essid_results:
@@ -578,36 +588,38 @@ class Pyrit_CLI(object):
                                            'w', essid)
         else:
             cowpwriter = None
-        try:
-            for cur_essid in essids:
-                startTime = time.time()
-                totalResCount = 0
-                self.tell("Working on ESSID '%s'" % cur_essid)
-                dbiterator = util.StorageIterator(self.storage, cur_essid, \
-                                        yieldOldResults=cowpwriter is not None)
-                for idx, results in enumerate(dbiterator):
-                    totalResCount += len(results)
-                    if cowpwriter is not None:
+        for cur_essid in essids:
+            startTime = time.time()
+            totalResCount = 0
+            self.tell("Working on ESSID '%s'" % cur_essid)
+            dbiterator = util.StorageIterator(self.storage, cur_essid, \
+                                    yieldOldResults=cowpwriter is not None)
+            for results in dbiterator:
+                totalResCount += len(results)
+                if cowpwriter is not None:
+                    try:
                         cowpwriter.write(results)
-                    tdiff = time.time() - startTime
-                    self.tell("Processed %i/%i workunits so far (%.1f%%); " \
-                              "%i PMKs per second.\r" % (idx + 1, \
-                                len(dbiterator), \
-                                100.0 * (idx + 1) / len(dbiterator),
-                                (totalResCount / tdiff) if tdiff > 0 else 0), \
-                                end = None, sep = None)
+                    except IOError:
+                        self.tell("IOError while batchprocessing...")
+                        raise SystemExit
                 tdiff = time.time() - startTime
-                self.tell("Processed all workunits for ESSID '%s'; " \
-                          "%i PMKs per second." % \
-                          (cur_essid, \
-                          (totalResCount / tdiff) if tdiff > 0 else 0))
-                self._printCoreStats(dbiterator.cp, startTime)
-                self.tell('')
-        except IOError:
-            self.tell("IOError while batchprocessing...")
-        finally:
-            if cowpwriter is not None:
-                cowpwriter.close()
+                totalKeys = len(dbiterator)
+                solvedKeys = dbiterator.keycount()
+                self.tell("Processed %i/%i workunits so far (%.1f%%); " \
+                          "%i PMKs per second.\r" % (solvedKeys, \
+                            totalKeys, \
+                            100.0 * solvedKeys / totalKeys,
+                            (totalResCount / tdiff) if tdiff > 0 else 0), \
+                            end = None, sep = None)
+            tdiff = time.time() - startTime
+            self.tell("Processed all workunits for ESSID '%s'; " \
+                      "%i PMKs per second." % \
+                      (cur_essid, \
+                      (totalResCount / tdiff) if tdiff > 0 else 0))
+            self._printCoreStats(dbiterator.cp, startTime)
+            self.tell('')
+        if cowpwriter is not None:
+            cowpwriter.close()
         self.tell("Batchprocessing done.")
     batchprocess.cli_options = ((), ('-e', '-o'))
 
@@ -699,7 +711,7 @@ class Pyrit_CLI(object):
             raise PyritRuntimeError("The ESSID '%s' can't be found in the " \
                                     "database." % essid)
         totalResCount = 0
-        WUcount = len(self.storage.essids.keys(essid))
+        WUcount = self.storage.essids.keycount(essid)
         startTime = time.time()
         for auth in ap.getCompletedAuthentications():
             with pckttools.EAPOLCracker(auth) as cracker:

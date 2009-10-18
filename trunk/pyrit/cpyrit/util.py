@@ -85,6 +85,11 @@ class ScapyImportError(ImportError):
     pass
 
 
+class SqlalchemyImportError(ImportError):
+    """" Indicates that sqlalchemy is not available """
+    pass
+
+
 class StorageIterator(object):
     """Iterates over the database, computes new Pairwise Master Keys if
        necessary and requested and yields tuples of (password,PMK)-tuples.
@@ -97,12 +102,14 @@ class StorageIterator(object):
         self.essid = essid
         self.storage = storage
         self.keys = iter(self.storage.passwords)
-        self.len = len(self.storage.passwords)
         self.yieldOldResults = yieldOldResults
         self.yieldNewResults = yieldNewResults
 
+    def keycount(self):
+        return self.storage.essids.keycount(self.essid)
+
     def __len__(self):
-        return self.len
+        return len(self.storage.passwords)
 
     def __iter__(self):
         return self
@@ -112,8 +119,6 @@ class StorageIterator(object):
             if self.storage.essids.containskey(self.essid, key):
                 if self.yieldOldResults:
                     return self.storage.essids[self.essid, key]
-                else:
-                    self.len -= 1
             else:
                 if self.yieldNewResults:
                     if self.cp is None:
