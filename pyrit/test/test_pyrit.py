@@ -31,14 +31,6 @@ import tempfile
 
 class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
-    def setUp(self):
-        storage_path = tempfile.mkdtemp()
-        self.tempfile1 = os.path.join(storage_path, 'testfile1')
-        self.tempfile2 = os.path.join(storage_path, 'testfile2')
-        self.cli = pyrit_cli.Pyrit_CLI()
-        self.cli.storage = storage.Storage(storage_path)
-        self.cli.verbose = False
-
     def tearDown(self):
         pass
 
@@ -77,8 +69,10 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.create_essid(essid='testessid')
         self.assertEqual(len(self.cli.storage.essids), 1)
         self.assertTrue('testessid' in self.cli.storage.essids)
-        # EssidStore should be empty again
+        # Adding it second time should not cause an error
+        self.cli.create_essid(essid='testessid')
         self.cli.delete_essid(essid='testessid', confirm=False)
+        # EssidStore should be empty again
         self.assertEqual(len(self.cli.storage.essids), 0)
         self.assertTrue('testessid' not in self.cli.storage.essids)
 
@@ -162,10 +156,10 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.attack_batch(capturefile='wpapsk-linksys.dump.gz')
 
     def testSelfTest(self):
-        self.cli.selftest(timeout=10)
+        self.cli.selftest(timeout=3)
 
     def testBenchmark(self):
-        self.cli.benchmark(timeout=10)
+        self.cli.benchmark(timeout=3)
 
     def testPassthrough(self):
         self._createDatabase()
@@ -186,8 +180,8 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.create_essid('test1234')
         self.cli.batchprocess()
         self.assertEqual(len(self.cli.storage.passwords), \
-                        len(self.cli.storage.essids.keys('test1234')))
-        keys = self.cli.storage.essids.keys('test1234')
+                         self.cli.storage.essids.keycount('test1234'))
+        keys = list(self.cli.storage.essids.iterkeys('test1234'))
         for key in keys:
             self.assertTrue(key in self.cli.storage.passwords)
         for key in self.cli.storage.passwords:
@@ -202,7 +196,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.create_essid('test1234')
         self.cli.batchprocess(essid='test1234', outfile=self.tempfile1)
         self.assertEqual(len(self.cli.storage.passwords), \
-                        len(self.cli.storage.essids.keys('test1234')))
+                         self.cli.storage.essids.keycount('test1234'))
         fileresults = []
         for results in util.CowpattyFile(self.tempfile1):
             fileresults.extend(results)
@@ -220,10 +214,12 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self._createDatabase()
         # Should be OK
         self.cli.verify()
-        key = random.choice(list(self.cli.storage.essids.keys('linksys')))
-        results = self.cli.storage.essids['linksys', key]
-        corrupted = tuple((pw, 'x'*32) for pw, pmk in results)
-        self.cli.storage.essids['linksys', key] = corrupted
+        keys = list(self.cli.storage.essids.iterkeys('linksys')) 
+        for i in xrange(25):
+            key = random.choice(keys)
+            results = self.cli.storage.essids['linksys', key]
+            corrupted = tuple((pw, 'x'*32) for pw, pmk in results)
+            self.cli.storage.essids['linksys', key] = corrupted
         # Should fail
         self.assertRaises(pyrit_cli.PyritRuntimeError, self.cli.verify)
 
@@ -252,5 +248,37 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         os.unlink(self.tempfile1)
         self.cli.export_hashdb(outfile=self.tempfile1)
 
+
+class Pyrit_CLI_DB_TestFunctions(Pyrit_CLI_TestFunctions):
+
+    def setUp(self):
+        storage_path = tempfile.mkdtemp()
+        self.tempfile1 = os.path.join(storage_path, 'testfile1')
+        self.tempfile2 = os.path.join(storage_path, 'testfile2')
+        self.cli = pyrit_cli.Pyrit_CLI()
+        self.cli.storage = storage.getStorage('sqlite:///:memory:')
+        self.cli.verbose = False
+
+
+class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
+
+    def setUp(self):
+        storage_path = tempfile.mkdtemp()
+        self.tempfile1 = os.path.join(storage_path, 'testfile1')
+        self.tempfile2 = os.path.join(storage_path, 'testfile2')
+        self.cli = pyrit_cli.Pyrit_CLI()
+        self.cli.storage = storage.getStorage('file://' + storage_path)
+        self.cli.verbose = False
+
+
 if __name__ == "__main__":
-    unittest.main()
+    print "Testing with filesystem-storage..."
+    loader = unittest.TestLoader()
+    suite = loader.loadTestsFromTestCase(Pyrit_CLI_FS_TestFunctions)
+    unittest.TextTestRunner(verbosity=2).run(suite)
+
+    print "Testing with database-storage..."
+    loader = unittest.TestLoader()
+    suite = loader.loadTestsFromTestCase(Pyrit_CLI_DB_TestFunctions)
+    unittest.TextTestRunner(verbosity=2).run(suite)
+
