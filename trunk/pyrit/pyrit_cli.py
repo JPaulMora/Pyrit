@@ -283,16 +283,15 @@ class Pyrit_CLI(object):
         """Count the available passwords and matching results"""
         essid_results = dict.fromkeys(self.storage.essids, 0)
         pwcount = 0
-        for i, (key, passwds) in enumerate(self.storage.passwords.iteritems()):
-            pwcount += len(passwds)
+        for i, key in enumerate(self.storage.passwords):
+            pwsize = self.storage.passwords.size(key)
+            pwcount += pwsize
             if i % 20 == 0:
                 self.tell("Passwords available:\t%i\r" % \
                             pwcount, end=None, sep=None)
             for essid in essid_results:
-                # Let's assume that the presence of the key in the storage
-                # means that the file is valid and completed...
                 if self.storage.essids.containskey(essid, key):
-                    essid_results[essid] += len(passwds)
+                    essid_results[essid] += pwsize
         self.tell("Passwords available:\t%i\n" % pwcount)
         for essid, rescount in sorted(essid_results.iteritems()):
             self.tell("ESSID '%s':\t%i (%.2f%%)" % (essid, rescount, \

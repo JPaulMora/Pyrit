@@ -452,6 +452,10 @@ class FSPasswordStore(PasswordStore):
             raise
         return inp
 
+    def size(self, key):
+        """Return the number of passwords indexed by the given key."""
+        return len(self[key])
+
     def _flush_bucket(self, pw_h1, bucket):
         if len(bucket) == 0:
             return
@@ -756,6 +760,12 @@ if 'sqlalchemy' in sys.modules:
             with SessionContext(self.SessionClass) as session:
                 q = session.query(PAW2_DBObject)
                 return q.filter(PAW2_DBObject.key == key).one()
+
+        def size(self, key):
+            """Return the number of passwords indexed by the given key."""
+            with SessionContext(self.SessionClass) as session:
+                q = session.query(PAW2_DBObject.numElems)
+                return q.filter(PAW2_DBObject.key == key).one()[0]
 
         def _flush_bucket(self, pw_h1, bucket):
             if len(bucket) == 0:
