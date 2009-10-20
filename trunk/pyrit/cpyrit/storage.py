@@ -283,6 +283,17 @@ class FSStorage(object):
     def iterpasswords(self):
         return self.passwords.iterpasswords()
 
+    def getStats(self):
+        essid_results = dict.fromkeys(self.essids, 0)
+        pwcount = 0
+        for i, key in enumerate(self.passwords):
+            pwsize = self.passwords.size(key)
+            pwcount += pwsize
+            for essid in essid_results:
+                if self.essids.containskey(essid, key):
+                    essid_results[essid] += pwsize
+        return (pwcount, essid_results)
+
 
 class FSEssidStore(ESSIDStore):
 
@@ -604,6 +615,23 @@ if 'sqlalchemy' in sys.modules:
 
         def iterpasswords(self):
             return self.passwords.iterpasswords()
+
+        def getStats(self):
+            with SessionContext(self.SessionClass) as session:
+                q = session.query(sql.func.sum(PAW2_DBObject.numElems))
+                pwtotal = q.one()[0]
+                pwtotal = 0 if pwtotal is None else int(pwtotal)
+                q = session.query(ESSID_DBObject.essid,
+                                  sql.func.sum(PAW2_DBObject.numElems))
+                q = q.outerjoin(PYR2_DBObject).outerjoin(PAW2_DBObject)
+                q = q.group_by(ESSID_DBObject.essid)
+                essid_results = {}
+                for essid, pwcount in q:
+                    if pwcount is not None:
+                        essid_results[str(essid)] = int(pwcount)
+                    else:
+                        essid_results[str(essid)] = 0
+                return (pwtotal, essid_results)
 
 
     class SQLEssidStore(ESSIDStore):
