@@ -265,17 +265,9 @@ class Pyrit_CLI(object):
 
     def list_essids(self):
         """List all ESSIDs but don't count matching results"""
-        self.tell("Listing ESSIDs and estimated percentage of " \
-                  "computed results...\n")
-        essid_results = dict.fromkeys(self.storage.essids, 0)
-        wu_count = len(self.storage.passwords)
-        for i, key in enumerate(self.storage.passwords.iterkeys()):
-            for essid in essid_results:
-                if self.storage.essids.containskey(essid, key):
-                    essid_results[essid] += 1
-        for essid, rescount in sorted(essid_results.items()):
-            self.tell("ESSID '%s'\t(%.2f%%)" % (essid, \
-                      (rescount * 100.0 / wu_count) if wu_count > 0 else 0.0))
+        self.tell("Listing ESSIDs...\n")
+        for essid in sorted(self.storage.essids):
+            self.tell("ESSID '%s'" % essid)
         self.tell("")
     list_essids.cli_options = ((), ())
 
@@ -283,9 +275,13 @@ class Pyrit_CLI(object):
         """Count the available passwords and matching results"""
         self.tell("Querying...", end=None, flush=True)
         pwcount, essid_results = self.storage.getStats()
-        self.tell("\rPasswords available:\t%i\n" % pwcount)
+        m = max(len(essid) for essid in essid_results.iterkeys())
+        n = max(len(str(c)) for c in essid_results.itervalues())
+        self.tell("\rPasswords available: %i\n" % pwcount)
         for essid, rescount in sorted(essid_results.iteritems()):
-            self.tell("ESSID '%s':\t%i (%.2f%%)" % (essid, rescount, \
+            self.tell("ESSID '%s'%s : %s%i (%.2f%%)" % (essid, \
+                        ' ' * (m - len(essid)), \
+                        ' ' * (n - len(str(rescount))), rescount, \
                         (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
         self.tell('')
     eval_results.cli_options = ((), ())
@@ -572,7 +568,11 @@ class Pyrit_CLI(object):
                 self.storage.essids.create_essid(essid)
             essids = [essid]
         else:
-            essids = self.storage.essids
+            essids = []
+            pwcount, essid_results = self.storage.getStats()
+            for e, rescount in essid_results.iteritems():
+                if rescount < pwcount:
+                    essids.append(e)
         if outfile is not None:
             cowpwriter = util.CowpattyFile(util.AsyncFileWriter(outfile), \
                                            'w', essid)
