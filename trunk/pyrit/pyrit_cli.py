@@ -275,15 +275,16 @@ class Pyrit_CLI(object):
         """Count the available passwords and matching results"""
         self.tell("Querying...", end=None, flush=True)
         pwcount, essid_results = self.storage.getStats()
-        m = max(len(essid) for essid in essid_results.iterkeys())
-        n = max(len(str(c)) for c in essid_results.itervalues())
         self.tell("\rPasswords available: %i\n" % pwcount)
-        for essid, rescount in sorted(essid_results.iteritems()):
-            self.tell("ESSID '%s'%s : %s%i (%.2f%%)" % (essid, \
-                        ' ' * (m - len(essid)), \
-                        ' ' * (n - len(str(rescount))), rescount, \
-                        (rescount * 100.0 / pwcount) if pwcount > 0 else 0.0))
-        self.tell('')
+        if len(essid_results) > 0:
+            m = max(len(essid) for essid in essid_results.iterkeys())
+            n = max(len(str(c)) for c in essid_results.itervalues())
+            for essid, rescnt in sorted(essid_results.iteritems()):
+                self.tell("ESSID '%s'%s : %s%i (%.2f%%)" % (essid, \
+                            ' ' * (m - len(essid)), \
+                            ' ' * (n - len(str(rescnt))), rescnt, \
+                            (rescnt * 100.0 / pwcount) if pwcount > 0 else 0))
+            self.tell('')
     eval_results.cli_options = ((), ())
 
     def import_passwords(self, infile):
