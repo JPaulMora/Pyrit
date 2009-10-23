@@ -669,7 +669,7 @@ util_unpackcowpentries(PyObject *self, PyObject *args)
     do
     {
         entrylen = (int)entry[0];
-        if (entrylen < 1+8+32 || entrylen > 1+8+63)
+        if (entrylen < 1+8+32 || entrylen > 1+63+32)
         {
             PyErr_Format(PyExc_ValueError, "Entry of invalid size: %i", entrylen);
             goto errout;
