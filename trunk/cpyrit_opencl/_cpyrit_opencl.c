@@ -36,7 +36,6 @@ typedef struct
     PyObject_HEAD
     int dev_idx;
     PyObject* dev_name;
-    size_t lWorksize;
     cl_context dev_ctx;
     cl_program dev_prog;
     cl_kernel dev_kernel;
@@ -56,7 +55,7 @@ getCLresultMsg(cl_int error)
         case CL_SUCCESS: return "CL_SUCCESS";
         case CL_DEVICE_NOT_FOUND: return "CL_DEVICE_NOT_FOUND";
         case CL_DEVICE_NOT_AVAILABLE: return "CL_DEVICE_NOT_AVAILABLE";
-        case CL_DEVICE_COMPILER_NOT_AVAILABLE: return "CL_DEVICE_COMPILER_NOT_AVAILABLE";
+        case CL_COMPILER_NOT_AVAILABLE: return "CL_COMPILER_NOT_AVAILABLE";
         case CL_MEM_OBJECT_ALLOCATION_FAILURE: return "CL_MEM_OBJECT_ALLOCATION_FAILURE";
         case CL_OUT_OF_RESOURCES: return "CL_OUT_OF_RESOURCES";
         case CL_OUT_OF_HOST_MEMORY: return "CL_OUT_OF_HOST_MEMORY";
@@ -107,8 +106,8 @@ static int
 opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
 {
     int dev_idx;
-    char dev_name[64];
-    cl_int errcode;
+    char dev_name[64], log[1024];
+    cl_int errcode, status;
 
     if (!PyArg_ParseTuple(args, "i:OpenCLDevice", &dev_idx))
         return -1;
@@ -124,7 +123,6 @@ opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
     self->dev_prog = NULL;
     self->dev_kernel = NULL;
     self->dev_queue = NULL;
-    self->lWorksize = WORKGROUP_SIZE; // make this depend on the device?
 
     errcode = clGetDeviceInfo(OpenCLDevices[dev_idx], CL_DEVICE_NAME, sizeof(dev_name), &dev_name, NULL);
     if (errcode != CL_SUCCESS)
@@ -162,13 +160,12 @@ opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
     
     errcode = clBuildProgram(self->dev_prog, 0, NULL, NULL, NULL, NULL);
     if (errcode != CL_SUCCESS)
-    {
-        char log[1024];
-        clGetProgramBuildInfo(self->dev_prog, OpenCLDevices[dev_idx], CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
-        PyErr_Format(PyExc_SystemError, "Failed to compile kernel-source (%s):\n%s", getCLresultMsg(errcode), log);
-        return -1;
-    }
-    
+        goto builderror;
+
+    errcode = clGetProgramBuildInfo(self->dev_prog, OpenCLDevices[dev_idx], CL_PROGRAM_BUILD_STATUS, sizeof(status), &status, NULL);
+    if (errcode != CL_SUCCESS || status != CL_BUILD_SUCCESS)
+        goto builderror;
+        
     self->dev_kernel = clCreateKernel(self->dev_prog, "opencl_pmk_kernel", &errcode);
     if (errcode != CL_SUCCESS)
     {
@@ -177,6 +174,11 @@ opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
     }
 
     return 0;
+
+builderror:
+    clGetProgramBuildInfo(self->dev_prog, OpenCLDevices[dev_idx], CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
+    PyErr_Format(PyExc_SystemError, "Failed to compile kernel-source (%s):\n%s", getCLresultMsg(errcode), log);
+    return -1;
         
 }
 
@@ -220,24 +222,23 @@ static cl_int
 calc_pmklist(OpenCLDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, int size)
 {
     cl_mem g_inbuffer, g_outbuffer;
-    cl_int errcode;
-    size_t gWorksize[1], lWorksize[1], buffersize;
+    cl_int errcode, status;
+    cl_event clEvents[3];
+    size_t gWorksize[1];
+    int i;
     
-    buffersize = (size / self->lWorksize + (size % self->lWorksize == 0 ? 0 : 1)) * self->lWorksize;
-
-    g_inbuffer = NULL;
-    g_outbuffer = NULL;
-    gWorksize[0] = buffersize;
-    lWorksize[0] = self->lWorksize;
+    g_inbuffer = g_outbuffer = NULL;
+    clEvents[0] = clEvents[1] = clEvents[2] = 0;
+    gWorksize[0] = size;
     
-    g_inbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_READ_ONLY, buffersize*sizeof(gpu_inbuffer), NULL, &errcode);
+    g_inbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_READ_ONLY, size*sizeof(gpu_inbuffer), NULL, &errcode);
     if (errcode != CL_SUCCESS)
         goto out;
-    errcode = clEnqueueWriteBuffer(self->dev_queue, g_inbuffer, CL_FALSE, 0, size*sizeof(gpu_inbuffer), inbuffer, 0, NULL, NULL);
+    errcode = clEnqueueWriteBuffer(self->dev_queue, g_inbuffer, CL_FALSE, 0, size*sizeof(gpu_inbuffer), inbuffer, 0, NULL, &clEvents[0]);
     if (errcode != CL_SUCCESS)
         goto out;
     
-    g_outbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_WRITE_ONLY, buffersize*sizeof(gpu_outbuffer), NULL, &errcode);
+    g_outbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_WRITE_ONLY, size*sizeof(gpu_outbuffer), NULL, &errcode);
     if (errcode != CL_SUCCESS)
         goto out;
     
@@ -247,14 +248,39 @@ calc_pmklist(OpenCLDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffe
     errcode = clSetKernelArg(self->dev_kernel, 1, sizeof(cl_mem), &g_outbuffer);
     if (errcode != CL_SUCCESS)
         goto out;
-    errcode = clEnqueueNDRangeKernel(self->dev_queue, self->dev_kernel, 1, NULL, gWorksize, lWorksize, 0, NULL, NULL);
+    errcode = clEnqueueNDRangeKernel(self->dev_queue, self->dev_kernel, 1, NULL, gWorksize, NULL, 1, &clEvents[0], &clEvents[1]);
     if (errcode != CL_SUCCESS)
         goto out;
 
-    errcode = clEnqueueReadBuffer(self->dev_queue, g_outbuffer, CL_FALSE, 0, size*sizeof(gpu_outbuffer), outbuffer, 0, NULL, NULL);
+    errcode = clEnqueueReadBuffer(self->dev_queue, g_outbuffer, CL_FALSE, 0, size*sizeof(gpu_outbuffer), outbuffer, 2, &clEvents[0], &clEvents[2]);
+    if (errcode != CL_SUCCESS)
+        goto out;
     
+    errcode = clFinish(self->dev_queue);
+    if (errcode != CL_SUCCESS)
+        goto out;
+    errcode = clWaitForEvents(3, &clEvents[0]);
+    if (errcode != CL_SUCCESS)
+        goto out;
+    for (i = 0; i < 3; i++)
+    {
+        errcode = clGetEventInfo(clEvents[i], CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(status), &status, NULL);
+        if (errcode != CL_SUCCESS)
+            goto out;
+        if (status != CL_COMPLETE)
+        {
+            errcode = CL_INVALID_OPERATION;
+            goto out;
+        }
+    }
+
 out:
-    clFinish(self->dev_queue);
+    for (i = 0; i < 3; i++)
+    {
+        if (clEvents[i] != 0)
+            clReleaseEvent(clEvents[i]);
+    }
+
     if (g_inbuffer != NULL)
         clReleaseMemObject(g_inbuffer);
     if (g_outbuffer != NULL)
@@ -505,6 +531,7 @@ init_cpyrit_opencl(void)
         return;
     }
     inflateEnd(&zst);
+    oclkernel_size -= 1;
 
     OpenCLDevice_type.tp_getattro = PyObject_GenericGetAttr;
     OpenCLDevice_type.tp_setattro = PyObject_GenericSetAttr;
