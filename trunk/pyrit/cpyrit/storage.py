@@ -54,7 +54,8 @@ def getStorage(url):
     elif protocol in ('sqlite', 'mysql', 'postgres', 'oracle', 'mssql', \
                       'firebird'):
         if 'sqlalchemy' not in sys.modules:
-            raise util.SqlalchemyImportError()
+            raise util.SqlalchemyImportError("SQLAlchemy seems to be " \
+                                             "unavailable.")
         return SQLStorage(url)
     else:
         raise RuntimeError("The protocol '%s' is unsupported." % protocol)
