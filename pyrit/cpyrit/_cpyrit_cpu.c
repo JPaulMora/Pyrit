@@ -741,26 +741,39 @@ util_gencowpentries(PyObject *self, PyObject *args)
             buffersize += 1024*10;
             t = PyMem_Realloc(cowpbuffer, buffersize);
             if (!t)
+            {
+                PyErr_NoMemory();
                 goto errout;
+            }
             cowpbuffer = t;
         }
         passwd_obj = PySequence_GetItem(result_obj, 0);
         if (!passwd_obj)
+        {
+            PyErr_NoMemory();
             goto errout;
+        }
         passwd = PyString_AsString(passwd_obj);
         passwd_length = PyString_Size(passwd_obj);
         if (passwd == NULL || passwd_length < 8 || passwd_length > 63)
         {
             PyErr_SetString(PyExc_ValueError, "All passwords must be strings between 8 and 63 characters");
+            Py_DECREF(passwd_obj);
             goto errout;
         }
         pmk_obj = PySequence_GetItem(result_obj, 1);
         if (!pmk_obj)
+        {
+            PyErr_NoMemory();
+            Py_DECREF(passwd_obj);
             goto errout;
+        }
         pmk = PyString_AsString(pmk_obj);
         if (pmk == NULL || PyString_Size(pmk_obj) != 32)
         {
             PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
+            Py_DECREF(passwd_obj);
+            Py_DECREF(pmk_obj);
             goto errout;
         }
         
@@ -785,8 +798,6 @@ util_gencowpentries(PyObject *self, PyObject *args)
     errout:
     Py_DECREF(result_obj);
     Py_DECREF(result_seq);
-    Py_XDECREF(passwd_obj);
-    Py_XDECREF(pmk_obj);
     PyMem_Free(cowpbuffer);
     return NULL;
 }
