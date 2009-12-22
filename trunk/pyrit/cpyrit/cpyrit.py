@@ -222,8 +222,7 @@ class CPyrit(object):
         self.outqueue = {}
         self.workunits = []
         self.slices = {}
-        self.in_idx = 0
-        self.out_idx = 0
+        self.in_idx = self.out_idx = 0
         self.cores = []
         self.cv = threading.Condition()
 
@@ -255,9 +254,8 @@ class CPyrit(object):
                 raise SystemError("The core '%s' has died unexpectedly" % core)
 
     def _len(self):
-        return sum(
-                    (sum((len(pwlist) for pwlist in pwdict.itervalues()))
-                        for essid, pwdict in self.inqueue))
+        return sum((sum((len(pwlist) for pwlist in pwdict.itervalues()))
+                   for essid, pwdict in self.inqueue))
 
     def __len__(self):
         """Return the number of passwords that currently wait to be transfered

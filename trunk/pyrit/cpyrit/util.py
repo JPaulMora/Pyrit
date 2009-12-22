@@ -144,6 +144,7 @@ class StorageIterator(object):
         raise StopIteration
 
 
+
 class PassthroughIterator(object):
     """A iterator that takes an ESSID and an iterable of passwords, computes
        the corresponding Pairwise Master Keys and and yields tuples of

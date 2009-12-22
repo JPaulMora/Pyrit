@@ -31,15 +31,13 @@ import random
 import struct
 import sys
 import zlib
-
-import util
-
 try:
     import sqlalchemy as sql
 except ImportError:
     pass
 else:
     from sqlalchemy import orm
+import util
 
 
 def getStorage(url):
