@@ -106,7 +106,7 @@ class Pyrit_CLI(object):
         func = self.commands[command]
 
         req_params, opt_params = func.cli_options
-        if '-u' not in args:
+        if '-u' not in args and '-u' in req_params:
             args['-u'] = 'file://'
         for param in req_params:
             if param not in args:
@@ -114,7 +114,7 @@ class Pyrit_CLI(object):
                                         "option '%s'. See 'help'." % \
                                         (command, param))
         for arg, value in args.iteritems():
-            if arg in req_params or arg in opt_params or arg in ('-u',):
+            if arg in req_params or arg in opt_params:
                 if arg == '-e':
                     options['essid'] = value
                 elif arg == '-b':
