@@ -51,7 +51,8 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         packages = ['cpyrit'],
         py_modules = ['pyrit_cli', 'cpyrit.cpyrit',
-                      'cpyrit.util', 'cpyrit.pckttools'],
+                      'cpyrit.util', 'cpyrit.pckttools',
+                      'cpyrit.config'],
         scripts = ['pyrit'],
         ext_modules = [cpu_extension],
         options = {'install': {'optimize': 1}})
