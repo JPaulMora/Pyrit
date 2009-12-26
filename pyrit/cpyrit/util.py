@@ -41,10 +41,12 @@ import os
 import Queue
 import sys
 import struct
+import time
 import threading
 
 import _cpyrit_cpu
 from _cpyrit_cpu import VERSION
+import storage
 
 
 def _detect_ncpus():
@@ -142,7 +144,6 @@ class StorageIterator(object):
                 self.storage.essids[solvedEssid, solvedKey] = solvedResults
                 return solvedResults
         raise StopIteration
-
 
 
 class PassthroughIterator(object):
@@ -413,6 +414,42 @@ class AsyncFileWriter(threading.Thread):
             with self.cv:
                 self.shallstop = self.hasstopped = True
                 self.cv.notifyAll()
+
+
+class PerformanceCounter(object):
+    def __init__(self, window=30.0):
+        self.window = window
+        self.datapoints = [(time.time(), 0.0)]
+        self.t = 0
+
+    def addPoint(self, p):
+        self.t += p
+        self.datapoints.append((time.time(), p))
+        self.__purge()
+
+    def __iadd__(self, p):
+        self.addPoint(p)
+        return self
+
+    def __purge(self):
+        t = time.time()
+        self.datapoints = filter(lambda x: (t - x[0]) < self.window, self.datapoints)
+
+    def getAvg(self):
+        self.__purge()
+        if len(self.datapoints) < 2:
+            return 0.0
+        t = self.datapoints[-1][0] - self.datapoints[0][0]
+        return sum(x[1] for x in self.datapoints) / t
+
+    def getTotal(self):
+        return self.t
+
+    def __str__(self):
+        return str(self.value())
+
+    avg = property(fget=getAvg)
+    total = property(fget=getTotal)
 
 
 PMK_TESTVECTORS = {

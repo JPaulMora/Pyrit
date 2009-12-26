@@ -25,12 +25,24 @@ import random
 import unittest
 import cStringIO
 import tempfile
+
+import cpyrit.config
 import cpyrit.util
 import cpyrit.storage
+import cpyrit.rpcserver
 import pyrit_cli
+
+cpyrit.config.config["rpc_server"] = "false"
 
 
 class Pyrit_CLI_TestFunctions(unittest.TestCase):
+
+    def setUp(self):
+        self.storage_path = tempfile.mkdtemp()
+        self.tempfile1 = os.path.join(self.storage_path, 'testfile1')
+        self.tempfile2 = os.path.join(self.storage_path, 'testfile2')
+        self.cli = pyrit_cli.Pyrit_CLI()
+        self.cli.verbose = False
 
     def tearDown(self):
         pass
@@ -218,25 +230,11 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
 
 class Pyrit_CLI_DB_TestFunctions(Pyrit_CLI_TestFunctions):
 
-    def setUp(self):
-        self.storage_path = tempfile.mkdtemp()
-        self.tempfile1 = os.path.join(self.storage_path, 'testfile1')
-        self.tempfile2 = os.path.join(self.storage_path, 'testfile2')
-        self.cli = pyrit_cli.Pyrit_CLI()
-        self.cli.verbose = False
-
     def getStorage(self):
         return cpyrit.storage.getStorage('sqlite:///:memory:')
 
 
 class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
-
-    def setUp(self):
-        self.storage_path = tempfile.mkdtemp()
-        self.tempfile1 = os.path.join(self.storage_path, 'testfile1')
-        self.tempfile2 = os.path.join(self.storage_path, 'testfile2')
-        self.cli = pyrit_cli.Pyrit_CLI()
-        self.cli.verbose = False
 
     def getStorage(self):
         return cpyrit.storage.getStorage('file://' + self.storage_path)

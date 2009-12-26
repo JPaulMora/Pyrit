@@ -28,9 +28,11 @@ from __future__ import with_statement
 import hashlib
 import os
 import random
+import SimpleXMLRPCServer
 import struct
 import sys
 import zlib
+import xmlrpclib
 try:
     import sqlalchemy as sql
 except ImportError:
@@ -47,8 +49,8 @@ def getStorage(url):
     protocol, conn = url.split('://', 1)
     if protocol == 'file':
         return FSStorage(url)
-    elif protocol == 'network':
-        raise RuntimeError("Yada yada yada")
+    elif protocol == 'http':
+        return RPCStorage(url)
     elif protocol in ('sqlite', 'mysql', 'postgres', 'oracle', 'mssql', \
                       'firebird'):
         if 'sqlalchemy' not in sys.modules:
@@ -78,7 +80,7 @@ class PasswordCollection(object):
 
     def __init__(self, collection=None):
         if collection is not None:
-            self.collection = sorted(collection)
+            self.collection = collection
 
     def __len__(self):
         return len(self.collection)
@@ -258,7 +260,17 @@ class PasswordStore(object):
             yield (key, self[key])
 
 
-class FSStorage(object):
+class Storage(object):
+
+    def iterresults(self, essid):
+        return self.essids.iterresults(essid)
+
+    def iterpasswords(self):
+        return self.passwords.iterpasswords()
+
+
+
+class FSStorage(Storage):
     """Storage-class that uses the filesystem
 
        Connection strings must be in the form of file://...
@@ -359,7 +371,7 @@ class FSEssidStore(ESSIDStore):
 
     def __iter__(self):
         """Iterate over all essids currently stored."""
-        return sorted(self.essids).__iter__()
+        return self.essids.__iter__()
 
     def __contains__(self, essid):
         """Return True if the given ESSID is currently stored."""
@@ -483,6 +495,202 @@ class FSPasswordStore(PasswordStore):
         self.pwfiles[key] = pwpath
 
 
+class RPCStorage(Storage):
+    
+    def __init__(self, url):
+        self.cli = xmlrpclib.ServerProxy(url)
+        self.essids = RPCESSIDStore(self.cli)
+        self.passwords = RPCPasswordStore(self.cli)
+
+    def getStats(self):
+        return self.cli.getStats()
+
+
+class RPCESSIDStore(ESSIDStore):
+    
+    def __init__(self, cli):
+        self.cli = cli
+
+    def __getitem__(self, (essid, key)):
+        """Receive a iterable of (password,PMK)-tuples stored under
+           the given ESSID and key.
+
+           Returns a empty iterable if the key is not stored. Raises KeyError
+           if the ESSID is not stored.
+        """
+        buf = self.cli.essids.getitem(essid, key)
+        results = PYR2_Buffer()
+        results.unpack(buf.data)
+        if results.essid != essid:
+            raise ValueError("Invalid ESSID in result-collection")
+        return results
+
+    def __setitem__(self, (essid, key), results):
+        """Store a iterable of (password,PMK)-tuples under the given
+           ESSID and key.
+        """
+        b = xmlrpclib.Binary(PYR2_Buffer(essid, results).pack())
+        self.cli.essids.setitem(essid, key, b)
+
+    def __len__(self):
+        """Return the number of ESSIDs currently stored."""
+        return self.cli.essids.len()
+
+    def __iter__(self):
+        """Iterate over all essids currently stored."""
+        return self.cli.essids.essids().__iter__()
+
+    def __contains__(self, essid):
+        """Return True if the given ESSID is currently stored."""
+        return self.cli.essids.contains(essid)
+
+    def __delitem__(self, essid):
+        """Delete the given ESSID and all results from the storage."""
+        self.cli.essids.delitem(essid)
+
+    def containskey(self, essid, key):
+        """Return True if the given (ESSID,key) combination is stored."""
+        return self.cli.essids.containskey(essid, key)
+
+    def keycount(self, essid):
+        """Returns the number of keys that can currently be used to receive
+           results for the given ESSID.
+        """
+        return self.cli.essids.keycount(essid)
+
+    def iterkeys(self, essid):
+        """Iterate over all keys that can be used to receive results."""
+        return self.cli.essids.keys(essid).__iter__()
+
+    def create_essid(self, essid):
+        """Create the given ESSID in the storage.
+
+           Re-creating a ESSID is a no-op.
+        """
+        self.cli.essids.createessid(essid)
+
+
+class RPCPasswordStore(PasswordStore):
+
+    def __init__(self, cli):
+        self.cli = cli
+
+    def __iter__(self):
+        """Iterate over all keys that can be used to receive password-sets."""
+        return self.cli.passwords.keys().__iter__()
+
+    def __len__(self):
+        """Return the number of keys that can be used to receive
+           password-sets.
+        """
+        return self.cli.passwords.len()
+
+    def __contains__(self, key):
+        """Return True if the given key is currently in the storage."""
+        return self.cli.passwords.contains(key)
+
+    def __getitem__(self, key):
+        """Return the collection of passwords indexed by the given key."""
+        bucket = PAW2_Buffer()
+        bucket.unpack(self.cli.passwords.getitem(key).data)
+        if bucket.key != key:
+            raise IOError("File doesn't match the key '%s'." % bucket.key)
+        return bucket
+
+    def size(self, key):
+        """Return the number of passwords indexed by the given key."""
+        return self.cli.passwords.size(key)
+
+
+class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
+
+    def __init__(self, storage):
+        SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, ('', 17934), \
+                                                        logRequests=False)
+        self.storage = storage
+        self.methods = {'getStats': self.getStats, \
+                        'passwords.keys': self.passwords_keys, \
+                        'passwords.len': self.passwords_len, \
+                        'passwords.contains': self.passwords_contains, \
+                        'passwords.getitem': self.passwords_getitem, \
+                        'passwords.size': self.passwords_size, \
+                        'essids.essids': self.essids_essids, \
+                        'essids.keys': self.essids_keys, \
+                        'essids.len': self.essids_len, \
+                        'essids.contains': self.essids_contains, \
+                        'essids.getitem': self.essids_getitem, \
+                        'essids.setitem': self.essids_setitem, \
+                        'essids.delitem': self.essids_delitem, \
+                        'essids.keycount': self.essids_keycount, \
+                        'essids.containskey': self.essids_containskey, \
+                        'essids.createessid': self.essids_create_essid}
+        self.register_instance(self)
+
+    def _dispatch(self, method, params):
+        if method not in self.methods:
+            raise AttributeError
+        else:
+            return self.methods[method](*params)
+    
+    def getStats(self):
+        return self.storage.getStats()
+    
+    def passwords_keys(self):
+        return list(self.storage.passwords)
+        
+    def passwords_len(self):
+        return len(self.storage.passwords)
+    
+    def passwords_contains(self, key):
+        return key in self.storage.passwords
+
+    def passwords_getitem(self, key):
+        newkey, buf = storage.PAW2_Buffer(self.storage.passwords[key]).pack()
+        return xmlrpclib.Binary(buf)
+
+    def passwords_size(self, key):
+        return self.storage.passwords.size(key)
+
+    def essids_essids(self):
+        return list(self.storage.essids)
+
+    def essids_keys(self, essid):
+        return list(self.storage.essids.iterkeys(essid))
+
+    def essids_len(self):
+        return len(self.storage.essids)
+        
+    def essids_contains(self, essid):
+        return essid in self.storage.essids
+    
+    def essids_getitem(self, essid, key):
+        results = self.storage.essids[essid, key]
+        buf = storage.PYR2_Buffer(essid, results).pack()
+        return xmlrpclib.Binary(buf)
+
+    def essids_setitem(self, essid, key, pyr2_buffer):
+        results = storage.PYR2_Buffer()
+        results.unpack(pyr2_buffer.data)
+        if results.essid != essid:
+            raise ValueError("Invalid ESSID in result-collection")
+        self.storage.essids[essid, key] = results
+        return True
+
+    def essids_delitem(self, essid):
+        del self.storage.essids[essid]
+        return True
+    
+    def essids_keycount(self, essid):
+        return self.storage.essids.keycount(essid)
+    
+    def essids_containskey(self, essid, key):
+        return self.storage.essids.containskey(essid, key)
+    
+    def essids_create_essid(self, essid):
+        self.storage.essids.create_essid(essid)
+        return True
+
+
 if 'sqlalchemy' in sys.modules:
     metadata = sql.MetaData()
 
@@ -600,7 +808,7 @@ if 'sqlalchemy' in sys.modules:
             self.session.close()
 
 
-    class SQLStorage(object):
+    class SQLStorage(Storage):
 
         def __init__(self, url):
             engine = sql.create_engine(url, echo=False)
@@ -608,12 +816,6 @@ if 'sqlalchemy' in sys.modules:
             self.SessionClass = orm.sessionmaker(bind=engine)
             self.essids = SQLEssidStore(self.SessionClass)
             self.passwords = SQLPasswordStore(self.SessionClass)
-
-        def iterresults(self, essid):
-            return self.essids.iterresults(essid)
-
-        def iterpasswords(self):
-            return self.passwords.iterpasswords()
 
         def getStats(self):
             with SessionContext(self.SessionClass) as session:
