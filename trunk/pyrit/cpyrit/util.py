@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -422,13 +422,16 @@ class PerformanceCounter(object):
         self.datapoints = [(time.time(), 0.0)]
         self.t = 0
 
-    def addPoint(self, p):
+    def addRelativePoint(self, p):
         self.t += p
         self.datapoints.append((time.time(), p))
         self.__purge()
 
+    def addAbsolutePoint(self, p):
+        self.addRelativePoint(p - self.t)
+
     def __iadd__(self, p):
-        self.addPoint(p)
+        self.addRelativePoint(p)
         return self
 
     def __purge(self):

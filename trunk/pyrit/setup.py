@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -52,7 +52,7 @@ setup_args = dict(
         packages = ['cpyrit'],
         py_modules = ['pyrit_cli', 'cpyrit.cpyrit',
                       'cpyrit.util', 'cpyrit.pckttools',
-                      'cpyrit.config'],
+                      'cpyrit.config', 'cpyrit.network'],
         scripts = ['pyrit'],
         ext_modules = [cpu_extension],
         options = {'install': {'optimize': 1}})

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -32,7 +32,7 @@ import cpyrit.storage
 import cpyrit.rpcserver
 import pyrit_cli
 
-cpyrit.config.config["rpc_server"] = "false"
+cpyrit.config.cfg["rpc_server"] = "false"
 
 
 class Pyrit_CLI_TestFunctions(unittest.TestCase):

@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -57,10 +57,10 @@ class Pyrit_CLI(object):
                 stream.flush()
 
     def initFromArgv(self):
-        self.tell("Pyrit %s (C) 2008, 2009 Lukas Lueg " \
+        self.tell("Pyrit %s (C) 2008-2010 Lukas Lueg " \
                   "http://pyrit.googlecode.com\n" \
                   "This code is distributed under the GNU General Public " \
-                  "License v3\n" % cpyrit.util.VERSION, stream=sys.stderr)
+                  "License v3+\n" % cpyrit.util.VERSION, stream=sys.stderr)
         options = {}
         args, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:i:o:r:b:')
         args = dict(args)
@@ -74,7 +74,7 @@ class Pyrit_CLI(object):
 
         req_params, opt_params = func.cli_options
         if '-u' not in args and '-u' in req_params:
-            args['-u'] = cpyrit.config.config['default_storage']
+            args['-u'] = cpyrit.config.cfg['default_storage']
         for param in req_params:
             if param not in args:
                 raise PyritRuntimeError("The command '%s' requires the " \
@@ -85,7 +85,7 @@ class Pyrit_CLI(object):
                 if arg == '-e':
                     options['essid'] = value
                 elif arg == '-b':
-                    options['bssid'] = value
+                    options['bssid'] = str(value).lower()
                 elif arg == '-i':
                     options['infile'] = value
                 elif arg == '-o':
@@ -586,7 +586,7 @@ class Pyrit_CLI(object):
     batchprocess.cli_options = (('-u', ), ('-e', '-o'))
 
     def relay(self, storage):
-        """Relay a storage-url via HTTP"""
+        """Relay a storage-url via RPC"""
         rpcd = cpyrit.storage.RPCServer(storage)
         self.tell("Server started...")
         try:
@@ -597,23 +597,21 @@ class Pyrit_CLI(object):
     relay.cli_options = (('-u', ), ())
 
     def serve(self):
-        """There should be some help here"""
-        server = cpyrit.cpyrit.RPCServer()
-        listener = cpyrit.cpyrit.RPCAnnouncementListener()
+        """Serve local hardware to other Pyrit clients"""
+        server = cpyrit.network.NetworkServer()
+        listener = cpyrit.network.NetworkAnnouncementListener()
         perfcounter = cpyrit.util.PerformanceCounter()
-        x = 0
         try:
             while server.isAlive():
-                addr = listener.waitForAnnouncement(1.0)
+                addr = listener.waitForAnnouncement(block=True, timeout=1.0)
                 if addr is not None and addr not in server:
-                    server.addClient(addr)                    
-                perfcounter += server.stat_scattered - x
+                    server.addClient(addr)
+                perfcounter.addAbsolutePoint(server.stat_scattered)
                 if perfcounter.avg > 0:
                     y = (server.stat_gathered - server.stat_enqueued) / perfcounter.avg
                 else:
                     y = 0
                 self.tell("\rServing %i active clients; %i PMKs/s; %.1f TTS" % (len(server), perfcounter.avg, y), end=None)
-                x = server.stat_scattered
         except KeyboardInterrupt, SystemExit:
             self.tell("\nShutdown with %i active clients..." % len(server))
             listener.shutdown()

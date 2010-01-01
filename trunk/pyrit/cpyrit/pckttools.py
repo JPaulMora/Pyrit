@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -324,7 +324,7 @@ class PacketParser(object):
         self.new_station_callback = new_station_callback
         self.new_auth_callback = new_auth_callback
         if pcapfile is not None:
-            self.parsefile(pcapfile)
+            self.parse_file(pcapfile)
 
     def _find_ssid(self, pckt):
         for elt_pckt in pckt.iterSubPackets(scapy.layers.dot11.Dot11Elt):
