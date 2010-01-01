@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -40,6 +40,7 @@ import util
 import xmlrpclib
 
 import config
+import network
 import storage
 import _cpyrit_cpu
 
@@ -211,38 +212,40 @@ else:
             self.start()
 
 
-class NetworkObserver(threading.Thread):
-    def __init__(self, core):
-        threading.Thread.__init__(self)
-        self.core = core
-        self.setDaemon(True)
-        self.start()
-
-    def run(self):
-        while True:
-            for uuid, client in self.core.clients.items():
-                if time.time() - client.lastseen > 60.0:
-                    self.core.rpc_unregister(uuid)
-            time.sleep(3)
-
-
-class NetworkClient(object):
-    def __init__(self, known_uuids):
-        self.uuid = str(uuid.uuid4())
-        self.known_uuids = known_uuids
-        self.lastseen = time.time()
-        self.workunits = []
-
-    def ping(self):
-        self.lastseen = time.time()
-
-
 class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
+
+    class NetworkObserver(threading.Thread):
+
+        def __init__(self, core):
+            threading.Thread.__init__(self)
+            self.core = core
+            self.setDaemon(True)
+            self.start()
+
+        def run(self):
+            while True:
+                for uuid, client in self.core.clients.items():
+                    if time.time() - client.lastseen > 15.0:
+                        self.core.rpc_unregister(uuid)
+                time.sleep(3)
+
+
+    class NetworkClient(object):
+        def __init__(self, known_uuids):
+            self.uuid = str(uuid.uuid4())
+            self.known_uuids = known_uuids
+            self.lastseen = time.time()
+            self.workunits = []
+
+        def ping(self):
+            self.lastseen = time.time()
+
+
     def __init__(self, queue, host='', port=17935):
         SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, (host, port), \
                                                         logRequests=False)
         Core.__init__(self, queue)
-        self.name = "RPC-Clients"
+        self.name = "Network-Clients"
         self.uuid = str(uuid.uuid4())
         self.methods = {'register': self.rpc_register, \
                         'unregister': self.rpc_unregister, \
@@ -254,7 +257,7 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
         self.clients = {}
         self.host = host
         self.port = port
-        self.observer = NetworkObserver(self)
+        self.observer = self.NetworkObserver(self)
         self.startTime = time.time()
         self.start()
 
@@ -278,11 +281,11 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
 
     def rpc_register(self, uuids):
         with self.client_lock:
-            known_uuids = set(uuids.split(";"))
+            known_uuids = set(uuids.split(';'))
             if self.uuid in known_uuids:
                 return (self.uuid, '')
             else:
-                client = NetworkClient(known_uuids)
+                client = self.NetworkClient(known_uuids)
                 self.clients[client.uuid] = client
                 return (self.uuid, client.uuid)
 
@@ -299,7 +302,7 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
     
     def rpc_gather(self, client_uuid, buffersize):
         client = self._get_client(client_uuid)
-        essid, pwlist = self.queue._gather(buffersize, 3.0)
+        essid, pwlist = self.queue._gather(buffersize, block=False)
         if essid is None:
             return ('', '')
         else:
@@ -385,7 +388,7 @@ class CPyrit(object):
             self.cores.append(CPUCore(queue=self))
 
         #Network
-        if config.config['rpc_server'] == 'true':
+        if config.cfg['rpc_server'] == 'true':
             for port in xrange(17935, 18000):
                 try:
                     ncore = NetworkCore(queue=self, port=port)
@@ -394,10 +397,13 @@ class CPyrit(object):
                 else:
                     self.ncore_uuid = ncore.uuid
                     self.cores.append(ncore)
-                    if config.config['rpc_announce'] == 'true':
-                        cl = config.config['rpc_knownclients'].split(',')
+                    if config.cfg['rpc_announce'] == 'true':
+                        cl = config.cfg['rpc_knownclients'].split(' ')
                         cl = filter(lambda x: len(x) > 0, map(str.strip, cl))
-                        self.announcer = RPCAnnouncer(port=port, clients=cl)
+                        bcst = config.cfg['rpc_announce_broadcast'] == 'true'
+                        self.announcer = network.NetworkAnnouncer(port=port, \
+                                                          clients=cl, \
+                                                          broadcast=bcst)
                     break
             else:
                 self.ncore_uuid = None
@@ -426,6 +432,14 @@ class CPyrit(object):
             if r is None:
                 break
             yield r
+
+    def isAlive(self):
+        try:
+            self._check_cores()
+        except:
+            return False
+        else:
+            return True
 
     def waitForSchedule(self, maxBufferSize):
         """Block until less than the given number of passwords wait for being
@@ -515,7 +529,7 @@ class CPyrit(object):
                     self.cv.notifyAll()
                     return tuple(results)
 
-    def _gather(self, desired_size, timeout=None):
+    def _gather(self, desired_size, block=True, timeout=None):
         """Try to accumulate the given number of passwords for a single ESSID
            in one workunit. Return a tuple containing the ESSID and a tuple of
            passwords.
@@ -563,9 +577,12 @@ class CPyrit(object):
                     self.cv.notifyAll()
                     return wu
                 else:
-                    if timeout is not None and time.time() - t > timeout:
+                    if block:
+                        if timeout is not None and time.time() - t > timeout:
+                            return None, None
+                    else:
                         return None, None
-                    self.cv.wait(0.5)
+                    self.cv.wait(1)
 
     def _scatter(self, essid, passwords, results):
         """Spray the given results back to their corresponding workunits.
@@ -615,247 +632,3 @@ class CPyrit(object):
                 d[idx] = passwordlist[ptr:ptr+length]
                 ptr += length
             self.cv.notifyAll()
-
-
-class RPCClient(threading.Thread):
-
-    class RPCGatherer(threading.Thread):
-
-        def __init__(self, client):
-            threading.Thread.__init__(self)
-            self.client = client
-            self.server = xmlrpclib.ServerProxy("http://%s:%s" % client.srv_addr)
-            self.shallStop = False
-            self.setDaemon(True)
-            self.start()
-
-        def run(self):
-            while not self.shallStop:
-                #TODO calculate optimal max buffersize
-                essid, pwbuffer = self.server.gather(self.client.uuid, 5000)
-                if essid != '' or pwbuffer != '':
-                    pwlist = storage.PAW2_Buffer()
-                    pwlist.unpack(pwbuffer.data)
-                    self.client.enqueue(essid, pwlist)
-
-        def shutdown(self):
-            self.shallStop = True
-            self.join()
-
-    def __init__(self, srv_addr, enqueue_callback, known_uuids):
-        threading.Thread.__init__(self)
-        self.server = xmlrpclib.ServerProxy("http://%s:%s" % srv_addr)
-        self.srv_uuid, self.uuid = self.server.register(";".join(known_uuids))
-        if not self.uuid:
-            raise KeyError("Loop detected to %s" % self.srv_uuid)
-        self.srv_addr = srv_addr
-        self.enqueue_callback = enqueue_callback
-        self.cv = threading.Condition()
-        self.stat_received = self.stat_enqueued = 0
-        self.stat_scattered = self.stat_sent = 0
-        self.results = []
-        self.shallStop = False
-        self.setDaemon(True)
-
-    def run(self):
-        self.gatherer = self.RPCGatherer(self)
-        try:
-            while self.gatherer.isAlive() and self.shallStop is False:
-                with self.cv:
-                    while len(self.results) == 0 and self.shallStop is False:
-                        self.cv.wait(1)
-                    if self.shallStop is not False:
-                        break
-                    solvedPMKs = self.results.pop(0)
-                buf = ''.join(solvedPMKs)
-                md = hashlib.sha1()
-                md.update(buf)
-                encoded_buf = xmlrpclib.Binary(md.digest() + buf)
-                self.server.scatter(self.uuid, encoded_buf)
-                self.stat_sent += len(solvedPMKs)
-        finally:
-            self.gatherer.shutdown()
-            self.server.unregister(self.uuid)
-
-    def enqueue(self, essid, pwlist):
-        self.stat_received += len(pwlist)
-        self.enqueue_callback(self.uuid, (essid, pwlist))
-        self.stat_enqueued += len(pwlist)
-
-    def scatter(self, results):
-        with self.cv:
-            self.results.append(results)
-            self.cv.notifyAll()
-            self.stat_scattered += len(results)
-
-    def shutdown(self):
-        self.shallStop = True
-        self.join()
-
-
-class RPCServer(threading.Thread):
-
-    def __init__(self):
-        threading.Thread.__init__(self)
-        import cpyrit
-        self.cp = cpyrit.CPyrit()
-        self.clients_lock = threading.Lock()
-        self.clients = {}
-        self.pending_clients = []
-        self.stat_gathered = self.stat_enqueued = 0
-        self.stat_scattered = 0
-        self.shallStop = False
-        self.enqueue_lock = threading.Lock()
-        self.setDaemon(True)
-        self.start()
-
-    def addClient(self, srv_addr):
-        with self.clients_lock:
-            if any(c.srv_addr == srv_addr for c in self.clients.itervalues()):
-                return
-            known_uuids = set(c.srv_uuid for c in self.clients.itervalues())
-            if self.cp.ncore_uuid is not None:
-                known_uuids.add(self.cp.ncore_uuid)
-            try:
-                client = RPCClient(srv_addr, self.enqueue, known_uuids)
-            except KeyError:
-                pass
-            else:
-                client.start()
-                self.clients[client.uuid] = client
-
-    def enqueue(self, uuid, (essid, pwlist)):
-        self.stat_gathered += len(pwlist)
-        with self.enqueue_lock:
-            self.pending_clients.append(uuid)
-            self.cp.enqueue(essid, pwlist)
-            self.stat_enqueued += len(pwlist)
-
-    def run(self):
-        while not self.shallStop:
-            solvedPMKs = self.cp.dequeue(block=True, timeout=3.0)
-            if solvedPMKs is None:
-                time.sleep(1)
-            else:
-                uuid = self.pending_clients.pop(0)
-                with self.clients_lock:
-                    if uuid in self.clients:
-                        client = self.clients[uuid]
-                        client.scatter(solvedPMKs)
-                        self.stat_scattered += len(solvedPMKs)
-            with self.clients_lock:
-                for client in self.clients.values():
-                    if not client.isAlive():
-                        del self.clients[client.uuid]
-
-    def __contains__(self, srv_addr):
-        with self.clients_lock:
-            return any(c.srv_addr == srv_addr for c in self.clients.itervalues())
-
-    def __len__(self):
-        with self.clients_lock:
-            return len(self.clients)
-
-    def __iter__(self):
-        with self.clients_lock:
-            return self.clients.values().__iter__()
-
-    def shutdown(self):
-        self.shallStop = True
-        with self.clients_lock:
-            for client in self.clients.itervalues():
-                client.shutdown()
-        self.join()
-
-
-class RPCAnnouncer(threading.Thread):
-    """Announce the existence of a server via UDP-unicast""" 
-
-    def __init__(self, port=17935, clients=[]):
-        threading.Thread.__init__(self)
-        self.port = port
-        self.clients = clients
-        msg = '\x00'.join(["PyritServerAnnouncement",
-                        '',
-                        str(port)])
-        md = hashlib.sha1()
-        md.update(msg)
-        self.msg = msg + md.digest()
-        self.setDaemon(True)
-        self.start()
-
-    def run(self):
-        while True:
-            for client in self.clients:
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    sock.sendto(self.msg, (client, 17935))
-                    sock.close()
-                except:
-                    pass
-            time.sleep(1)
-
-
-class RPCAnnouncementListener(threading.Thread):
-
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.cv = threading.Condition()
-        self.servers = []
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind(('', 17935))
-        self.shallStop = False
-        self.setDaemon(True)
-        self.start()
-
-    def run(self):
-        while self.shallStop is False:
-            buf, (host, port) = self.sock.recvfrom(4096)
-            if buf.startswith("PyritServerAnnouncement"):
-                md = hashlib.sha1()
-                msg = buf[:-md.digest_size]
-                md.update(msg)
-                if md.digest() == buf[-md.digest_size:]:
-                    msg_ann, msg_host, msg_port = msg.split('\x00')
-                    if msg_host == '':
-                        addr = (host, msg_port)
-                    else:
-                        addr = (msg_host, msg_port)
-                    with self.cv:
-                        if addr not in self.servers:
-                            self.servers.append(addr)
-                            self.cv.notifyAll()
-
-    def waitForAnnouncement(self, block=True, timeout=None):
-        t = time.time()
-        with self.cv:
-            while True:
-                if len(self.servers) == 0:
-                    if block:
-                        if timeout is not None:
-                            d = time.time() - t
-                            if d < timeout:
-                                self.cv.wait(d)
-                            else:
-                                return None
-                        else:
-                            self.cv.wait(1)
-                    else:
-                        return None
-                else:
-                    return self.servers.pop(0)
-                    
-    def __iter__(self):
-        return self
-        
-    def next(self):
-        return self.waitForAnnouncement(block=True)
-    
-    def shutdown(self):
-        try:
-            self.sock.shutdown(socket.SHUT_RDWR)
-        except socket.error:
-            pass
-        self.shallStop = True
-        self.join()

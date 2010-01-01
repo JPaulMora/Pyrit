@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -26,6 +26,7 @@ def default_config():
     config = {'default_storage': 'file://', \
               'rpc_server': 'true', \
               'rpc_announce': 'true', \
+              'rpc_announce_broadcast': 'true', \
               'rpc_knownclients': ''}
     return config
 
@@ -47,11 +48,15 @@ def write_configfile(config, filename):
     with open(filename, 'wb') as f:
         for option, value in sorted(config.items()):
             f.write("%s = %s\n" % (option, value))
-    
-default_configfile = os.path.expanduser(os.path.join('~', '.pyrit', 'config'))
+
+
+configpath = os.path.expanduser(os.path.join('~', '.pyrit'))
+default_configfile = os.path.join(configpath, 'config')
 
 if os.path.exists(default_configfile):
-    config = read_configfile(default_configfile)
+    cfg = read_configfile(default_configfile)
 else:
-    config = default_config()
+    cfg = default_config()
+    if not os.path.exists(configpath):
+        os.makedirs(configpath)
     write_configfile(config, default_configfile)

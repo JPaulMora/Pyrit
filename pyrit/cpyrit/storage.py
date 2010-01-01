@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
