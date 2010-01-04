@@ -26,7 +26,7 @@ def default_config():
     config = {'default_storage': 'file://', \
               'rpc_server': 'true', \
               'rpc_announce': 'true', \
-              'rpc_announce_broadcast': 'true', \
+              'rpc_announce_broadcast': 'false', \
               'rpc_knownclients': ''}
     return config
 
@@ -59,4 +59,4 @@ else:
     cfg = default_config()
     if not os.path.exists(configpath):
         os.makedirs(configpath)
-    write_configfile(config, default_configfile)
+    write_configfile(cfg, default_configfile)
