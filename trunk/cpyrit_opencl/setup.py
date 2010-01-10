@@ -18,6 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import with_statement
 
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
@@ -30,7 +31,8 @@ import zlib
 
 OPENCL_INC_DIRS = []
 for path in ('/usr/local/opencl/OpenCL/common/inc', \
-            '/opt/opencl/OpenCL/common/inc'):
+            '/opt/opencl/OpenCL/common/inc', \
+            '/usr/local/opencl/include'):
     if os.path.exists(path):
         OPENCL_INC_DIRS.append(path)
         break
@@ -50,20 +52,16 @@ EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 class GPUBuilder(build_ext):
     def run(self):
-        f = open("_cpyrit_opencl.h", 'rb')
-        header = f.read()
-        f.close()
-        f = open("_cpyrit_oclkernel.cl", 'rb')
-        kernel = f.read()
-        f.close()
-        oclkernel_program = header + '\n' + kernel + '\x00'
-        oclkernel_inc = zlib.compress(oclkernel_program)        
-        f = open("_cpyrit_oclkernel.cl.h", 'wb')
-        f.write("unsigned char oclkernel_packedprogram[] = {")
-        f.write(",".join(("0x%02X" % ord(c) for c in oclkernel_inc)))
-        f.write("};\nsize_t oclkernel_size = %i;\n" % len(oclkernel_program))
-        f.close()
-        
+        with open("_cpyrit_opencl.h", 'rb') as f:
+            header = f.read()
+        with open("_cpyrit_oclkernel.cl", 'rb') as f:
+            kernel = f.read()
+        oclkernel_code = header + '\n' + kernel + '\x00'
+        oclkernel_inc = zlib.compress(oclkernel_code)        
+        with open("_cpyrit_oclkernel.cl.h", 'wb') as f:
+            f.write("unsigned char oclkernel_packedprogram[] = {")
+            f.write(",".join(("0x%02X" % ord(c) for c in oclkernel_inc)))
+            f.write("};\nsize_t oclkernel_size = %i;\n" % len(oclkernel_code))
         print "Building modules..."
         build_ext.run(self)
 
@@ -87,7 +85,6 @@ class GPUCleaner(clean):
             print >>sys.stderr, "Exception while cleaning temporary " \
                                 "files ('%s')" % sterrno
         clean.run(self)
-
 
 opencl_extension = Extension('cpyrit._cpyrit_opencl',
                     libraries = ['ssl', 'OpenCL', 'z'],

@@ -18,14 +18,14 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-SHA_DEV_CTX sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX data)
+void sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX *data)
 {
 
   uint32_t temp, W[16], A, B, C, D, E;
 
-  W[ 0] = data.h0; W[ 1] = data.h1;
-  W[ 2] = data.h2; W[ 3] = data.h3;
-  W[ 4] = data.h4; W[ 5] = 0x80000000;
+  W[ 0] = data->h0; W[ 1] = data->h1;
+  W[ 2] = data->h2; W[ 3] = data->h3;
+  W[ 4] = data->h4; W[ 5] = 0x80000000;
   W[ 6] = 0; W[ 7] = 0;
   W[ 8] = 0; W[ 9] = 0;
   W[10] = 0; W[11] = 0;
@@ -163,12 +163,12 @@ SHA_DEV_CTX sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX 
 #undef K
 #undef F
 
-  data.h0 = ctx.h0 + A;
-  data.h1 = ctx.h1 + B;
-  data.h2 = ctx.h2 + C;
-  data.h3 = ctx.h3 + D;
-  data.h4 = ctx.h4 + E;
-  return data;
+  data->h0 = ctx.h0 + A;
+  data->h1 = ctx.h1 + B;
+  data->h2 = ctx.h2 + C;
+  data->h3 = ctx.h3 + D;
+  data->h4 = ctx.h4 + E;
+
 }
 
 __kernel
@@ -187,8 +187,8 @@ void opencl_pmk_kernel(__global gpu_inbuffer *inbuffer, __global gpu_outbuffer *
     CPY_DEVCTX(temp_ctx, pmk_ctx);
     for( i = 0; i < 4096-1; i++ )
     {
-        temp_ctx = sha1_process(ipad, temp_ctx);
-        temp_ctx = sha1_process(opad, temp_ctx);
+        sha1_process(ipad, &temp_ctx);
+        sha1_process(opad, &temp_ctx);
         pmk_ctx.h0 ^= temp_ctx.h0; pmk_ctx.h1 ^= temp_ctx.h1;
         pmk_ctx.h2 ^= temp_ctx.h2; pmk_ctx.h3 ^= temp_ctx.h3;
         pmk_ctx.h4 ^= temp_ctx.h4;
@@ -200,8 +200,8 @@ void opencl_pmk_kernel(__global gpu_inbuffer *inbuffer, __global gpu_outbuffer *
     CPY_DEVCTX(temp_ctx, pmk_ctx);
     for( i = 0; i < 4096-1; i++ )
     {
-        temp_ctx = sha1_process(ipad, temp_ctx);
-        temp_ctx = sha1_process(opad, temp_ctx);
+        sha1_process(ipad, &temp_ctx);
+        sha1_process(opad, &temp_ctx);
         pmk_ctx.h0 ^= temp_ctx.h0; pmk_ctx.h1 ^= temp_ctx.h1;
         pmk_ctx.h2 ^= temp_ctx.h2; pmk_ctx.h3 ^= temp_ctx.h3;
         pmk_ctx.h4 ^= temp_ctx.h4;

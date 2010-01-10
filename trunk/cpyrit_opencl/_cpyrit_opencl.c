@@ -29,21 +29,33 @@
 // Created by setup.py
 #include "_cpyrit_oclkernel.cl.h"
 
+static PyTypeObject OpenCLPlatform_type;
 static PyTypeObject OpenCLDevice_type;
 
 typedef struct
 {
     PyObject_HEAD
-    int dev_idx;
+    PyObject* platform_name;
+    PyObject* platform_vendor;
+    PyObject* numDevices;
+} OpenCLPlatform;
+
+typedef struct
+{
+    PyObject_HEAD
+    cl_device_id device;
     PyObject* dev_name;
+    PyObject* dev_type;
     cl_context dev_ctx;
     cl_program dev_prog;
     cl_kernel dev_kernel;
     cl_command_queue dev_queue;
+    size_t dev_workgroupsize;
 } OpenCLDevice;
 
-cl_uint OpenCLDevCount;
-cl_device_id* OpenCLDevices;
+cl_platform_id *platforms;
+cl_uint num_platforms;
+
 unsigned char *oclkernel_program;
 
 static char*
@@ -103,87 +115,250 @@ getCLresultMsg(cl_int error)
 }
 
 static int
-opencldev_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
+oclplatf_init(OpenCLPlatform *self, PyObject *args, PyObject *kwds)
 {
-    int dev_idx;
-    char dev_name[64], log[1024];
-    cl_int errcode, status;
-
-    if (!PyArg_ParseTuple(args, "i:OpenCLDevice", &dev_idx))
+    int platform_idx;
+    cl_uint num_devices;
+    cl_int err;
+    char name[64];
+    size_t name_size;
+    
+    if (!PyArg_ParseTuple(args, "i:platform_index", &platform_idx))
         return -1;
-
-    if (dev_idx < 0 || dev_idx > OpenCLDevCount-1)
+    
+    if (platform_idx < 0 || platform_idx > num_platforms - 1)
     {
-        PyErr_Format(PyExc_ValueError, "Device-number must be between 0 and %i", OpenCLDevCount-1);
+        PyErr_Format(PyExc_ValueError, "Platform-index out of range");
         return -1;
     }
-    self->dev_idx = dev_idx;
+    
+    self->platform_name = NULL;
+    self->platform_vendor = NULL;
+    self->numDevices = NULL;
+    
+    err = clGetDeviceIDs(platforms[platform_idx], CL_DEVICE_TYPE_ALL, 0, NULL, &num_devices);
+    if (err != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to enumerate devices on this platform (%s)", getCLresultMsg(err));
+        return -1;
+    }
+    
+    self->numDevices = PyInt_FromLong((long)num_devices);
+    if (!self->numDevices)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+    
+    err = clGetPlatformInfo(platforms[platform_idx], CL_PLATFORM_NAME, sizeof(name), &name, &name_size);
+    if (err != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to get Platform-Name (%s)", getCLresultMsg(err));
+        return -1;
+    }
+    self->platform_name = PyString_FromStringAndSize(name, name_size-1);
+    if (!self->platform_name)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+    
+    err = clGetPlatformInfo(platforms[platform_idx], CL_PLATFORM_VENDOR, sizeof(name), &name, &name_size);
+    if (err != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to get Platform-Vendor (%s)", getCLresultMsg(err));
+        return -1;
+    }
+    self->platform_vendor = PyString_FromStringAndSize(name, name_size-1);
+    if (!self->platform_vendor)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+    
+    return 0;
+}
+
+static void
+oclplatf_dealloc(OpenCLPlatform *self)
+{
+    Py_XDECREF(self->numDevices);
+    Py_XDECREF(self->platform_name);
+    Py_XDECREF(self->platform_vendor);
+    PyObject_Del(self);
+}
+
+static int
+ocldevice_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
+{
+    int platform_idx, dev_idx;
+    cl_uint num_devices;
+    cl_device_id *devices;
+    cl_device_type device_type;
+    char dev_name[64];
+    size_t name_size;
+    cl_int err;
+
+    if (!PyArg_ParseTuple(args, "ii:OpenCLDevice", &platform_idx, &dev_idx))
+        return -1;
+
+    if (platform_idx < 0 || platform_idx > num_platforms - 1)
+    {
+        PyErr_Format(PyExc_ValueError, "Platform-index out of range");
+        return -1;
+    }
+    
+    err = clGetDeviceIDs(platforms[platform_idx], CL_DEVICE_TYPE_ALL, 0, NULL, &num_devices);
+    if (err != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to enumerate devices on this platform (%s)", getCLresultMsg(err));
+        return -1;
+    }
+    if (dev_idx < 0 || dev_idx > num_devices-1)
+    {
+        PyErr_Format(PyExc_ValueError, "Device-index out of range");
+        return -1;
+    }
+
+    devices = PyMem_New(cl_device_id, num_devices);
+    if (!devices)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+    err = clGetDeviceIDs(platforms[platform_idx], CL_DEVICE_TYPE_ALL, num_devices, devices, NULL);
+    if (err != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to get Device-IDs (%s)", getCLresultMsg(err));
+        PyMem_Free(devices);
+        return -1;
+    }
+    self->device = devices[dev_idx];
+    PyMem_Free(devices);
+    
     self->dev_name = NULL;
+    self->dev_type = NULL;
     self->dev_ctx = NULL;
     self->dev_prog = NULL;
     self->dev_kernel = NULL;
     self->dev_queue = NULL;
 
-    errcode = clGetDeviceInfo(OpenCLDevices[dev_idx], CL_DEVICE_NAME, sizeof(dev_name), &dev_name, NULL);
-    if (errcode != CL_SUCCESS)
+    err = clGetDeviceInfo(self->device, CL_DEVICE_NAME, sizeof(dev_name), &dev_name, &name_size);
+    if (err != CL_SUCCESS)
     {
-        PyErr_Format(PyExc_SystemError, "Failed to get device-name (%s)", getCLresultMsg(errcode));
+        PyErr_Format(PyExc_SystemError, "Failed to get device-name (%s)", getCLresultMsg(err));
         return -1;
     }
-    self->dev_name = PyString_FromString(dev_name);
+    self->dev_name = PyString_FromStringAndSize(dev_name, name_size-1);
     if (!self->dev_name)
     {
         PyErr_NoMemory();
         return -1;
     }
     
-    self->dev_ctx = clCreateContext(NULL, 1, &OpenCLDevices[dev_idx], NULL, NULL, &errcode);
-    if (errcode != CL_SUCCESS)
+    err = clGetDeviceInfo(self->device, CL_DEVICE_TYPE, sizeof(device_type), &device_type, NULL);
+    if (err != CL_SUCCESS)
     {
-        PyErr_Format(PyExc_SystemError, "Failed to create device-context (%s)", getCLresultMsg(errcode));
+        PyErr_Format(PyExc_SystemError, "Failed to get device-type (%s)", getCLresultMsg(err));
+        return -1;
+    }
+    if (device_type & CL_DEVICE_TYPE_CPU)
+    {
+        self->dev_type = PyString_FromString("CPU");
+    } else if (device_type & CL_DEVICE_TYPE_GPU)
+    {
+        self->dev_type = PyString_FromString("GPU");
+    } else if (device_type & CL_DEVICE_TYPE_ACCELERATOR)
+    {
+        self->dev_type = PyString_FromString("ACCELERATOR");
+    } else
+    {
+        self->dev_type = PyString_FromString("UNKNOWN");
+    }
+    if (!self->dev_type)
+    {
+        PyErr_NoMemory();
         return -1;
     }
     
-    self->dev_queue = clCreateCommandQueue(self->dev_ctx, OpenCLDevices[dev_idx], 0, &errcode);
-    if (errcode != CL_SUCCESS)
+    err = clGetDeviceInfo(self->device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(self->dev_workgroupsize), &self->dev_workgroupsize, NULL);
+    if (err != CL_SUCCESS)
     {
-        PyErr_Format(PyExc_SystemError, "Failed to create command-queue (%s)", getCLresultMsg(errcode));
-        return -1;
-    }
-    
-    self->dev_prog = clCreateProgramWithSource(self->dev_ctx, 1, (void*)&oclkernel_program, &oclkernel_size, &errcode);
-    if (errcode != CL_SUCCESS)
-    {
-        PyErr_Format(PyExc_SystemError, "Failed to load kernel-source (%s)", getCLresultMsg(errcode));
-        return -1;
-    }
-    
-    errcode = clBuildProgram(self->dev_prog, 0, NULL, NULL, NULL, NULL);
-    if (errcode != CL_SUCCESS)
-        goto builderror;
-
-    errcode = clGetProgramBuildInfo(self->dev_prog, OpenCLDevices[dev_idx], CL_PROGRAM_BUILD_STATUS, sizeof(status), &status, NULL);
-    if (errcode != CL_SUCCESS || status != CL_BUILD_SUCCESS)
-        goto builderror;
-        
-    self->dev_kernel = clCreateKernel(self->dev_prog, "opencl_pmk_kernel", &errcode);
-    if (errcode != CL_SUCCESS)
-    {
-        PyErr_Format(PyExc_SystemError, "Failed to create kernel (%s)", getCLresultMsg(errcode));
+        PyErr_Format(PyExc_SystemError, "Failed to get max. workgroup-size (%s)", getCLresultMsg(err));
         return -1;
     }
 
     return 0;
+}
 
-builderror:
-    clGetProgramBuildInfo(self->dev_prog, OpenCLDevices[dev_idx], CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
-    PyErr_Format(PyExc_SystemError, "Failed to compile kernel-source (%s):\n%s", getCLresultMsg(errcode), log);
-    return -1;
-        
+static int
+ocldevice_compile(OpenCLDevice *self)
+{
+    char log[1024];
+    cl_int err, status;
+
+    if (!self->dev_ctx)
+    {
+        self->dev_ctx = clCreateContext(NULL, 1, &(self->device), NULL, NULL, &err);
+        if (err != CL_SUCCESS)
+        {
+            PyErr_Format(PyExc_SystemError, "Failed to create device-context (%s)", getCLresultMsg(err));
+            return -1;
+        }
+    }
+    
+    if (!self->dev_queue)
+    {
+        self->dev_queue = clCreateCommandQueue(self->dev_ctx, self->device, 0, &err);
+        if (err != CL_SUCCESS)
+        {
+            PyErr_Format(PyExc_SystemError, "Failed to create command-queue (%s)", getCLresultMsg(err));
+            return -1;
+        }
+    }
+    
+    if (!self->dev_prog)
+    {
+        self->dev_prog = clCreateProgramWithSource(self->dev_ctx, 1, (void*)&oclkernel_program, &oclkernel_size, &err);
+        if (err != CL_SUCCESS)
+        {
+            PyErr_Format(PyExc_SystemError, "Failed to load kernel-source (%s)", getCLresultMsg(err));
+            return -1;
+        }
+    }
+    
+    if (!self->dev_kernel)
+    {
+        err = clBuildProgram(self->dev_prog, 0, NULL, NULL, NULL, NULL);
+        if (err != CL_SUCCESS)
+        {
+            clGetProgramBuildInfo(self->dev_prog, self->device, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
+            PyErr_Format(PyExc_SystemError, "Failed to build kernel (%s):\n%s", getCLresultMsg(err), log);
+            return -1;
+        }
+
+        err = clGetProgramBuildInfo(self->dev_prog, self->device, CL_PROGRAM_BUILD_STATUS, sizeof(status), &status, NULL);
+        if (err != CL_SUCCESS || status != CL_BUILD_SUCCESS)
+        {
+            clGetProgramBuildInfo(self->dev_prog, self->device, CL_PROGRAM_BUILD_LOG, sizeof(log), log, NULL);
+            PyErr_Format(PyExc_SystemError, "Failed to compile kernel (%s):\n%s", getCLresultMsg(err), log);
+            return -1;
+        }
+           
+        self->dev_kernel = clCreateKernel(self->dev_prog, "opencl_pmk_kernel", &err);
+        if (err != CL_SUCCESS)
+        {
+            PyErr_Format(PyExc_SystemError, "Failed to create kernel (%s)", getCLresultMsg(err));
+            return -1;
+        }
+    }
+
+    return 0;
+
 }
 
 static void
-opencldev_dealloc(OpenCLDevice *self)
+ocldevice_dealloc(OpenCLDevice *self)
 {
     if (self->dev_queue)
         clReleaseCommandQueue(self->dev_queue);
@@ -194,28 +369,8 @@ opencldev_dealloc(OpenCLDevice *self)
     if (self->dev_ctx)
         clReleaseContext(self->dev_ctx);
     Py_XDECREF(self->dev_name);
+    Py_XDECREF(self->dev_type);
     PyObject_Del(self);
-}
-
-static PyObject*
-cpyrit_listDevices(PyObject* self, PyObject* args)
-{
-    int i;
-    PyObject* result;
-    char dev_name[64];
-    char vendor_name[128];
-    
-    if (!PyArg_ParseTuple(args, "")) return NULL;
-    
-    result = PyTuple_New(OpenCLDevCount);
-    for (i = 0; i < OpenCLDevCount; i++)
-    {
-        clGetDeviceInfo(OpenCLDevices[i], CL_DEVICE_NAME, sizeof(dev_name), &dev_name, NULL);
-        clGetDeviceInfo(OpenCLDevices[i], CL_DEVICE_VENDOR, sizeof(vendor_name), &vendor_name, NULL);
-        PyTuple_SetItem(result, i, Py_BuildValue("(s, s)", &dev_name, &vendor_name));
-    }
-
-    return result;
 }
 
 static cl_int
@@ -229,16 +384,16 @@ calc_pmklist(OpenCLDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffe
     
     g_inbuffer = g_outbuffer = NULL;
     clEvents[0] = clEvents[1] = clEvents[2] = 0;
-    gWorksize[0] = size;
+    gWorksize[0] = (size / self->dev_workgroupsize + (size % self->dev_workgroupsize == 0 ? 0 : 1)) * self->dev_workgroupsize;
     
-    g_inbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_READ_ONLY, size*sizeof(gpu_inbuffer), NULL, &errcode);
+    g_inbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_READ_ONLY, gWorksize[0]*sizeof(gpu_inbuffer), NULL, &errcode);
     if (errcode != CL_SUCCESS)
         goto out;
     errcode = clEnqueueWriteBuffer(self->dev_queue, g_inbuffer, CL_FALSE, 0, size*sizeof(gpu_inbuffer), inbuffer, 0, NULL, &clEvents[0]);
     if (errcode != CL_SUCCESS)
         goto out;
     
-    g_outbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_WRITE_ONLY, size*sizeof(gpu_outbuffer), NULL, &errcode);
+    g_outbuffer = clCreateBuffer(self->dev_ctx, CL_MEM_WRITE_ONLY, gWorksize[0]*sizeof(gpu_outbuffer), NULL, &errcode);
     if (errcode != CL_SUCCESS)
         goto out;
     
@@ -302,6 +457,12 @@ cpyrit_solve(OpenCLDevice *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "OO", &essid_obj, &passwd_seq)) return NULL;
     passwd_seq = PyObject_GetIter(passwd_seq);
     if (!passwd_seq) return NULL;
+    
+    if (self->dev_kernel == NULL)
+    {
+        if (ocldevice_compile(self) != 0)
+            return NULL;
+    }
     
     essidlen = PyString_Size(essid_obj);
     if (essidlen < 1 || essidlen > 32)
@@ -418,9 +579,63 @@ cpyrit_solve(OpenCLDevice *self, PyObject *args)
     return result;
 }
 
+static PyMemberDef OpenCLPlatform_members[] =
+{
+    {"platformName", T_OBJECT, offsetof(OpenCLPlatform, platform_name), 0},
+    {"platformVendor", T_OBJECT, offsetof(OpenCLPlatform, platform_vendor), 0},
+    {"numDevices", T_OBJECT, offsetof(OpenCLPlatform, numDevices), 0},
+    {NULL}
+};
+
+static PyTypeObject OpenCLPlatform_type = {
+    PyObject_HEAD_INIT(NULL)
+    0,                          /*ob_size*/
+    "_cpyrit_cuda.OpenCLPlatform",/*tp_name*/
+    sizeof(OpenCLPlatform),     /*tp_basicsize*/
+    0,                          /*tp_itemsize*/
+    (destructor)oclplatf_dealloc,/*tp_dealloc*/
+    0,                          /*tp_print*/
+    0,                          /*tp_getattr*/
+    0,                          /*tp_setattr*/
+    0,                          /*tp_compare*/
+    0,                          /*tp_repr*/
+    0,                          /*tp_as_number*/
+    0,                          /*tp_as_sequence*/
+    0,                          /*tp_as_mapping*/
+    0,                          /*tp_hash*/
+    0,                          /*tp_call*/
+    0,                          /*tp_str*/
+    0,                          /*tp_getattro*/
+    0,                          /*tp_setattro*/
+    0,                          /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+     | Py_TPFLAGS_BASETYPE,
+    0,                          /*tp_doc*/
+    0,                          /*tp_traverse*/
+    0,                          /*tp_clear*/
+    0,                          /*tp_richcompare*/
+    0,                          /*tp_weaklistoffset*/
+    0,                          /*tp_iter*/
+    0,                          /*tp_iternext*/
+    0,
+    OpenCLPlatform_members,     /*tp_members*/
+    0,                          /*tp_getset*/
+    0,                          /*tp_base*/
+    0,                          /*tp_dict*/
+    0,                          /*tp_descr_get*/
+    0,                          /*tp_descr_set*/
+    0,                          /*tp_dictoffset*/
+    (initproc)oclplatf_init,    /*tp_init*/
+    0,                          /*tp_alloc*/
+    0,                          /*tp_new*/
+    0,                          /*tp_free*/
+    0,                          /*tp_is_gc*/
+};
+
 static PyMemberDef OpenCLDevice_members[] =
 {
     {"deviceName", T_OBJECT, offsetof(OpenCLDevice, dev_name), 0},
+    {"deviceType", T_OBJECT, offsetof(OpenCLDevice, dev_type), 0},
     {NULL}
 };
 
@@ -436,7 +651,7 @@ static PyTypeObject OpenCLDevice_type = {
     "_cpyrit_cuda.OpenCLDevice",/*tp_name*/
     sizeof(OpenCLDevice),       /*tp_basicsize*/
     0,                          /*tp_itemsize*/
-    (destructor)opencldev_dealloc,/*tp_dealloc*/
+    (destructor)ocldevice_dealloc,/*tp_dealloc*/
     0,                          /*tp_print*/
     0,                          /*tp_getattr*/
     0,                          /*tp_setattr*/
@@ -468,7 +683,7 @@ static PyTypeObject OpenCLDevice_type = {
     0,                          /*tp_descr_get*/
     0,                          /*tp_descr_set*/
     0,                          /*tp_dictoffset*/
-    (initproc)opencldev_init,   /*tp_init*/
+    (initproc)ocldevice_init,   /*tp_init*/
     0,                          /*tp_alloc*/
     0,                          /*tp_new*/
     0,                          /*tp_free*/
@@ -477,7 +692,6 @@ static PyTypeObject OpenCLDevice_type = {
 
 
 static PyMethodDef CPyritOpenCL_methods[] = {
-    {"listDevices", cpyrit_listDevices, METH_VARARGS, "Returns a tuple of tuples, each describing a OpenCL-capable device."},
     {NULL, NULL, 0, NULL}
 };
 
@@ -486,25 +700,33 @@ init_cpyrit_opencl(void)
 {
     PyObject *m;
     z_stream zst;
-
-    if (clGetDeviceIDs(NULL, CL_DEVICE_TYPE_GPU, 0, NULL, &OpenCLDevCount) != CL_SUCCESS || OpenCLDevCount < 1)
+    cl_int err;
+    
+    err = clGetPlatformIDs(0, NULL, &num_platforms);
+    if (err != CL_SUCCESS)
     {
-        PyErr_SetString(PyExc_ImportError, "Could not enumerate available OpenCL-devices or no devices reported.");
+        PyErr_Format(PyExc_SystemError, "Failed to enumerate OpenCL-platforms (%s)", getCLresultMsg(err));
         return;
     }
     
-    OpenCLDevices = PyMem_New(cl_device_id, OpenCLDevCount);
-    if (clGetDeviceIDs(NULL, CL_DEVICE_TYPE_GPU, OpenCLDevCount, OpenCLDevices, NULL) != CL_SUCCESS)
+    platforms = PyMem_New(cl_platform_id, num_platforms);
+    if (!platforms)
     {
-        PyMem_Free(OpenCLDevices);
-        PyErr_SetString(PyExc_ImportError, "Failed to get Device-IDs");
+        PyErr_NoMemory();
+        return;
+    }
+    
+    err = clGetPlatformIDs(num_platforms, platforms, NULL);
+    if (err != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to get platform-IDs (%s)", getCLresultMsg(err));
         return;
     }
     
     oclkernel_program = PyMem_Malloc(oclkernel_size);
     if (!oclkernel_program)
     {
-        PyMem_Free(OpenCLDevices);
+        PyMem_Free(platforms);
         PyErr_NoMemory();
         return;
     }
@@ -515,7 +737,7 @@ init_cpyrit_opencl(void)
     zst.next_in = oclkernel_packedprogram;
     if (inflateInit(&zst) != Z_OK)
     {
-        PyMem_Free(OpenCLDevices);
+        PyMem_Free(platforms);
         PyMem_Free(oclkernel_program);
         PyErr_SetString(PyExc_IOError, "Failed to initialize zlib.");
         return;
@@ -525,13 +747,25 @@ init_cpyrit_opencl(void)
     if (inflate(&zst, Z_FINISH) != Z_STREAM_END)
     {
         inflateEnd(&zst);
-        PyMem_Free(OpenCLDevices);
+        PyMem_Free(platforms);
         PyMem_Free(oclkernel_program);    
         PyErr_SetString(PyExc_IOError, "Failed to decompress OpenCL-kernel.");
         return;
     }
     inflateEnd(&zst);
     oclkernel_size -= 1;
+
+    OpenCLPlatform_type.tp_getattro = PyObject_GenericGetAttr;
+    OpenCLPlatform_type.tp_setattro = PyObject_GenericSetAttr;
+    OpenCLPlatform_type.tp_alloc  = PyType_GenericAlloc;
+    OpenCLPlatform_type.tp_new = PyType_GenericNew;
+    OpenCLPlatform_type.tp_free = _PyObject_Del;      
+    if (PyType_Ready(&OpenCLPlatform_type) < 0)
+    {
+        PyMem_Free(platforms);
+        PyMem_Free(oclkernel_program);
+	    return;
+    }
 
     OpenCLDevice_type.tp_getattro = PyObject_GenericGetAttr;
     OpenCLDevice_type.tp_setattro = PyObject_GenericSetAttr;
@@ -540,15 +774,22 @@ init_cpyrit_opencl(void)
     OpenCLDevice_type.tp_free = _PyObject_Del;      
     if (PyType_Ready(&OpenCLDevice_type) < 0)
     {
-        PyMem_Free(OpenCLDevices);
+        PyMem_Free(platforms);
         PyMem_Free(oclkernel_program);
 	    return;
     }
 
+
     m = Py_InitModule("_cpyrit_opencl", CPyritOpenCL_methods);
+
+    Py_INCREF(&OpenCLPlatform_type);
+    PyModule_AddObject(m, "OpenCLPlatform", (PyObject *)&OpenCLPlatform_type);    
 
     Py_INCREF(&OpenCLDevice_type);
     PyModule_AddObject(m, "OpenCLDevice", (PyObject *)&OpenCLDevice_type);
+
+    PyModule_AddIntConstant(m, "numPlatforms", (long)num_platforms);
+
     PyModule_AddStringConstant(m, "VERSION", VERSION);
 }
 
