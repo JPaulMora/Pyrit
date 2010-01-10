@@ -547,12 +547,15 @@ class Pyrit_CLI(object):
         else:
             essids = []
             pwcount, essid_results = storage.getStats()
+            if len(essid_results) == 0:
+                raise PyritRuntimeError("No ESSID in storage. Use 'create_" \
+                                        "essid' first.")
             for e, rescount in essid_results.iteritems():
                 if rescount < pwcount:
                     essids.append(e)
         if outfile is not None:
-            cowpwriter = cpyrit.util.CowpattyFile(cpyrit.util.AsyncFileWriter(outfile), \
-                                                  'w', essid)
+            outfilewriter = cpyrit.util.AsyncFileWriter(outfile)
+            cowpwriter = cpyrit.util.CowpattyFile(outfilewriter, 'w', essid)
         else:
             cowpwriter = None
         for cur_essid in essids:
