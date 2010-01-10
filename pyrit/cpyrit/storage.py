@@ -658,7 +658,7 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
         return key in self.storage.passwords
 
     def passwords_getitem(self, key):
-        newkey, buf = storage.PAW2_Buffer(self.storage.passwords[key]).pack()
+        newkey, buf = PAW2_Buffer(self.storage.passwords[key]).pack()
         return xmlrpclib.Binary(buf)
 
     def passwords_size(self, key):
@@ -678,11 +678,11 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
     
     def essids_getitem(self, essid, key):
         results = self.storage.essids[essid, key]
-        buf = storage.PYR2_Buffer(essid, results).pack()
+        buf = PYR2_Buffer(essid, results).pack()
         return xmlrpclib.Binary(buf)
 
     def essids_setitem(self, essid, key, pyr2_buffer):
-        results = storage.PYR2_Buffer()
+        results = PYR2_Buffer()
         results.unpack(pyr2_buffer.data)
         if results.essid != essid:
             raise ValueError("Invalid ESSID in result-collection")
