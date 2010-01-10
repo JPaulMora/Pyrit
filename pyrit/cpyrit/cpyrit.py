@@ -21,8 +21,8 @@
 
    Core is a base-class to glue hardware-modules into python.
 
-   CPUCore, CUDACore, StreamCore, OpenCLCore and NetworkCore are subclasses of
-   Core and provide access to their respective hardware-platforms.
+   CPUCore, OpenCLCore and NetworkCore are subclasses of Core and provide
+   access to their respective hardware-platforms.
 
    CPyrit enumerates the available cores and schedules workunits among them.
 """
@@ -125,28 +125,6 @@ class CPUCore(Core, _cpyrit_cpu.CPUDevice):
 
 
 try:
-    import _cpyrit_cuda
-except ImportError:
-    pass
-except Exception, e:
-    print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
-else:
-    version_check(_cpyrit_cuda)
-
-    class CUDACore(Core, _cpyrit_cuda.CUDADevice):
-        """Computes results on Nvidia-CUDA capable devices."""
-
-        def __init__(self, queue, dev_idx):
-            Core.__init__(self, queue)
-            _cpyrit_cuda.CUDADevice.__init__(self, dev_idx)
-            self.name = "CUDA-Device #%i '%s'" % (dev_idx+1, self.deviceName)
-            self.minBufferSize = 1024
-            self.buffersize = 4096
-            self.maxBufferSize = 40960
-            self.start()
-
-
-try:
     import _cpyrit_opencl
 except ImportError:
     pass
@@ -158,39 +136,14 @@ else:
     class OpenCLCore(Core, _cpyrit_opencl.OpenCLDevice):
         """Computes results on OpenCL-capable devices."""
 
-        def __init__(self, queue, dev_idx):
+        def __init__(self, queue, platform_idx, dev_idx):
             Core.__init__(self, queue)
-            _cpyrit_opencl.OpenCLDevice.__init__(self, dev_idx)
-            self.name = "OpenCL-Device #%i '%s'" % (dev_idx+1, self.deviceName)
+            _cpyrit_opencl.OpenCLDevice.__init__(self, platform_idx, dev_idx)
+            self.name = "OpenCL-Device '%s'" % self.deviceName
             self.minBufferSize = 1024
             self.buffersize = 4096
-            self.maxBufferSize = 40960
+            self.maxBufferSize = 20480
             self.start()
-
-
-try:
-    import _cpyrit_stream
-except ImportError:
-    pass
-except Exception, e:
-    print >>sys.stderr, "Failed to load Pyrit's Stream-driven core ('%s')" % e
-else:
-    version_check(_cpyrit_stream)
-
-    class StreamCore(Core, _cpyrit_stream.StreamDevice):
-        """Computes results on ATI-Stream devices."""
-
-        def __init__(self, queue, dev_idx):
-            Core.__init__(self, queue)
-            _cpyrit_stream.StreamDevice.__init__(self)
-            self.name = "ATI-Stream device %i" % (dev_idx+1)
-            self.dev_idx = dev_idx
-            self.maxBufferSize = 8192 # Capped by _cpyrit_stream
-            self.start()
-
-        def run(self):
-            _cpyrit_stream.setDevice(self.dev_idx)
-            Core.run(self)
 
 
 try:
@@ -366,23 +319,18 @@ class CPyrit(object):
         self.cv = threading.Condition()
 
         ncpus = util.ncpus
-        # CUDA
-        if 'cpyrit._cpyrit_cuda' in sys.modules:
-            for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
-                self.cores.append(CUDACore(queue=self, dev_idx=dev_idx))
-                ncpus -= 1
+
         # OpenCL
         if 'cpyrit._cpyrit_opencl' in sys.modules:
-            for dev_idx, device in enumerate(_cpyrit_opencl.listDevices()):
-                if device[1] != 'NVIDIA Corporation' \
-                 or 'cpyrit._cpyrit_cuda' not in sys.modules:
-                    self.cores.append(OpenCLCore(queue=self, dev_idx=dev_idx))
-                    ncpus -= 1
-        # ATI
-        if 'cpyrit._cpyrit_stream' in sys.modules:
-            for dev_idx in xrange(_cpyrit_stream.getDeviceCount()):
-                self.cores.append(StreamCore(queue=self, dev_idx=dev_idx))
-                ncpus -= 1
+            for platform_idx in range(_cpyrit_opencl.numPlatforms):
+                p = _cpyrit_opencl.OpenCLPlatform(platform_idx)
+                for dev_idx in range(p.numDevices):
+                    dev = _cpyrit_opencl.OpenCLDevice(platform_idx, dev_idx)
+                    if dev.deviceType in ('GPU', 'ACCELERATOR'):
+                        core = OpenCLCore(self, platform_idx, dev_idx)
+                        self.cores.append(core)
+                        ncpus -= 1
+
         #CPUs
         for i in xrange(ncpus):
             self.cores.append(CPUCore(queue=self))

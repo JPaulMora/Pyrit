@@ -773,28 +773,25 @@ class Pyrit_CLI(object):
         # calibrate to optimal size
         self.tell("Calibrating...", end=None)
         t = time.time()
-        pws = ['barbarbar']*1500
         while time.time() - t < 3:
-            cp.enqueue('foo', pws)
+            cp.enqueue('foo', ['barbarbar']*1500)
             cp.dequeue(block=False)
         for r in cp:
             pass
         # Minimize scheduling overhead...
-        pws = ['barbarbar']*max(min(int(cp.getPeakPerformance()), 50000), 500)
+        buffersize = max(min(int(cp.getPeakPerformance()), 50000), 500)
         cp.resetStatistics()
         cycler = itertools.cycle(('\\|/-'))
         t = time.time()
         perfcounter = cpyrit.util.PerformanceCounter()
         while time.time() - t < timeout:
+            pws = ["barbarbar%s" % random.random() for i in xrange(buffersize)]
             cp.enqueue('foo', pws)
             r = cp.dequeue(block=False)
-            if r is None:
-                self.tell("\rRunning benchmark... %s" % \
-                        (cycler.next()), end=None)
-            else:
+            if r is not None:
                 perfcounter += len(r)
-                self.tell("\rRunning benchmark (%.1f PMKs/s)... %s" % \
-                        (perfcounter.avg, cycler.next()), end=None)
+            self.tell("\rRunning benchmark (%.1f PMKs/s)... %s" % \
+                    (perfcounter.avg, cycler.next()), end=None)
         self.tell('')
         for r in cp:
             pass
