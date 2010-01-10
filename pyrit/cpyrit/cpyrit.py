@@ -147,6 +147,28 @@ else:
 
 
 try:
+    import _cpyrit_cuda
+except ImportError:
+    pass
+except Exception, e:
+    print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
+else:
+    version_check(_cpyrit_cuda)
+
+    class CUDACore(Core, _cpyrit_cuda.CUDADevice):
+        """Computes results on Nvidia-CUDA capable devices."""
+
+        def __init__(self, queue, dev_idx):
+            Core.__init__(self, queue)
+            _cpyrit_cuda.CUDADevice.__init__(self, dev_idx)
+            self.name = "CUDA-Device #%i '%s'" % (dev_idx+1, self.deviceName)
+            self.minBufferSize = 1024
+            self.buffersize = 4096
+            self.maxBufferSize = 40960
+            self.start()
+
+
+try:
     import _cpyrit_null
 except ImportError:
     pass
@@ -319,6 +341,12 @@ class CPyrit(object):
         self.cv = threading.Condition()
 
         ncpus = util.ncpus
+
+        # CUDA
+        if 'cpyrit._cpyrit_cuda' in sys.modules:
+            for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
+                self.cores.append(CUDACore(queue=self, dev_idx=dev_idx))
+                ncpus -= 1
 
         # OpenCL
         if 'cpyrit._cpyrit_opencl' in sys.modules:

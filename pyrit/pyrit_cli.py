@@ -264,21 +264,27 @@ class Pyrit_CLI(object):
             self.tell('')
     eval_results.cli_options = (('-u', ), ())
 
-    def import_passwords(self, storage, infile):
-        """Import passwords from a file"""
+    def import_passwords(self, storage, infile, unique_check=True):
+        """Import passwords from a file-like source"""
         i = 0
+        storage.passwords.unique_check = unique_check
         perfcounter = cpyrit.util.PerformanceCounter()
         with cpyrit.util.FileWrapper(infile) as reader:
-            for i, line in enumerate(reader):
-                storage.passwords.store_password(line)
-                if i % 100000 == 0:
-                    perfcounter += 100000
-                    self.tell("\r%i lines read (%.1f lines/s)..." % \
-                              (i, perfcounter.avg), end=None, flush=True)
-        self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
-        storage.passwords.flush_buffer()
+            with storage.passwords as pwstore:
+                for i, line in enumerate(reader):
+                    pwstore.store_password(line)
+                    if i % 100000 == 0:
+                        perfcounter += 100000
+                        self.tell("\r%i lines read (%.1f lines/s)..." % \
+                                  (i, perfcounter.avg), end=None, flush=True)
+                self.tell("\r%i lines read. Flushing buffers..." % (i + 1))
         self.tell('All done.')
     import_passwords.cli_options = (('-i', '-u'), ())
+
+    def import_unique_passwords(self, storage, infile):
+        """Import unique passwords from a file-like source"""
+        self.import_passwords(storage, infile, unique_check=False)
+    import_unique_passwords.cli_options = (('-i', '-u'), ())
 
     def export_passwords(self, storage, outfile):
         """Export passwords to a file"""
@@ -813,7 +819,7 @@ class Pyrit_CLI(object):
     benchmark.cli_options = ((), ())
 
     def selftest(self, timeout=60):
-        """Test all cores to ensure they compute correct results"""
+        """Test hardware to ensure it computes correct results"""
         from cpyrit import cpyrit
         cp = cpyrit.CPyrit()
         self.tell("Cores incorporated in the test:")
@@ -931,6 +937,7 @@ class Pyrit_CLI(object):
                 'export_passwords': export_passwords,
                 'help': print_help,
                 'import_passwords': import_passwords,
+                'import_unique_passwords': import_unique_passwords,
                 'list_cores': list_cores,
                 'list_essids': list_essids,
                 'passthrough': passthrough,

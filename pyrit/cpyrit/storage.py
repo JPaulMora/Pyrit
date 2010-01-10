@@ -216,6 +216,15 @@ class PasswordStore(object):
 
     def __init__(self):
         self.pwbuffer = {}
+        self.unique_check = True
+
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self.flush_buffer()
+        return False
 
     def flush_buffer(self):
         """Flush all passwords currently buffered to the storage.
@@ -225,25 +234,28 @@ class PasswordStore(object):
         """
         for pw_h1, pw_bucket in self.pwbuffer.iteritems():
             self._flush_bucket(pw_h1, pw_bucket)
-            self.pwbuffer[pw_h1] = set()
+            self.pwbuffer[pw_h1] = (set if self.unique_check else list)()
 
     def store_password(self, passwd):
-        """Add the given password to storage. The implementation ensures that
-           passwords remain unique over the entire storage.
+        """Add the given password to storage.
 
            Passwords passed to this function are buffered in memory for better
            performance and efficiency. It is the caller's responsibility to
-           call .flush_buffer() when he is done.
+           call .flush_buffer() (or use the context-manager) when he is done.
         """
         passwd = passwd.strip()
         if len(passwd) < 8 or len(passwd) > 63:
             return
         pw_h1 = PasswordStore.h1_list[hash(passwd) & 0xFF]
-        pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
-        pw_bucket.add(passwd)
+        if self.unique_check:
+            pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
+            pw_bucket.add(passwd)
+        else:
+            pw_bucket = self.pwbuffer.setdefault(pw_h1, list())
+            pw_bucket.append(passwd)
         if len(pw_bucket) >= 20000:
             self._flush_bucket(pw_h1, pw_bucket)
-            self.pwbuffer[pw_h1] = set()
+            self.pwbuffer[pw_h1] = (set if self.unique_check else list)()
 
     def iterkeys(self):
         """Equivalent to self.__iter__"""
@@ -481,11 +493,12 @@ class FSPasswordStore(PasswordStore):
     def _flush_bucket(self, pw_h1, bucket):
         if len(bucket) == 0:
             return
-        for key, pwpath in self.pwfiles.iteritems():
-            if pwpath.endswith(pw_h1):
-                bucket.difference_update(self[key])
-                if len(bucket) == 0:
-                    return
+        if self.unique_check:
+            for key, pwpath in self.pwfiles.iteritems():
+                if pwpath.endswith(pw_h1):
+                    bucket.difference_update(self[key])
+                    if len(bucket) == 0:
+                        return
         pwpath = os.path.join(self.basepath, pw_h1)
         if not os.path.exists(pwpath):
             os.makedirs(pwpath)
@@ -1000,10 +1013,11 @@ if 'sqlalchemy' in sys.modules:
             if len(bucket) == 0:
                 return
             with SessionContext(self.SessionClass) as session:
-                q = session.query(PAW2_DBObject)
-                for db_bucket in q.filter(PAW2_DBObject.h1 == pw_h1):
-                    bucket.difference_update(db_bucket)
-                    if len(bucket) == 0:
-                        return
+                if self.unique_check:
+                    q = session.query(PAW2_DBObject)
+                    for db_bucket in q.filter(PAW2_DBObject.h1 == pw_h1):
+                        bucket.difference_update(db_bucket)
+                        if len(bucket) == 0:
+                            return
                 session.add(PAW2_DBObject(pw_h1, bucket))
                 session.commit()
