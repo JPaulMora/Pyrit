@@ -47,6 +47,11 @@ typedef struct
     PyObject_HEAD
 } CPUDevice;
 
+typedef struct
+{
+    PyObject_HEAD
+} CowpattyFile;
+
 static PyObject *PlatformString;
 static void (*prepare_pmk)(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
@@ -862,7 +867,7 @@ static PyMethodDef EAPOLCracker_methods[] =
 static PyTypeObject EAPOLCracker_type = {
     PyObject_HEAD_INIT(NULL)
     0,                          /*ob_size*/
-    "_pckttools.EAPOLCracker",  /*tp_name*/
+    "_cpyrit_cpu.EAPOLCracker",  /*tp_name*/
     sizeof(EAPOLCracker),       /*tp_basicsize*/
     0,                          /*tp_itemsize*/
     (destructor)eapolcracker_dealloc,   /*tp_dealloc*/
@@ -904,10 +909,60 @@ static PyTypeObject EAPOLCracker_type = {
     0,                          /*tp_is_gc*/
 };
 
-static PyMethodDef CPyritCPUMethods[] = {
-    {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine CPU-type/name"},
+static PyMethodDef CowpattyFile_methods[] =
+{
     {"genCowpEntries", util_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from a iterable of password:PMK tuples."},
     {"unpackCowpEntries", util_unpackcowpentries, METH_VARARGS, "Unpack a data-string in cowpatty-like format and return a tuple with results and unfinished tail."},
+    {NULL, NULL}
+};
+
+static PyTypeObject CowpattyFile_type = {
+    PyObject_HEAD_INIT(NULL)
+    0,                          /*ob_size*/
+    "_cpyrit_cpu.CowpattyFile", /*tp_name*/
+    sizeof(CowpattyFile),       /*tp_basicsize*/
+    0,                          /*tp_itemsize*/
+    0,                          /*tp_dealloc*/
+    0,                          /*tp_print*/
+    0,                          /*tp_getattr*/
+    0,                          /*tp_setattr*/
+    0,                          /*tp_compare*/
+    0,                          /*tp_repr*/
+    0,                          /*tp_as_number*/
+    0,                          /*tp_as_sequence*/
+    0,                          /*tp_as_mapping*/
+    0,                          /*tp_hash*/
+    0,                          /*tp_call*/
+    0,                          /*tp_str*/
+    0,                          /*tp_getattro*/
+    0,                          /*tp_setattro*/
+    0,                          /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+    | Py_TPFLAGS_BASETYPE,
+    0,                          /*tp_doc*/
+    0,                          /*tp_traverse*/
+    0,                          /*tp_clear*/
+    0,                          /*tp_richcompare*/
+    0,                          /*tp_weaklistoffset*/
+    0,                          /*tp_iter*/
+    0,                          /*tp_iternext*/
+    CowpattyFile_methods,       /*tp_methods*/
+    0,                          /*tp_members*/
+    0,                          /*tp_getset*/
+    0,                          /*tp_base*/
+    0,                          /*tp_dict*/
+    0,                          /*tp_descr_get*/
+    0,                          /*tp_descr_set*/
+    0,                          /*tp_dictoffset*/
+    0,                          /*tp_init*/
+    0,                          /*tp_alloc*/
+    0,                          /*tp_new*/
+    0,                          /*tp_free*/
+    0,                          /*tp_is_gc*/
+};
+
+static PyMethodDef CPyritCPUMethods[] = {
+    {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine CPU-type/name"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -959,7 +1014,7 @@ init_cpyrit_cpu(void)
     CPUDevice_type.tp_setattro = PyObject_GenericSetAttr;
     CPUDevice_type.tp_alloc  = PyType_GenericAlloc;
     CPUDevice_type.tp_new = PyType_GenericNew;
-    CPUDevice_type.tp_free = _PyObject_Del;  
+    CPUDevice_type.tp_free = _PyObject_Del;
     if (PyType_Ready(&CPUDevice_type) < 0)
 	    return;
 
@@ -967,8 +1022,16 @@ init_cpyrit_cpu(void)
     EAPOLCracker_type.tp_setattro = PyObject_GenericSetAttr;
     EAPOLCracker_type.tp_alloc  = PyType_GenericAlloc;
     EAPOLCracker_type.tp_new = PyType_GenericNew;
-    EAPOLCracker_type.tp_free = _PyObject_Del;  
+    EAPOLCracker_type.tp_free = _PyObject_Del;
     if (PyType_Ready(&EAPOLCracker_type) < 0)
+	    return;
+
+    CowpattyFile_type.tp_getattro = PyObject_GenericGetAttr;
+    CowpattyFile_type.tp_setattro = PyObject_GenericSetAttr;
+    CowpattyFile_type.tp_alloc  = PyType_GenericAlloc;
+    CowpattyFile_type.tp_new = PyType_GenericNew;
+    CowpattyFile_type.tp_free = _PyObject_Del;
+    if (PyType_Ready(&CowpattyFile_type) < 0)
 	    return;
 
     m = Py_InitModule("_cpyrit_cpu", CPyritCPUMethods);
@@ -978,6 +1041,9 @@ init_cpyrit_cpu(void)
 
     Py_INCREF(&EAPOLCracker_type);
     PyModule_AddObject(m, "EAPOLCracker", (PyObject*)&EAPOLCracker_type);
+
+    Py_INCREF(&CowpattyFile_type);
+    PyModule_AddObject(m, "CowpattyFile", (PyObject*)&CowpattyFile_type);
 
     PyModule_AddStringConstant(m, "VERSION", VERSION);
 }

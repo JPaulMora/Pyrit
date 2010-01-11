@@ -236,10 +236,11 @@ class FileWrapper(object):
         return self.f.__iter__()
 
 
-class CowpattyFile(object):
+class CowpattyFile(_cpyrit_cpu.CowpattyFile):
     """A file-like object to read and write cowpatty-like files."""
 
     def __init__(self, filename, mode='r', essid=None):
+        _cpyrit_cpu.CowpattyFile.__init__(self)
         if mode == 'r':
             self.f = FileWrapper(filename, 'r')
             magic, essidlen, essid = struct.unpack(">4si32s", self.f.read(40))
@@ -280,7 +281,7 @@ class CowpattyFile(object):
     def write(self, results):
         if self.mode != 'w':
             raise TypeError("Can't write to read-only file.")
-        self.f.write(_cpyrit_cpu.genCowpEntries(results))
+        self.f.write(self.genCowpEntries(results))
 
     def close(self):
         self.f.close()
@@ -292,7 +293,7 @@ class CowpattyFile(object):
         if len(self.tail) == 0:
             self.eof = True
             raise StopIteration
-        results, self.tail = _cpyrit_cpu.unpackCowpEntries(self.tail)
+        results, self.tail = self.unpackCowpEntries(self.tail)
         return results
 
 

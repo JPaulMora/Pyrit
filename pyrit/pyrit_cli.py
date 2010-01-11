@@ -519,7 +519,7 @@ class Pyrit_CLI(object):
     export_hashdb.cli_options = (('-u', '-o', ), ('-e', ))
 
     def passthrough(self, essid, infile, outfile):
-        """Compute PMKs on the fly and write to stdout"""
+        """Compute PMKs and write results to a file"""
         perfcounter = cpyrit.util.PerformanceCounter()
         with cpyrit.util.FileWrapper(infile) as reader:
             try:

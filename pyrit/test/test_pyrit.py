@@ -29,7 +29,6 @@ import tempfile
 import cpyrit.config
 import cpyrit.util
 import cpyrit.storage
-import cpyrit.rpcserver
 import pyrit_cli
 
 cpyrit.config.cfg["rpc_server"] = "false"
