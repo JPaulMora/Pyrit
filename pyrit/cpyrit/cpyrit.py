@@ -142,7 +142,8 @@ else:
             self.name = "OpenCL-Device '%s'" % self.deviceName
             self.minBufferSize = 1024
             self.buffersize = 4096
-            self.maxBufferSize = 20480
+            maxhwsize = reduce(lambda x,y: x*y, self.maxWorkSizes)
+            self.maxBufferSize = min(40960, maxhwsize)
             self.start()
 
 
