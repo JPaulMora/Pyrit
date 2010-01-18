@@ -46,6 +46,7 @@ typedef struct
     cl_device_id device;
     PyObject* dev_name;
     PyObject* dev_type;
+    PyObject* dev_maxworksize;
     cl_context dev_ctx;
     cl_program dev_prog;
     cl_kernel dev_kernel;
@@ -192,11 +193,12 @@ static int
 ocldevice_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
 {
     int platform_idx, dev_idx;
-    cl_uint num_devices;
+    cl_uint num_entries;
     cl_device_id *devices;
     cl_device_type device_type;
     char dev_name[64];
-    size_t name_size;
+    size_t name_size, i;
+    size_t *max_work_sizes;
     cl_int err;
 
     if (!PyArg_ParseTuple(args, "ii:OpenCLDevice", &platform_idx, &dev_idx))
@@ -208,25 +210,25 @@ ocldevice_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
         return -1;
     }
     
-    err = clGetDeviceIDs(platforms[platform_idx], CL_DEVICE_TYPE_ALL, 0, NULL, &num_devices);
+    err = clGetDeviceIDs(platforms[platform_idx], CL_DEVICE_TYPE_ALL, 0, NULL, &num_entries);
     if (err != CL_SUCCESS)
     {
         PyErr_Format(PyExc_SystemError, "Failed to enumerate devices on this platform (%s)", getCLresultMsg(err));
         return -1;
     }
-    if (dev_idx < 0 || dev_idx > num_devices-1)
+    if (dev_idx < 0 || dev_idx > num_entries-1)
     {
         PyErr_Format(PyExc_ValueError, "Device-index out of range");
         return -1;
     }
 
-    devices = PyMem_New(cl_device_id, num_devices);
+    devices = PyMem_New(cl_device_id, num_entries);
     if (!devices)
     {
         PyErr_NoMemory();
         return -1;
     }
-    err = clGetDeviceIDs(platforms[platform_idx], CL_DEVICE_TYPE_ALL, num_devices, devices, NULL);
+    err = clGetDeviceIDs(platforms[platform_idx], CL_DEVICE_TYPE_ALL, num_entries, devices, NULL);
     if (err != CL_SUCCESS)
     {
         PyErr_Format(PyExc_SystemError, "Failed to get Device-IDs (%s)", getCLresultMsg(err));
@@ -288,6 +290,37 @@ ocldevice_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
         return -1;
     }
 
+    err = clGetDeviceInfo(self->device, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(num_entries), &num_entries, NULL);
+    if (err != CL_SUCCESS)
+    {
+        PyErr_Format(PyExc_SystemError, "Failed to determine work-dimensions (%s)", getCLresultMsg(err));
+        return -1;
+    }
+
+    max_work_sizes = PyMem_New(size_t, num_entries);
+    if (!max_work_sizes)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+    err = clGetDeviceInfo(self->device, CL_DEVICE_MAX_WORK_ITEM_SIZES, sizeof(size_t) * num_entries, max_work_sizes, NULL);
+    if (err != CL_SUCCESS)
+    {
+        PyMem_Free(max_work_sizes);
+        PyErr_Format(PyExc_SystemError, "Failed to determine max. dimension sizes. (%s)", getCLresultMsg(err));
+        return -1;
+    }
+    self->dev_maxworksize = PyTuple_New(num_entries);
+    if (!self->dev_maxworksize)
+    {
+        PyMem_Free(max_work_sizes);
+        PyErr_NoMemory();
+        return -1;
+    }
+    for (i = 0; i < num_entries; i++)
+        PyTuple_SetItem(self->dev_maxworksize, i, PyInt_FromSize_t(max_work_sizes[i]));
+    PyMem_Free(max_work_sizes);
+    
     return 0;
 }
 
@@ -571,7 +604,7 @@ cpyrit_solve(OpenCLDevice *self, PyObject *args)
         PUT_BE(c_outbuffer[i].pmk1.h2, temp, 8); PUT_BE(c_outbuffer[i].pmk1.h3, temp, 12); 
         PUT_BE(c_outbuffer[i].pmk1.h4, temp, 16);PUT_BE(c_outbuffer[i].pmk2.h0, temp, 20); 
         PUT_BE(c_outbuffer[i].pmk2.h1, temp, 24);PUT_BE(c_outbuffer[i].pmk2.h2, temp, 28); 
-        PyTuple_SetItem(result, i, Py_BuildValue("s#", temp, 32));
+        PyTuple_SetItem(result, i, PyString_FromStringAndSize((char*)temp, 32));
     }
     
     PyMem_Free(c_outbuffer);
@@ -636,6 +669,7 @@ static PyMemberDef OpenCLDevice_members[] =
 {
     {"deviceName", T_OBJECT, offsetof(OpenCLDevice, dev_name), 0},
     {"deviceType", T_OBJECT, offsetof(OpenCLDevice, dev_type), 0},
+    {"maxWorkSizes", T_OBJECT, offsetof(OpenCLDevice, dev_maxworksize), 0},
     {NULL}
 };
 
