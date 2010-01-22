@@ -30,6 +30,7 @@
 from __future__ import with_statement
 
 import hashlib
+import select
 import SimpleXMLRPCServer
 import socket
 import sys
@@ -74,6 +75,8 @@ class Core(threading.Thread):
         threading.Thread.__init__(self)
         self.queue = queue
         self.compTime = self.resCount = self.callCount = 0
+        self.isTested = False
+        self.shallStop = False
         self.buffersize = 4096
         """Number of passwords currently pulled by calls to _gather()
            This number is dynamically adapted in run() but limited by
@@ -83,7 +86,7 @@ class Core(threading.Thread):
         """Min. number of passwords that get pulled in each call to _gather."""
         self.maxBufferSize = 20480
         """Max. number of passwords that get pulled in each call to _gather."""
-        self.setDaemon(True)
+        #self.setDaemon(True)
 
     def _testComputeFunction(self, i):
         if any((pmk != Core.TV_PMK for pmk in \
@@ -94,22 +97,28 @@ class Core(threading.Thread):
         self.compTime = self.resCount = self.callCount = 0
 
     def run(self):
-        self._testComputeFunction(101)
-        while True:
-            essid, pwlist = self.queue._gather(self.buffersize)
-            t = time.time()
-            res = self.solve(essid, pwlist)
-            assert len(res) == len(pwlist)
-            self.compTime += time.time() - t
-            self.resCount += len(res)
-            self.callCount += 1
-            avg = (2*self.buffersize + (self.resCount / self.compTime * 3)) / 3
-            self.buffersize = int(max(self.minBufferSize,
-                              min(self.maxBufferSize, avg)))
-            self.queue._scatter(essid, pwlist, res)
+        while not self.shallStop:
+            essid, pwlist = self.queue._gather(self.buffersize, timeout=0.5)
+            if essid is not None:
+                if not self.isTested:
+                    self._testComputeFunction(101)
+                t = time.time()
+                res = self.solve(essid, pwlist)
+                assert len(res) == len(pwlist)
+                self.compTime += time.time() - t
+                self.resCount += len(res)
+                self.callCount += 1
+                avg = (2*self.buffersize + (self.resCount / self.compTime * 3)) / 3
+                self.buffersize = int(max(self.minBufferSize,
+                                  min(self.maxBufferSize, avg)))
+                self.queue._scatter(essid, pwlist, res)
 
     def __str__(self):
         return self.name
+
+    def shutdown(self):
+        self.shallStop = True
+        self.join()
 
 
 class CPUCore(Core, _cpyrit_cpu.CPUDevice):
@@ -207,6 +216,7 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
 
 
     class NetworkClient(object):
+
         def __init__(self, known_uuids):
             self.uuid = str(uuid.uuid4())
             self.known_uuids = known_uuids
@@ -244,7 +254,10 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
             return self.methods[method](*params)
 
     def run(self):
-        self.serve_forever()
+        while not self.shallStop:
+            r, w, e = select.select([self], [], [], 0.5)
+            if r:
+                self.handle_request()            
 
     def _get_client(self, uuid):
         with self.client_lock:
@@ -387,7 +400,7 @@ class CPyrit(object):
 
     def _check_cores(self):
         for core in self.cores:
-            if not core.isAlive():
+            if not core.shallStop and not core.isAlive():
                 raise SystemError("The core '%s' has died unexpectedly" % core)
 
     def _len(self):
@@ -410,13 +423,20 @@ class CPyrit(object):
                 break
             yield r
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
+
+    def shutdown(self):
+        for core in self.cores:
+            core.shallStop = True
+        for core in self.cores:
+            core.shutdown()
+
     def isAlive(self):
-        try:
-            self._check_cores()
-        except:
-            return False
-        else:
-            return True
+        return all(core.isAlive() for core in self.cores)
 
     def waitForSchedule(self, maxBufferSize):
         """Block until less than the given number of passwords wait for being
@@ -559,7 +579,7 @@ class CPyrit(object):
                             return None, None
                     else:
                         return None, None
-                    self.cv.wait(1)
+                    self.cv.wait(0.1)
 
     def _scatter(self, essid, passwords, results):
         """Spray the given results back to their corresponding workunits.

@@ -46,6 +46,7 @@ import threading
 
 import _cpyrit_cpu
 from _cpyrit_cpu import VERSION
+import cpyrit
 import storage
 
 
@@ -116,6 +117,13 @@ class StorageIterator(object):
     def __iter__(self):
         return self
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.cp is not None:
+            self.cp.shutdown()
+
     def next(self):
         for key in self.keys:
             if self.storage.essids.containskey(self.essid, key):
@@ -124,7 +132,6 @@ class StorageIterator(object):
             else:
                 if self.yieldNewResults:
                     if self.cp is None:
-                        import cpyrit
                         self.cp = cpyrit.CPyrit()
                     passwords = self.storage.passwords[key]
                     self.workunits.append((self.essid, key, passwords))
@@ -153,7 +160,6 @@ class PassthroughIterator(object):
     """
 
     def __init__(self, essid, iterable, buffersize=20000):
-        import cpyrit
         self.cp = cpyrit.CPyrit()
         self.essid = essid
         self.iterator = iter(iterable)
@@ -162,6 +168,12 @@ class PassthroughIterator(object):
 
     def __iter__(self):
         return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cp.shutdown()
 
     def next(self):
         pwbuffer = []

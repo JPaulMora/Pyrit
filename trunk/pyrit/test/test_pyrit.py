@@ -59,8 +59,9 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self._createPasswords(self.tempfile1, count)
         self.cli.import_passwords(storage, self.tempfile1)
         l = 0
-        for results in cpyrit.util.StorageIterator(storage, essid):
-            l += len(results)
+        with cpyrit.util.StorageIterator(storage, essid) as dbiter:
+            for results in dbiter:
+                l += len(results)
         self.assertEqual(l, count)
 
     def testListEssids(self):
@@ -140,9 +141,10 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         for results in cpyrit.util.CowpattyFile(self.tempfile2):
             fileresults.extend(results)
         dbresults = []
-        for results in cpyrit.util.StorageIterator(storage, 'linksys', \
-                                                    yieldNewResults=False):
-            dbresults.extend(results)
+        with cpyrit.util.StorageIterator(storage, 'linksys', \
+                                            yieldNewResults=False) as dbiter:
+            for results in dbiter:
+                dbresults.extend(results)
         self.assertEqual(sorted(fileresults), sorted(dbresults))
 
     def testBatch(self):
@@ -174,9 +176,10 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         for results in cpyrit.util.CowpattyFile(self.tempfile1):
             fileresults.extend(results)
         dbresults = []
-        for results in cpyrit.util.StorageIterator(storage, 'test1234', \
-                                                    yieldNewResults=False):
-            dbresults.extend(results)
+        with cpyrit.util.StorageIterator(storage, 'test1234', \
+                                            yieldNewResults=False) as dbiter:
+            for results in dbiter:
+                dbresults.extend(results)
         self.assertEqual(sorted(fileresults), sorted(dbresults))
 
     def testEval(self):
@@ -215,9 +218,10 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         for results in cpyrit.util.CowpattyFile(self.tempfile1):
             fileresults.extend(results)
         dbresults = []
-        for results in cpyrit.util.StorageIterator(storage, 'linksys', \
-                                                    yieldNewResults=False):
-            dbresults.extend(results)
+        with cpyrit.util.StorageIterator(storage, 'linksys', \
+                                            yieldNewResults=False) as dbiter:
+            for results in dbiter:
+                dbresults.extend(results)
         self.assertEqual(sorted(fileresults), sorted(dbresults))
 
     def testExportHashdb(self):
