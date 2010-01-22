@@ -233,11 +233,10 @@ class Pyrit_CLI(object):
 
     def list_cores(self):
         """List available cores"""
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
-        self.tell("The following cores seem available...")
-        for i, core in enumerate(cp.cores):
-            self.tell("#%i:  '%s'" % (i + 1, core))
+        with cpyrit.cpyrit.CPyrit() as cp:
+            self.tell("The following cores seem available...")
+            for i, core in enumerate(cp.cores):
+                self.tell("#%i:  '%s'" % (i + 1, core))
     list_cores.cli_options = ((), ())
 
     def list_essids(self, storage):
@@ -525,13 +524,14 @@ class Pyrit_CLI(object):
             try:
                 with cpyrit.util.AsyncFileWriter(outfile) as writer:
                     with cpyrit.util.CowpattyFile(writer, 'w', essid) as cowpwriter:
-                        for results in cpyrit.util.PassthroughIterator(essid, reader):
-                            cowpwriter.write(results)
-                            perfcounter += len(results)
-                            self.tell("Computed %i PMKs so far; %i PMKs per " \
-                                      "second\r" % (perfcounter.total, \
-                                                    perfcounter.avg), \
-                                      end=None, sep=None)
+                        with cpyrit.util.PassthroughIterator(essid, reader) as rstiter:
+                            for results in rstiter:
+                                cowpwriter.write(results)
+                                perfcounter += len(results)
+                                self.tell("Computed %i PMKs so far; %i PMKs per " \
+                                          "second\r" % (perfcounter.total, \
+                                                        perfcounter.avg), \
+                                          end=None, sep=None)
             except IOError:
                 self.tell("IOError while writing to stdout ignored.", \
                             stream=sys.stderr)
@@ -567,24 +567,24 @@ class Pyrit_CLI(object):
         for cur_essid in essids:
             perfcounter = cpyrit.util.PerformanceCounter()
             self.tell("Working on ESSID '%s'" % cur_essid)
-            dbiterator = cpyrit.util.StorageIterator(storage, cur_essid, \
-                                    yieldOldResults=cowpwriter is not None)
-            totalKeys = len(dbiterator)
-            for results in dbiterator:
-                perfcounter += len(results)
-                if cowpwriter is not None:
-                    try:
-                        cowpwriter.write(results)
-                    except IOError:
-                        self.tell("IOError while batchprocessing...")
-                        raise SystemExit
-                solvedKeys = dbiterator.keycount()
-                self.tell("Processed %i/%i workunits so far (%.1f%%); " \
-                          "%i PMKs per second.\r" % (solvedKeys, \
-                            totalKeys, \
-                            100.0 * solvedKeys / totalKeys, \
-                            perfcounter.avg), \
-                          end = None, sep = None)
+            with cpyrit.util.StorageIterator(storage, cur_essid, \
+                        yieldOldResults=cowpwriter is not None) as dbiterator:
+                totalKeys = len(dbiterator)
+                for results in dbiterator:
+                    perfcounter += len(results)
+                    if cowpwriter is not None:
+                        try:
+                            cowpwriter.write(results)
+                        except IOError:
+                            self.tell("IOError while batchprocessing...")
+                            raise SystemExit
+                    solvedKeys = dbiterator.keycount()
+                    self.tell("Processed %i/%i workunits so far (%.1f%%); " \
+                              "%i PMKs per second.\r" % (solvedKeys, \
+                                totalKeys, \
+                                100.0 * solvedKeys / totalKeys, \
+                                perfcounter.avg), \
+                              end = None, sep = None)
             self.tell("Processed all workunits for ESSID '%s'; " \
                       "%i PMKs per second." % \
                       (cur_essid, perfcounter.avg))
@@ -642,16 +642,16 @@ class Pyrit_CLI(object):
         for auth in ap.getCompletedAuthentications():
             crackers.append(cpyrit.pckttools.EAPOLCracker(auth))
         with cpyrit.util.FileWrapper(infile) as reader:
-            resultiterator = cpyrit.util.PassthroughIterator(essid, reader)
-            for results in resultiterator:
-                for cracker in crackers:
-                    cracker.enqueue(results)
-                perfcounter += len(results)
-                self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
-                            (perfcounter.total, perfcounter.avg),
-                          end=None, sep=None)
-                if any(cracker.solution is not None for cracker in crackers):
-                    break
+            with cpyrit.util.PassthroughIterator(essid, reader) as rstiter:
+                for results in rstiter:
+                    for cracker in crackers:
+                        cracker.enqueue(results)
+                    perfcounter += len(results)
+                    self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
+                                (perfcounter.total, perfcounter.avg),
+                              end=None, sep=None)
+                    if any(c.solution is not None for c in crackers):
+                        break
         self.tell("Tried %i PMKs so far; %i PMKs per second." % \
                     (perfcounter.total, perfcounter.avg))
         for cracker in crackers:
@@ -677,19 +677,19 @@ class Pyrit_CLI(object):
         perfcounter = cpyrit.util.PerformanceCounter()
         for auth in ap.getCompletedAuthentications():
             with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
-                dbiterator = cpyrit.util.StorageIterator(storage, essid)
-                self.tell("Attacking handshake with Station %s" % auth.station)
-                for idx, results in enumerate(dbiterator):
-                    cracker.enqueue(results)
-                    perfcounter += len(results)
-                    self.tell("Tried %i PMKs so far (%.1f%%); " \
-                              "%i PMKs per second.\r" % (perfcounter.total,
-                                100.0 * (idx+1) / len(storage.passwords),
-                                perfcounter.avg),
-                              end=None, sep=None)
-                    if cracker.solution:
-                        break
-                self.tell('')
+                with cpyrit.util.StorageIterator(storage, essid) as dbiter:
+                    self.tell("Attacking handshake with Station %s" % auth.station)
+                    for idx, results in enumerate(dbiter):
+                        cracker.enqueue(results)
+                        perfcounter += len(results)
+                        self.tell("Tried %i PMKs so far (%.1f%%); " \
+                                  "%i PMKs per second.\r" % (perfcounter.total,
+                                    100.0 * (idx+1) / len(storage.passwords),
+                                    perfcounter.avg),
+                                  end=None, sep=None)
+                        if cracker.solution:
+                            break
+                    self.tell('')
             if cracker.solution is not None:
                 self.tell("\nThe password is '%s'.\n" % cracker.solution)
                 break
@@ -776,137 +776,134 @@ class Pyrit_CLI(object):
 
     def benchmark(self, timeout=60):
         """Determine performance of available cores"""
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
-        # 'Burn-in' so that all modules are forced to load and buffers can
-        # calibrate to optimal size
-        self.tell("Calibrating...", end=None)
-        t = time.time()
-        while time.time() - t < 3:
-            cp.enqueue('foo', ['barbarbar']*1500)
-            cp.dequeue(block=False)
-        for r in cp:
-            pass
-        # Minimize scheduling overhead...
-        buffersize = max(min(int(cp.getPeakPerformance()), 50000), 500)
-        cp.resetStatistics()
-        cycler = itertools.cycle(('\\|/-'))
-        t = time.time()
-        perfcounter = cpyrit.util.PerformanceCounter()
-        while time.time() - t < timeout:
-            pws = ["barbarbar%s" % random.random() for i in xrange(buffersize)]
-            cp.enqueue('foo', pws)
-            r = cp.dequeue(block=False)
-            if r is not None:
-                perfcounter += len(r)
-            self.tell("\rRunning benchmark (%.1f PMKs/s)... %s" % \
-                    (perfcounter.avg, cycler.next()), end=None)
-        self.tell('')
-        for r in cp:
-            pass
-        self.tell("\nComputed %.2f PMKs/s total." % perfcounter.avg)
-        for i, core in enumerate(cp.cores):
-            if core.compTime > 0:
-                perf = core.resCount / core.compTime
-            else:
-                perf = 0
-            if core.callCount > 0 and perf > 0:
-                rtt = (core.resCount / core.callCount) / perf
-            else:
-                rtt = 0
-            self.tell("#%i: '%s': %.1f PMKs/s (RTT %.1f)" % \
-                        (i + 1, core.name, perf, rtt))
+        with cpyrit.cpyrit.CPyrit() as cp:
+            # 'Burn-in' so that all modules are forced to load and buffers can
+            # calibrate to optimal size
+            self.tell("Calibrating...", end=None)
+            t = time.time()
+            while time.time() - t < 3:
+                cp.enqueue('foo', ['barbarbar']*1500)
+                cp.dequeue(block=False)
+            for r in cp:
+                pass
+            # Minimize scheduling overhead...
+            bsize = max(min(int(cp.getPeakPerformance()), 50000), 500)
+            cp.resetStatistics()
+            cycler = itertools.cycle(('\\|/-'))
+            t = time.time()
+            perfcounter = cpyrit.util.PerformanceCounter()
+            while time.time() - t < timeout:
+                pws = ["barbarbar%s" % random.random() for i in xrange(bsize)]
+                cp.enqueue('foo', pws)
+                r = cp.dequeue(block=False)
+                if r is not None:
+                    perfcounter += len(r)
+                self.tell("\rRunning benchmark (%.1f PMKs/s)... %s" % \
+                        (perfcounter.avg, cycler.next()), end=None)
+            self.tell('')
+            for r in cp:
+                pass
+            self.tell("\nComputed %.2f PMKs/s total." % perfcounter.avg)
+            for i, core in enumerate(cp.cores):
+                if core.compTime > 0:
+                    perf = core.resCount / core.compTime
+                else:
+                    perf = 0
+                if core.callCount > 0 and perf > 0:
+                    rtt = (core.resCount / core.callCount) / perf
+                else:
+                    rtt = 0
+                self.tell("#%i: '%s': %.1f PMKs/s (RTT %.1f)" % \
+                            (i + 1, core.name, perf, rtt))
     benchmark.cli_options = ((), ())
 
     def selftest(self, timeout=60):
         """Test hardware to ensure it computes correct results"""
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
-        self.tell("Cores incorporated in the test:")
-        for i, core in enumerate(cp.cores):
-            self.tell("#%i:  '%s'" % (i+1, core))
-        self.tell("\nRunning selftest...")
-        workunits = []
-        t = time.time()
-        err = False
-        while time.time() - t < timeout and not err:
-            essid = random.choice(cpyrit.util.PMK_TESTVECTORS.keys())
-            pws = []
-            for i in xrange(random.randrange(10, 1000)):
-                pws.append(random.choice(cpyrit.util.PMK_TESTVECTORS[essid].keys()))
-            workunits.append((essid, pws))
-            cp.enqueue(essid, pws)
-            while True:
-                solvedPMKs = cp.dequeue(block=False)
-                if solvedPMKs is not None:
+        with cpyrit.cpyrit.CPyrit() as cp:
+            self.tell("Cores incorporated in the test:")
+            for i, core in enumerate(cp.cores):
+                self.tell("#%i:  '%s'" % (i+1, core))
+            self.tell("\nRunning selftest...")
+            workunits = []
+            t = time.time()
+            err = False
+            while time.time() - t < timeout and not err:
+                essid = random.choice(cpyrit.util.PMK_TESTVECTORS.keys())
+                pws = []
+                for i in xrange(random.randrange(10, 1000)):
+                    pws.append(random.choice(cpyrit.util.PMK_TESTVECTORS[essid].keys()))
+                workunits.append((essid, pws))
+                cp.enqueue(essid, pws)
+                while True:
+                    solvedPMKs = cp.dequeue(block=False)
+                    if solvedPMKs is not None:
+                        essid, pws = workunits.pop(0)
+                        for i, pw in enumerate(pws):
+                            if cpyrit.util.PMK_TESTVECTORS[essid][pw] != solvedPMKs[i]:
+                                err = True
+                                break
+                    if err or not solvedPMKs:
+                        break
+            if not err:
+                for solvedPMKs in cp:
                     essid, pws = workunits.pop(0)
                     for i, pw in enumerate(pws):
                         if cpyrit.util.PMK_TESTVECTORS[essid][pw] != solvedPMKs[i]:
                             err = True
                             break
-                if err or not solvedPMKs:
-                    break
-        if not err:
-            for solvedPMKs in cp:
-                essid, pws = workunits.pop(0)
-                for i, pw in enumerate(pws):
-                    if cpyrit.util.PMK_TESTVECTORS[essid][pw] != solvedPMKs[i]:
-                        err = True
-                        break
-        if err or len(workunits) != 0 or len(cp) != 0:
-            raise PyritRuntimeError("\n!!! WARNING !!!\nAt least some " \
-                                    "results seem to be invalid. This may " \
-                                    "be caused by a bug in Pyrit, faulty " \
-                                    "hardware or malicious network clients. " \
-                                    "Do not trust this installation...\n")
-        else:
-            self.tell("\nAll results verified. Your installation seems OK.")
+            if err or len(workunits) != 0 or len(cp) != 0:
+                raise PyritRuntimeError("\n!!! WARNING !!!\nAt least some " \
+                                        "results seem to be invalid. This may " \
+                                        "be caused by a bug in Pyrit, faulty " \
+                                        "hardware or malicious network clients. " \
+                                        "Do not trust this installation...\n")
+            else:
+                self.tell("\nAll results verified. Your installation seems OK.")
     selftest.cli_options = ((), ())
 
     def verify(self, storage, essid=None):
         """Verify 10% of the results by recomputation"""
-        from cpyrit import cpyrit
-        cp = cpyrit.CPyrit()
-        if essid is not None:
-            if essid not in storage.essids:
-                raise PyritRuntimeError("The ESSID '%s' is not found in the " \
-                                        "repository" % essid)
+        with cpyrit.cpyrit.CPyrit() as cp:
+            if essid is not None:
+                if essid not in storage.essids:
+                    raise PyritRuntimeError("The ESSID '%s' is not found in the " \
+                                            "repository" % essid)
+                else:
+                    essids = [essid]
             else:
-                essids = [essid]
-        else:
-            essids = storage.essids
-        err = False
-        perfcounter = cpyrit.util.PerformanceCounter()
-        workunits = []
-        for essid in essids:
-            self.tell("Verifying ESSID '%s'" % essid)
-            for key, results in storage.essids.iteritems(essid):
-                sample = random.sample(results, int(len(results) * 0.1))
-                if len(sample) > 0:
-                    pws, pmks = zip(*sample)
-                    workunits.append((essid, key, tuple(pmks)))
-                    cp.enqueue(essid, pws)
-                    solvedPMKs = cp.dequeue(block=False)
-                    if solvedPMKs is not None:
-                        perfcounter += len(solvedPMKs)
-                        testedEssid, testedKey, testedPMKs = workunits.pop(0)
-                        if testedPMKs != solvedPMKs:
-                            self.tell("Workunit %s for ESSID '%s' seems " \
-                                      "corrupted" % (testedKey, testedEssid), \
-                                      stream=sys.stderr)
-                            err = True
-                self.tell("Computed %i PMKs so far; %i PMKs per second.\r" % \
-                            (perfcounter.total, perfcounter.avg), \
-                          end=None, sep=None)
-            for solvedPMKs in cp:
-                perfcounter += len(solvedPMKs)
-                testedEssid, testedKey, testedPMKs = workunits.pop(0)
-                if testedPMKs != solvedPMKs:
-                    self.tell("Workunit %s for ESSID '%s' seems corrupted." % \
-                            (testedKey, testedEssid), stream=sys.stderr)
-                    err = True
+                essids = storage.essids
+            err = False
+            perfcounter = cpyrit.util.PerformanceCounter()
+            workunits = []
+            for essid in essids:
+                self.tell("Verifying ESSID '%s'" % essid)
+                for key, results in storage.essids.iteritems(essid):
+                    sample = random.sample(results, int(len(results) * 0.1))
+                    if len(sample) > 0:
+                        pws, pmks = zip(*sample)
+                        workunits.append((essid, key, tuple(pmks)))
+                        cp.enqueue(essid, pws)
+                        solvedPMKs = cp.dequeue(block=False)
+                        if solvedPMKs is not None:
+                            perfcounter += len(solvedPMKs)
+                            testedEssid, testedKey, testedPMKs = workunits.pop(0)
+                            if testedPMKs != solvedPMKs:
+                                self.tell("Workunit %s for ESSID '%s' seems " \
+                                          "corrupted" % (testedKey, testedEssid), \
+                                          stream=sys.stderr)
+                                err = True
+                    self.tell("Computed %i PMKs so far; %i PMKs per second.\r" % \
+                                (perfcounter.total, perfcounter.avg), \
+                              end=None, sep=None)
+                for solvedPMKs in cp:
+                    perfcounter += len(solvedPMKs)
+                    testedEssid, testedKey, testedPMKs = workunits.pop(0)
+                    if testedPMKs != solvedPMKs:
+                        self.tell("Workunit %s for ESSID '%s' seems corrupted." % \
+                                (testedKey, testedEssid), stream=sys.stderr)
+                        err = True
         self.tell("\nVerified %i PMKs with %i PMKs/s." % \
-                (perfcounter.total, perfcounter.avg))
+                    (perfcounter.total, perfcounter.avg))
         if err:
             raise PyritRuntimeError(
                     "\nAt least one workunit-file contains invalid results." \
