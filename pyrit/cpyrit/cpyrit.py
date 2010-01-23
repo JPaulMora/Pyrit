@@ -86,7 +86,7 @@ class Core(threading.Thread):
         """Min. number of passwords that get pulled in each call to _gather."""
         self.maxBufferSize = 20480
         """Max. number of passwords that get pulled in each call to _gather."""
-        #self.setDaemon(True)
+        self.setDaemon(True)
 
     def _testComputeFunction(self, i):
         if any((pmk != Core.TV_PMK for pmk in \
@@ -102,6 +102,7 @@ class Core(threading.Thread):
             if essid is not None:
                 if not self.isTested:
                     self._testComputeFunction(101)
+                    self.isTested = True
                 t = time.time()
                 res = self.solve(essid, pwlist)
                 assert len(res) == len(pwlist)
@@ -152,7 +153,7 @@ else:
             self.minBufferSize = 1024
             self.buffersize = 4096
             maxhwsize = reduce(lambda x,y: x*y, self.maxWorkSizes)
-            self.maxBufferSize = min(40960, maxhwsize)
+            self.maxBufferSize = min(61440, maxhwsize)
             self.start()
 
 

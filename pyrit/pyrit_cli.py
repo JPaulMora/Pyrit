@@ -134,7 +134,7 @@ class Pyrit_CLI(object):
             def new_f(*args, **kwds):
                 try:
                     import cpyrit.pckttools
-                except cpyrit.util.ScapyImportError:
+                except ImportError:
                     raise PyritRuntimeError("Scapy 2.x is required to use " \
                                             "Pyrit's analyze/attack " \
                                             "functions but seems to be " \

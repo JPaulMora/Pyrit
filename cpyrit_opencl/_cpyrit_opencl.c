@@ -238,8 +238,7 @@ ocldevice_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
     self->device = devices[dev_idx];
     PyMem_Free(devices);
     
-    self->dev_name = NULL;
-    self->dev_type = NULL;
+    self->dev_name = self->dev_type = self->dev_maxworksize = NULL;
     self->dev_ctx = NULL;
     self->dev_prog = NULL;
     self->dev_kernel = NULL;
@@ -403,6 +402,7 @@ ocldevice_dealloc(OpenCLDevice *self)
         clReleaseContext(self->dev_ctx);
     Py_XDECREF(self->dev_name);
     Py_XDECREF(self->dev_type);
+    Py_XDECREF(self->dev_maxworksize);
     PyObject_Del(self);
 }
 
