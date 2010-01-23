@@ -86,6 +86,7 @@ class GPUCleaner(clean):
                                 "files ('%s')" % sterrno
         clean.run(self)
 
+
 opencl_extension = Extension('cpyrit._cpyrit_opencl',
                     libraries = ['ssl', 'OpenCL', 'z'],
                     sources = ['_cpyrit_opencl.c'],
