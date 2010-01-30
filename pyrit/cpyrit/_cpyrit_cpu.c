@@ -24,6 +24,16 @@
 #include <openssl/sha.h>
 #include "_cpyrit_cpu.h"
 
+typedef struct {
+    uint32_t h0[4];
+    uint32_t h1[4];
+    uint32_t h2[4];
+    uint32_t h3[4];
+    uint32_t h4[4];
+    uint32_t constants[6][4];
+} fourwise_sha1_ctx;
+
+
 struct pmk_ctr
 {
     SHA_CTX ctx_ipad;
@@ -55,6 +65,7 @@ typedef struct
 static PyObject *PlatformString;
 static void (*prepare_pmk)(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
+static void (*fourwise_sha1hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
 
 static uint32_t sha1_constants[6][4];
 
@@ -254,6 +265,133 @@ static uint32_t sha1_constants[6][4];
     extern int sse2_sha1_update(uint32_t ctx[4*5+4*6], uint32_t data[4*16], uint32_t wrkbuf[4*80]) __attribute__ ((regparm(3)));
     extern int sse2_sha1_finalize(uint32_t ctx[4*5+4*6], uint32_t digests[4*5]) __attribute__ ((regparm(2)));
 
+    static void
+    fourwise_sha1_init(fourwise_sha1_ctx* ctx)
+    {
+        int i;
+        
+        for (i = 0; i < 4; i++)
+        {
+            /* SHA1 magic values */
+            ctx->h0[i] = 0x67452301;
+            ctx->h1[i] = 0xEFCDAB89;
+            ctx->h2[i] = 0x98BADCFE;
+            ctx->h3[i] = 0x10325476;
+            ctx->h4[i] = 0xC3D2E1F0;
+            ctx->constants[0][i] = 0x5A827999;  /* const_stage0 */
+            ctx->constants[1][i] = 0x6ED9EBA1;  /* const_stage1 */
+            ctx->constants[2][i] = 0x8F1BBCDC;  /* const_stage2 */
+            ctx->constants[3][i] = 0xCA62C1D6;  /* const_stage3 */
+            ctx->constants[4][i] = 0xFF00FF00;  /* const_ff00   */
+            ctx->constants[5][i] = 0x00FF00FF;  /* const_00ff   */
+        }
+    }
+
+    static void
+    fourwise_sha1_round(fourwise_sha1_ctx* ctx, uint32_t message_blocks[4][16])
+    {
+        int i, j;
+        uint32_t buffer[16][4] __attribute__ ((aligned (16)));
+        uint32_t wrkbuf[4*80] __attribute__ ((aligned (16)));
+    
+        for (i = 0; i < 4; i++)
+            for (j = 0; j < 16; j++)
+                buffer[j][i] = message_blocks[i][j];
+
+        sse2_sha1_update((uint32_t*)ctx, (uint32_t*)buffer, wrkbuf);
+
+    }
+
+    static void
+    fourwise_sha1_finalize(fourwise_sha1_ctx ctx, uint32_t digests[4][5])
+    {
+        int i, j;
+        uint32_t buffer[16][4] __attribute__ ((aligned (16)));
+        
+        sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&buffer);
+        
+        for (i = 0; i < 4; i++)
+            for (j = 0; j < 5; j++)
+                digests[i][j] = buffer[j][i];
+
+    }
+
+    static void
+    fourwise_sha1hmac_sse2(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
+    {
+        int i, j;
+        uint32_t blockbuffer[4][16], digests[4][5];
+        fourwise_sha1_ctx ctx;
+        
+        key_length = key_length <= 64 ? key_length : 64;
+        
+        /* Inner hash = IPAD ^ K // message */
+        fourwise_sha1_init(&ctx);
+        
+        /* Process IPAD ^ K */
+        memset(blockbuffer, 0, sizeof(blockbuffer));
+        for (i = 0; i < 4; i++)
+        {
+            memcpy(&blockbuffer[i][0], &keys[key_length * i], key_length);
+            for (j = 0; j < 16; j++)
+                blockbuffer[i][j] ^= 0x36363636;
+        }
+        fourwise_sha1_round(&ctx, blockbuffer);
+
+        /* Process full blocks of the message */
+        for (i = 0; i < message_length / 64; i++)
+        {
+            for (j = 0; j < 4; j++)
+                memcpy(&blockbuffer[j][0], &message[64 * i], 64);
+            fourwise_sha1_round(&ctx, blockbuffer);
+        }
+        /* Process last block, including terminator, padding and (maybe) message-length */
+        memset(blockbuffer, 0, sizeof(blockbuffer));
+        for (j = 0; j < 4; j++)
+        {
+            memcpy(&blockbuffer[j][0], &message[64 * i], message_length % 64);
+            ((unsigned char*)&blockbuffer[j])[message_length % 64] = 0x80;
+        }
+        if (message_length % 64 <= 56)
+        {
+            for (j = 0; j < 4; j++)
+                PUT_BE((64 + message_length) * 8, ((unsigned char*)&blockbuffer[j]), 60);
+            fourwise_sha1_round(&ctx, blockbuffer);
+        } else {
+            /* One extra block needed if the last block was too big to include the message-length */
+            fourwise_sha1_round(&ctx, blockbuffer);
+            memset(blockbuffer, 0, sizeof(blockbuffer));
+            for (j = 0; j < 4; j++)
+                PUT_BE((64 + message_length) * 8, ((unsigned char*)&blockbuffer[j]), 60);
+            fourwise_sha1_round(&ctx, blockbuffer);
+        }
+        fourwise_sha1_finalize(ctx, digests);
+
+        /* Outer hash = OPAD ^ K // inner hash */
+        fourwise_sha1_init(&ctx);
+        memset(blockbuffer, 0, sizeof(blockbuffer));
+        for (i = 0; i < 4; i++)
+        {
+            memcpy(&blockbuffer[i][0], &keys[key_length * i], key_length);
+            for (j = 0; j < 16; j++)
+                blockbuffer[i][j] ^= 0x5C5C5C5C;
+        }
+        fourwise_sha1_round(&ctx, blockbuffer);
+
+        memset(blockbuffer, 0, sizeof(blockbuffer));
+        for (i = 0; i < 4; i++)
+        {
+            for (j = 0; j < 5; j++)
+                blockbuffer[i][j] = digests[i][j];
+            blockbuffer[i][ 5] = 0x80;
+            blockbuffer[i][15] = 0xA0020000; /* (64 + 20) * 8 */
+        }
+        fourwise_sha1_round(&ctx, blockbuffer);
+        
+        fourwise_sha1_finalize(ctx, (uint32_t*)hmacs);
+    }
+
+
     static int
     finalize_pmk_sse2(struct pmk_ctr *ctr)
     {
@@ -324,7 +462,6 @@ static uint32_t sha1_constants[6][4];
 
         return 4;
     }
-
 #endif // COMPILE_SSE2
 
 static void
@@ -393,6 +530,17 @@ finalize_pmk_openssl(struct pmk_ctr *ctr)
     
     return 1;
 }
+
+static void
+fourwise_sha1hmac_openssl(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
+{
+    int i;
+    
+    for (i = 0; i < 4; i++)
+        HMAC(EVP_sha1(), &keys[i * key_length], key_length, message, message_length, &hmacs[i * 20], NULL);
+
+}
+
 
 static PyObject *
 cpyrit_getPlatform(PyObject *self, PyObject *args)
@@ -534,16 +682,15 @@ eapolcracker_dealloc(EAPOLCracker *self)
     PyObject_Del(self);
 }
 
-
 static PyObject *
 eapolcracker_solve(EAPOLCracker *self, PyObject *args)
 {
     PyObject *result_seq, *result_obj, **passwd_objbuffer, **t_obj, \
              *passwd_obj, *pmk_obj, *solution_obj;
     char *pmk;
-    unsigned char *pmk_buffer, *t, mic_key[20], eapol_mic[20];
+    unsigned char *pmk_buffer, *t, mics[4][20], eapol_mic_keys[4][16];
     Py_ssize_t buffersize;
-    long i, itemcount;
+    long i, j, itemcount;
 
     if (!PyArg_ParseTuple(args, "O", &result_seq))
         return NULL;
@@ -564,7 +711,7 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     {
         if (buffersize <= itemcount)
         {
-            buffersize += 50000;
+            buffersize += 50000; /* Step-size must be aligned to four entries (SSE2-path) */
             t = PyMem_Realloc(pmk_buffer, buffersize*32);
             if (!t)
             {
@@ -620,19 +767,22 @@ eapolcracker_solve(EAPOLCracker *self, PyObject *args)
     if (itemcount > 0)
     {
         Py_BEGIN_ALLOW_THREADS;
-        for (i = 0; i < itemcount; i++)
+        i = 0;
+        do
         {
-            HMAC(EVP_sha1(), &pmk_buffer[i*32], 32, self->pke, 100, mic_key, NULL);
+            fourwise_sha1hmac(self->pke, 100, &pmk_buffer[i*32], 32, (unsigned char*)&mics);
+            for (j = 0; j < 4; j++)
+                memcpy(eapol_mic_keys[j], mics[j], 16);
             if (self->keyscheme == HMAC_MD5_RC4)
-                HMAC(EVP_md5(), mic_key, 16, self->eapolframe, self->eapolframe_size, eapol_mic, NULL);
+                for (j = 0; j < 4; j++)
+                    HMAC(EVP_md5(), eapol_mic_keys[j], 16, self->eapolframe, self->eapolframe_size, mics[j], NULL);
             else
-                HMAC(EVP_sha1(), mic_key, 16, self->eapolframe, self->eapolframe_size, eapol_mic, NULL);
-            if (memcmp(eapol_mic, self->keymic, 16) == 0)
-            {
-                solution_obj = passwd_objbuffer[i];
-                break;
-            }
-        }
+                fourwise_sha1hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&eapol_mic_keys, 16, (unsigned char*)&mics);
+            for (j = 0; j < 4; j++)
+                if (memcmp(&mics[j], self->keymic, 16) == 0)
+                    solution_obj = passwd_objbuffer[i+j];
+        i += 4;
+        } while (i < itemcount && solution_obj == NULL);
         Py_END_ALLOW_THREADS;
     }
     if (!solution_obj)
@@ -714,10 +864,8 @@ errout:
     return NULL;
 
 }
-/*
-def _genCowpEntries(self, res):
-    return ''.join(map(''.join, [(chr(len(passwd) + 32 + 1), passwd, pmk) for passwd, pmk in res]))
-*/
+
+
 static PyObject *
 util_gencowpentries(PyObject *self, PyObject *args)
 {
@@ -806,6 +954,36 @@ util_gencowpentries(PyObject *self, PyObject *args)
     PyMem_Free(cowpbuffer);
     return NULL;
 }
+
+static PyObject *
+cpyrit_grouper(PyObject *self, PyObject *args)
+{
+    PyObject *result;
+    int i, stringsize, groupsize;
+    char *string;
+    
+    if (!PyArg_ParseTuple(args, "s#i", &string, &stringsize, &groupsize))
+        return NULL;
+
+    if (stringsize % groupsize != 0)
+    {
+        PyErr_SetString(PyExc_ValueError, "Invalid size of input string.");
+        return NULL;
+    }
+    
+    result = PyTuple_New(stringsize / groupsize);
+    if (!result)
+    {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    for (i = 0; i < stringsize / groupsize; i++)
+        PyTuple_SetItem(result, i, PyString_FromStringAndSize(&string[i * groupsize], groupsize));
+
+    return result;
+
+}
+    
 
 static PyMethodDef CPUDevice_methods[] =
 {
@@ -963,6 +1141,7 @@ static PyTypeObject CowpattyFile_type = {
 
 static PyMethodDef CPyritCPUMethods[] = {
     {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine CPU-type/name"},
+    {"grouper", cpyrit_grouper, METH_VARARGS, "Group a large string into a tuple of strings of equal size"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -974,6 +1153,7 @@ static void pathconfig(void)
             PlatformString = PyString_FromString("VIA Padlock");
             prepare_pmk = prepare_pmk_padlock;
             finalize_pmk = finalize_pmk_padlock;
+            fourwise_sha1hmac = fourwise_sha1hmac_openssl;
             return;
         }
     #endif
@@ -983,6 +1163,7 @@ static void pathconfig(void)
             PlatformString = PyString_FromString("SSE2");
             prepare_pmk = prepare_pmk_openssl;
             finalize_pmk = finalize_pmk_sse2;
+            fourwise_sha1hmac = fourwise_sha1hmac_sse2;
             return;
         }
     #endif 
@@ -990,6 +1171,7 @@ static void pathconfig(void)
     PlatformString = PyString_FromString("x86");
     prepare_pmk = prepare_pmk_openssl;
     finalize_pmk = finalize_pmk_openssl;
+    fourwise_sha1hmac = fourwise_sha1hmac_openssl;
 }
 
 PyMODINIT_FUNC

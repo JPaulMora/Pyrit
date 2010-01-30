@@ -37,8 +37,14 @@
 
 #if (defined(__i386__) || defined(__x86_64__))
     #define COMPILE_SSE2
+    #define PUT_BE(n,b,i)                            \
+    {                                                       \
+        (b)[(i)    ] = (unsigned char) ( (n) >> 24 );       \
+        (b)[(i) + 1] = (unsigned char) ( (n) >> 16 );       \
+        (b)[(i) + 2] = (unsigned char) ( (n) >>  8 );       \
+        (b)[(i) + 3] = (unsigned char) ( (n)       );       \
+    }
 #endif
 
 #define HMAC_MD5_RC4 0
 #define HMAC_SHA1_AES 1
-

@@ -45,7 +45,7 @@ import time
 import threading
 
 import _cpyrit_cpu
-from _cpyrit_cpu import VERSION
+from _cpyrit_cpu import VERSION, grouper
 import cpyrit
 import storage
 
@@ -432,16 +432,22 @@ class AsyncFileWriter(threading.Thread):
 class PerformanceCounter(object):
     def __init__(self, window=30.0):
         self.window = window
-        self.datapoints = [(time.time(), 0.0)]
-        self.t = 0
+        self.datapoints = [[time.time(), 0.0]]
+        self.total = 0
 
     def addRelativePoint(self, p):
-        self.t += p
-        self.datapoints.append((time.time(), p))
+        self.total += p
+        t = time.time()
+        if len(self.datapoints) < 1 \
+          or t - self.datapoints[-1][0] > 0.5 \
+          or self.datapoints[-1][1] == 0.0:
+            self.datapoints.append([time.time(), p])
+        else:
+            self.datapoints[-1][1] += p
         self.__purge()
 
     def addAbsolutePoint(self, p):
-        self.addRelativePoint(p - self.t)
+        self.addRelativePoint(p - self.total)
 
     def __iadd__(self, p):
         self.addRelativePoint(p)
@@ -449,7 +455,8 @@ class PerformanceCounter(object):
 
     def __purge(self):
         t = time.time()
-        self.datapoints = filter(lambda x: (t - x[0]) < self.window, self.datapoints)
+        if t - self.datapoints[0][0] > self.window:
+            self.datapoints = filter(lambda x: (t - x[0]) < self.window, self.datapoints)
 
     def getAvg(self):
         self.__purge()
@@ -458,14 +465,10 @@ class PerformanceCounter(object):
         t = self.datapoints[-1][0] - self.datapoints[0][0]
         return sum(x[1] for x in self.datapoints) / t
 
-    def getTotal(self):
-        return self.t
-
     def __str__(self):
         return str(self.value())
 
     avg = property(fget=getAvg)
-    total = property(fget=getTotal)
 
 
 PMK_TESTVECTORS = {
