@@ -757,16 +757,19 @@ class Pyrit_CLI(object):
                 with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
                     self.tell("Attacking handshake with " \
                               "Station %s..." % auth.station)
-                    for results in cowreader:
+                    for i, results in enumerate(cowreader):
                         cracker.enqueue(results)
                         perfcounter += len(results)
-                        self.tell("Tried %i PMKs so far; " \
-                                  "%i PMKs per second.\r" % (perfcounter.total,
-                                                             perfcounter.avg),
-                                  end=None, sep=None)
+                        if i % 20 == 0:
+                            self.tell("Tried %i PMKs so far; " \
+                                      "%i PMKs per second.\r" % \
+                                        (perfcounter.total, perfcounter.avg),
+                                      end=None, sep=None)
                         if cracker.solution is not None:
                             break
-                    self.tell('')
+                    self.tell("Tried %i PMKs so far; " \
+                              "%i PMKs per second.\r" % \
+                                (perfcounter.total, perfcounter.avg))
                 if cracker.solution is not None:
                     self.tell("\nThe password is '%s'.\n" % cracker.solution)
                     break

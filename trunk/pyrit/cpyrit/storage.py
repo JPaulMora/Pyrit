@@ -124,10 +124,7 @@ class BasePYR_Buffer(object):
                 md.update(''.join(pwbuffer))
             if md.digest() != digest:
                 raise IOError("Digest check failed")
-            results = []
-            for i in xrange(numElems):
-                results.append((pwbuffer[i], pmkbuffer[i*32:i*32+32]))
-            self.results = tuple(results)
+            self.results = zip(pwbuffer, util.grouper(pmkbuffer, 32))
 
 
 class PYRT_Buffer(ResultCollection, BasePYR_Buffer):
