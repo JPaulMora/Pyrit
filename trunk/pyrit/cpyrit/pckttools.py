@@ -408,7 +408,17 @@ class PacketParser(object):
             sta.auths.append(auth)
 
         if auth.version is None:
-            auth.version = wpakey_pckt.keyscheme
+            # WPAKeys 'should' set HMAC_MD5_RC4, RSNKeys HMAC_SHA1_AES
+            # However we've seen cases where a WPAKey-packet sets
+            # HMAC_SHA1_AES in it's KeyInfo-field (see issue #111)
+            if wpakey_pckt.isFlagSet('KeyInfo', EAPOL_WPAKey.keyscheme):
+                auth.version = EAPOL_WPAKey.keyscheme
+            elif wpakey_pckt.isFlagSet('KeyInfo', EAPOL_RSNKey.keyscheme):
+                auth.version = EAPOL_RSNKey.keyscheme
+            else:
+                # Fallback to default, in case the KeyScheme is never set
+                # Should not happen...
+                auth.version = wpakey_pckt.keyscheme
 
         # Frame 1: pairwise set, install unset, ack set, mic unset
         # results in ANonce
