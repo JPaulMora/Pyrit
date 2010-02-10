@@ -813,7 +813,7 @@ util_unpackcowpentries(PyObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "s#", &string, &stringsize))
         return NULL;
         
-    if (stringsize < 1+8+32)
+    if (stringsize < 1+8+32 || string[0] > stringsize)
     {
         PyErr_SetString(PyExc_ValueError, "Input-string is too short.");
         return NULL;
