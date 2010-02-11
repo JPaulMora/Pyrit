@@ -918,10 +918,18 @@ if 'sqlalchemy' in sys.modules:
         def __delitem__(self, essid):
             """Delete the given ESSID and all results from the storage."""
             with SessionContext(self.SessionClass) as session:
-                q = session.query(ESSID_DBObject)
-                essid_obj = q.filter(ESSID_DBObject.essid == essid).one()
-                session.delete(essid_obj)
-                session.commit()
+                essid_query = session.query(ESSID_DBObject)
+                essid_query = essid_query.filter(ESSID_DBObject.essid == essid)
+                essid_obj = essid_query.one()
+                res_query = session.query(PYR2_DBObject)
+                res_query = res_query.filter(PYR2_DBObject.essid == essid_obj)
+                res_query.delete(synchronize_session=False)
+                cnt = essid_query.delete(synchronize_session=False)
+                if cnt > 1:
+                    raise ValueError("Query should not have affected more " \
+                                     "than one row.")
+                else:
+                    session.commit()
 
         def containskey(self, essid, key):
             """Return True if the given (ESSID,key) combination is stored."""
