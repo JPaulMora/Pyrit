@@ -30,9 +30,8 @@ typedef struct {
     uint32_t h2[4];
     uint32_t h3[4];
     uint32_t h4[4];
-    uint32_t constants[6][4];
+    uint32_t cst[6][4];
 } fourwise_sha1_ctx;
-
 
 struct pmk_ctr
 {
@@ -46,7 +45,7 @@ typedef struct
 {
     PyObject_HEAD
     char keyscheme;
-    unsigned char pke[100];
+    unsigned char *pke;
     unsigned char keymic[16];
     size_t eapolframe_size;
     unsigned char *eapolframe;
@@ -62,12 +61,35 @@ typedef struct
     PyObject_HEAD
 } CowpattyFile;
 
+typedef struct
+{
+    PyObject_HEAD
+    unsigned char *buffer, *current_ptr;
+    Py_ssize_t buffersize;
+    int current_idx, itemcount;
+} CowpattyResult;
+
 static PyObject *PlatformString;
+static PyTypeObject CowpattyResult_type;
+
 static void (*prepare_pmk)(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
 static void (*fourwise_sha1hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
+static unsigned char* (*fourwise_sha1hmac_prepare)(unsigned char* msg, int msg_len) = NULL;
 
-static uint32_t sha1_constants[6][4];
+#ifdef COMPILE_SSE2
+    extern int detect_sse2(void);
+    extern int sse2_sha1_update(uint32_t ctx[4*5+4*6], uint32_t data[4*16], uint32_t wrkbuf[4*80]) __attribute__ ((regparm(3)));
+    extern int sse2_sha1_finalize(uint32_t ctx[4*5+4*6], uint32_t digests[4*5]) __attribute__ ((regparm(2)));
+#endif
+
+/*
+    ###########################################################################
+    
+    CPUDevice
+    
+    ###########################################################################
+*/
 
 #ifdef COMPILE_PADLOCK
     struct xsha1_ctx {
@@ -259,139 +281,7 @@ static uint32_t sha1_constants[6][4];
 
 #endif // COMPILE_PADLOCK
 
-
 #ifdef COMPILE_SSE2
-    extern int detect_sse2(void);
-    extern int sse2_sha1_update(uint32_t ctx[4*5+4*6], uint32_t data[4*16], uint32_t wrkbuf[4*80]) __attribute__ ((regparm(3)));
-    extern int sse2_sha1_finalize(uint32_t ctx[4*5+4*6], uint32_t digests[4*5]) __attribute__ ((regparm(2)));
-
-    static void
-    fourwise_sha1_init(fourwise_sha1_ctx* ctx)
-    {
-        int i;
-        
-        for (i = 0; i < 4; i++)
-        {
-            /* SHA1 magic values */
-            ctx->h0[i] = 0x67452301;
-            ctx->h1[i] = 0xEFCDAB89;
-            ctx->h2[i] = 0x98BADCFE;
-            ctx->h3[i] = 0x10325476;
-            ctx->h4[i] = 0xC3D2E1F0;
-            ctx->constants[0][i] = 0x5A827999;  /* const_stage0 */
-            ctx->constants[1][i] = 0x6ED9EBA1;  /* const_stage1 */
-            ctx->constants[2][i] = 0x8F1BBCDC;  /* const_stage2 */
-            ctx->constants[3][i] = 0xCA62C1D6;  /* const_stage3 */
-            ctx->constants[4][i] = 0xFF00FF00;  /* const_ff00   */
-            ctx->constants[5][i] = 0x00FF00FF;  /* const_00ff   */
-        }
-    }
-
-    static void
-    fourwise_sha1_round(fourwise_sha1_ctx* ctx, uint32_t message_blocks[4][16])
-    {
-        int i, j;
-        uint32_t buffer[16][4] __attribute__ ((aligned (16)));
-        uint32_t wrkbuf[4*80] __attribute__ ((aligned (16)));
-    
-        for (i = 0; i < 4; i++)
-            for (j = 0; j < 16; j++)
-                buffer[j][i] = message_blocks[i][j];
-
-        sse2_sha1_update((uint32_t*)ctx, (uint32_t*)buffer, wrkbuf);
-
-    }
-
-    static void
-    fourwise_sha1_finalize(fourwise_sha1_ctx ctx, uint32_t digests[4][5])
-    {
-        int i, j;
-        uint32_t buffer[16][4] __attribute__ ((aligned (16)));
-        
-        sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&buffer);
-        
-        for (i = 0; i < 4; i++)
-            for (j = 0; j < 5; j++)
-                digests[i][j] = buffer[j][i];
-
-    }
-
-    static void
-    fourwise_sha1hmac_sse2(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
-    {
-        int i, j;
-        uint32_t blockbuffer[4][16], digests[4][5];
-        fourwise_sha1_ctx ctx;
-        
-        key_length = key_length <= 64 ? key_length : 64;
-        
-        /* Inner hash = IPAD ^ K // message */
-        fourwise_sha1_init(&ctx);
-        
-        /* Process IPAD ^ K */
-        memset(blockbuffer, 0, sizeof(blockbuffer));
-        for (i = 0; i < 4; i++)
-        {
-            memcpy(&blockbuffer[i][0], &keys[key_length * i], key_length);
-            for (j = 0; j < 16; j++)
-                blockbuffer[i][j] ^= 0x36363636;
-        }
-        fourwise_sha1_round(&ctx, blockbuffer);
-
-        /* Process full blocks of the message */
-        for (i = 0; i < message_length / 64; i++)
-        {
-            for (j = 0; j < 4; j++)
-                memcpy(&blockbuffer[j][0], &message[64 * i], 64);
-            fourwise_sha1_round(&ctx, blockbuffer);
-        }
-        /* Process last block, including terminator, padding and (maybe) message-length */
-        memset(blockbuffer, 0, sizeof(blockbuffer));
-        for (j = 0; j < 4; j++)
-        {
-            memcpy(&blockbuffer[j][0], &message[64 * i], message_length % 64);
-            ((unsigned char*)&blockbuffer[j])[message_length % 64] = 0x80;
-        }
-        if (message_length % 64 <= 56)
-        {
-            for (j = 0; j < 4; j++)
-                PUT_BE((64 + message_length) * 8, ((unsigned char*)&blockbuffer[j]), 60);
-            fourwise_sha1_round(&ctx, blockbuffer);
-        } else {
-            /* One extra block needed if the last block was too big to include the message-length */
-            fourwise_sha1_round(&ctx, blockbuffer);
-            memset(blockbuffer, 0, sizeof(blockbuffer));
-            for (j = 0; j < 4; j++)
-                PUT_BE((64 + message_length) * 8, ((unsigned char*)&blockbuffer[j]), 60);
-            fourwise_sha1_round(&ctx, blockbuffer);
-        }
-        fourwise_sha1_finalize(ctx, digests);
-
-        /* Outer hash = OPAD ^ K // inner hash */
-        fourwise_sha1_init(&ctx);
-        memset(blockbuffer, 0, sizeof(blockbuffer));
-        for (i = 0; i < 4; i++)
-        {
-            memcpy(&blockbuffer[i][0], &keys[key_length * i], key_length);
-            for (j = 0; j < 16; j++)
-                blockbuffer[i][j] ^= 0x5C5C5C5C;
-        }
-        fourwise_sha1_round(&ctx, blockbuffer);
-
-        memset(blockbuffer, 0, sizeof(blockbuffer));
-        for (i = 0; i < 4; i++)
-        {
-            for (j = 0; j < 5; j++)
-                blockbuffer[i][j] = digests[i][j];
-            blockbuffer[i][ 5] = 0x80;
-            blockbuffer[i][15] = 0xA0020000; /* (64 + 20) * 8 */
-        }
-        fourwise_sha1_round(&ctx, blockbuffer);
-        
-        fourwise_sha1_finalize(ctx, (uint32_t*)hmacs);
-    }
-
-
     static int
     finalize_pmk_sse2(struct pmk_ctr *ctr)
     {
@@ -405,7 +295,16 @@ static uint32_t sha1_constants[6][4];
 
         memset(e1_buffer, 0, sizeof(e1_buffer));
         memset(e2_buffer, 0, sizeof(e2_buffer));
-        memcpy(&sha1_ctx[4*5], sha1_constants, sizeof(sha1_constants));
+
+        for (i = 0; i < 4; i++)
+        {
+            sha1_ctx[4*5 + 0*4 + i] = 0x5A827999; /* const_stage0 */
+            sha1_ctx[4*5 + 1*4 + i] = 0x6ED9EBA1; /* const_stage1 */
+            sha1_ctx[4*5 + 2*4 + i] = 0x8F1BBCDC; /* const_stage2 */
+            sha1_ctx[4*5 + 3*4 + i] = 0xCA62C1D6; /* const_stage3 */
+            sha1_ctx[4*5 + 4*4 + i] = 0xFF00FF00; /* const_ff00   */
+            sha1_ctx[4*5 + 5*4 + i] = 0x00FF00FF; /* const_00ff   */
+        }
 
         // Interleave four ipads, opads and first-round-PMKs to local buffers
         for (i = 0; i < 4; i++)
@@ -531,28 +430,12 @@ finalize_pmk_openssl(struct pmk_ctr *ctr)
     return 1;
 }
 
-static void
-fourwise_sha1hmac_openssl(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
-{
-    int i;
-    
-    for (i = 0; i < 4; i++)
-        HMAC(EVP_sha1(), &keys[i * key_length], key_length, message, message_length, &hmacs[i * 20], NULL);
-
-}
-
+PyDoc_STRVAR(CPUDevice_solve__doc__, 
+    "solve(essid, passwords) -> tuple\n\n"
+    "Calculate PMKs from ESSID and iterable of strings.");
 
 static PyObject *
-cpyrit_getPlatform(PyObject *self, PyObject *args)
-{
-    if (!PyArg_ParseTuple(args, ""))
-        return NULL;
-    Py_INCREF(PlatformString);
-    return PlatformString;
-}
-
-static PyObject *
-cpyrit_solve(PyObject *self, PyObject *args)
+CPUDevice_solve(PyObject *self, PyObject *args)
 {
     unsigned char *essid, *passwd;
     PyObject *passwd_seq, *passwd_obj, *essid_obj, *result;
@@ -627,14 +510,172 @@ cpyrit_solve(PyObject *self, PyObject *args)
     return result;
 }
 
+
+/*
+    ###########################################################################
+    
+    EAPOLCracker
+    
+    ###########################################################################
+*/
+
+#ifdef COMPILE_SSE2
+    static unsigned char*
+    fourwise_sha1hmac_prepare_sse2(unsigned char* msg, int msg_len)
+    {
+        int buffer_len, i, j, k;
+        unsigned char *retval, *buffer, *prepared_msg;
+                
+        /* Align length to 56 bytes for for message, 1 for terminator, 8 for size */
+        buffer_len = msg_len + (64 - ((msg_len + 1 + 8) % 64)) + 1 + 8;
+        buffer = PyMem_Malloc(buffer_len);
+        if (!buffer)
+            return NULL;
+        
+        /* Terminate msg, total length = 64 bytes for IPAD + sizeof(msg) in bits */
+        memset(buffer, 0, buffer_len);
+        memcpy(buffer, msg, msg_len);
+        buffer[msg_len] = 0x80;
+        PUT_BE((64 + msg_len) * 8, buffer, buffer_len - 4);
+        
+        retval = PyMem_Malloc(buffer_len * 4 + 16);
+        if (!retval)
+        {
+            PyMem_Free(buffer);
+            return NULL;
+        }        
+        
+        /* Interleave buffer four times for SSE2-processing */
+        prepared_msg = retval + 16 - ((int)retval % 16);
+        for (i = 0; i < buffer_len / 64; i++)
+            for (j = 0; j < 16; j++)
+                for (k = 0; k < 4; k++)
+                    ((uint32_t*)prepared_msg)[(i * 64) + (j * 4) + k] = ((uint32_t*)buffer)[(i * 16) + j];
+                
+        PyMem_Free(buffer);
+        return retval;
+    
+    }
+
+    static inline void
+    fourwise_sha1_init(fourwise_sha1_ctx* ctx)
+    {
+        int i;
+        
+        for (i = 0; i < 4; i++)
+        {
+            ctx->h0[i] = 0x67452301;      /* magic start value */
+            ctx->h1[i] = 0xEFCDAB89;      /* magic start value */
+            ctx->h2[i] = 0x98BADCFE;      /* magic start value */
+            ctx->h3[i] = 0x10325476;      /* magic start value */
+            ctx->h4[i] = 0xC3D2E1F0;      /* magic start value */
+            ctx->cst[0][i] = 0x5A827999;  /* const_stage0 */
+            ctx->cst[1][i] = 0x6ED9EBA1;  /* const_stage1 */
+            ctx->cst[2][i] = 0x8F1BBCDC;  /* const_stage2 */
+            ctx->cst[3][i] = 0xCA62C1D6;  /* const_stage3 */
+            ctx->cst[4][i] = 0xFF00FF00;  /* const_ff00   */
+            ctx->cst[5][i] = 0x00FF00FF;  /* const_00ff   */
+        }
+    }
+
+    static void
+    fourwise_sha1hmac_sse2(unsigned char* prepared_msg, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
+    {
+        int i, j;
+        uint32_t buffer[16];
+        uint32_t wrkbuf[4*80]        __attribute__ ((aligned (16)));
+        uint32_t blockbuffer[16][4]  __attribute__ ((aligned (16)));
+        uint32_t digests[4][5];
+        fourwise_sha1_ctx ctx;
+        
+        key_length = key_length <= 64 ? key_length : 64;
+        prepared_msg = prepared_msg + 16 - ((int)prepared_msg % 16);
+        message_length = message_length + (64 - ((message_length + 1 + 8) % 64)) + 1 + 8;
+        
+        /* Step 1: Inner hash = IPAD ^ K // message */
+        fourwise_sha1_init(&ctx);
+        
+        /* Process IPAD ^ K */
+        for (i = 0; i < 4; i++)
+        {
+            memcpy(&buffer, &keys[key_length * i], key_length);
+            memset(&((unsigned char*)buffer)[key_length], 0, sizeof(buffer) - key_length);
+            for (j = 0; j < 16; j++)
+                blockbuffer[j][i] = buffer[j] ^ 0x36363636;
+        }
+        sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
+        
+        for (i = 0; i < message_length / 64; i++)
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)(prepared_msg + 64 * 4 * i), wrkbuf);
+
+        /* First hash done */
+        sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&blockbuffer);
+        for (i = 0; i < 4; i++)
+            for (j = 0; j < 5; j++)
+                digests[i][j] = blockbuffer[j][i];
+        
+        /* Step 2: Outer hash = OPAD ^ K // inner hash */
+        fourwise_sha1_init(&ctx);
+        for (i = 0; i < 4; i++)
+        {
+            memcpy(&buffer, &keys[key_length * i], key_length);
+            memset(&((unsigned char*)buffer)[key_length], 0, sizeof(buffer) - key_length);
+            for (j = 0; j < 16; j++)
+                blockbuffer[j][i] = buffer[j] ^ 0x5C5C5C5C;
+        }
+        sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
+
+        memset(blockbuffer, 0, sizeof(blockbuffer));
+        for (i = 0; i < 4; i++)
+        {
+            for (j = 0; j < 5; j++)
+                blockbuffer[j][i] = digests[i][j];
+            blockbuffer[ 5][i] = 0x80;       /* Terminator bit */
+            blockbuffer[15][i] = 0xA0020000; /* size = (64 + 20) * 8 */
+        }
+        sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
+
+        /* Second hash == HMAC */
+        sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&blockbuffer);
+        for (i = 0; i < 4; i++)
+            for (j = 0; j < 5; j++)
+                ((uint32_t*)hmacs)[i * 5 + j] = blockbuffer[j][i];
+
+    }
+    
+#endif // COMPILE_SSE2
+
+static unsigned char*
+fourwise_sha1hmac_prepare_openssl(unsigned char* msg, int msg_len)
+{
+    unsigned char* prep_msg;
+    
+    prep_msg = PyMem_Malloc(msg_len);
+    if (!prep_msg)
+        return NULL;
+    
+    memcpy(prep_msg, msg, msg_len);
+    
+    return prep_msg;
+}
+
+static void
+fourwise_sha1hmac_openssl(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
+{
+    int i;
+    
+    for (i = 0; i < 4; i++)
+        HMAC(EVP_sha1(), &keys[i * key_length], key_length, message, message_length, &hmacs[i * 20], NULL);
+}
+
 static int
-eapolcracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
+EAPOLCracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
 {
     char *keyscheme;
     unsigned char *pke, *keymic, *eapolframe;
     int pke_len, keymic_size, eapolframe_size;
 
-    self->eapolframe = NULL;
+    self->eapolframe = self->pke = NULL;
     if (!PyArg_ParseTuple(args, "ss#s#s#", &keyscheme, &pke, &pke_len, &keymic, &keymic_size, &eapolframe, &eapolframe_size))
         return -1;
 
@@ -643,7 +684,12 @@ eapolcracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
         PyErr_SetString(PyExc_ValueError, "PKE must be a string of exactly 100 bytes.");
         return -1;
     }
-    memcpy(self->pke, pke, 100);
+    self->pke = fourwise_sha1hmac_prepare(pke, 100);
+    if (!self->pke)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
     
     if (keymic_size != 16)
     {
@@ -653,18 +699,25 @@ eapolcracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
     memcpy(self->keymic, keymic, 16);
     
     self->eapolframe_size = eapolframe_size;
-    self->eapolframe = PyMem_Malloc(self->eapolframe_size);
-    if (!self->eapolframe)
-    {
-        PyErr_NoMemory();
-        return -1;
-    }
-    memcpy(self->eapolframe, eapolframe, self->eapolframe_size);
     
-    if (strcmp(keyscheme, "HMAC_MD5_RC4") == 0) {
+    if (strcmp(keyscheme, "HMAC_MD5_RC4") == 0)
+    {
         self->keyscheme = HMAC_MD5_RC4;
+        self->eapolframe = PyMem_Malloc(eapolframe_size);
+        if (!self->eapolframe)
+        {
+            PyErr_NoMemory();
+            return -1;
+        }
+        memcpy(self->eapolframe, eapolframe, eapolframe_size);
     } else if (strcmp(keyscheme, "HMAC_SHA1_AES") == 0) {
         self->keyscheme = HMAC_SHA1_AES;
+        self->eapolframe = fourwise_sha1hmac_prepare(eapolframe, eapolframe_size);
+        if (!self->eapolframe)
+        {
+            PyErr_NoMemory();
+            return -1;
+        }
     } else {
         PyErr_SetString(PyExc_ValueError, "Invalid key-scheme.");
         return -1;
@@ -675,199 +728,301 @@ eapolcracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
 }
 
 static void
-eapolcracker_dealloc(EAPOLCracker *self)
+EAPOLCracker_dealloc(EAPOLCracker *self)
 {
+    if (self->pke)
+        PyMem_Free(self->pke);
     if (self->eapolframe)
         PyMem_Free(self->eapolframe);
-    PyObject_Del(self);
+    self->ob_type->tp_free((PyObject*)self);
 }
 
-static PyObject *
-eapolcracker_solve(EAPOLCracker *self, PyObject *args)
+static int
+EAPOLCracker_unpack(PyObject* result_seq, unsigned char **pmkbuffer_ptr)
 {
-    PyObject *result_seq, *result_obj, **passwd_objbuffer, **t_obj, \
-             *passwd_obj, *pmk_obj, *solution_obj;
-    char *pmk;
-    unsigned char *pmk_buffer, *t, mics[4][20], eapol_mic_keys[4][16];
-    Py_ssize_t buffersize;
-    long i, j, itemcount;
+    unsigned char *pmkbuffer, *t;
+    int buffersize, itemcount;
+    PyObject *result_iter, *result_obj, *pmk_obj;
 
-    if (!PyArg_ParseTuple(args, "O", &result_seq))
-        return NULL;
-
-    result_seq = PyObject_GetIter(result_seq);
-    if (!result_seq)
+    pmkbuffer = pmkbuffer_ptr[0] = NULL;
+    buffersize = itemcount = 0;
+    
+    result_iter = PyObject_GetIter(result_seq);
+    if (!result_iter)
     {
         PyErr_SetString(PyExc_ValueError, "Parameter must be a iterable of (password, PMK)-sequences.");
-        return NULL;
+        return -1;
     }
     
-    pmk_buffer = NULL;
-    passwd_objbuffer = NULL;
-    passwd_obj = pmk_obj = solution_obj = NULL;
-    itemcount = 0;
-    buffersize = 0;
-    while ((result_obj = PyIter_Next(result_seq)))
+    while ((result_obj = PyIter_Next(result_iter)))
     {
         if (buffersize <= itemcount)
         {
-            buffersize += 50000; /* Step-size must be aligned to four entries (SSE2-path) */
-            t = PyMem_Realloc(pmk_buffer, buffersize*32);
+            /* Step-size must be aligned to four entries (SSE2-path) */
+            buffersize += 50000;
+            t = PyMem_Realloc(pmkbuffer, buffersize*32);
             if (!t)
             {
                 PyErr_NoMemory();
                 Py_DECREF(result_obj);
                 goto out;
             }
-            pmk_buffer = t;
-            t_obj = PyMem_Realloc(passwd_objbuffer, buffersize*sizeof(PyObject*));
-            if (!t_obj)
-            {
-                PyErr_NoMemory();
-                Py_DECREF(result_obj);
-                goto out;
-            }
-            passwd_objbuffer = t_obj;
+            pmkbuffer = t;
         }
-        
-        passwd_obj = PySequence_GetItem(result_obj, 0);
-        if (!(passwd_obj && PyString_Check(passwd_obj)))
-        {
-            PyErr_SetString(PyExc_ValueError, "Expected password as first item in a sequence-object.");
-            Py_DECREF(result_obj);
-            Py_XDECREF(passwd_obj);
-            goto out;
-        }
-        passwd_objbuffer[itemcount] = passwd_obj;
-        
+
         pmk_obj = PySequence_GetItem(result_obj, 1);
         if (!pmk_obj)
         {
             PyErr_SetString(PyExc_ValueError, "Expected Pairwise Master Key as second item in a sequence-object.");
             Py_DECREF(result_obj);
-            Py_DECREF(passwd_obj);
+            PyMem_Free(pmkbuffer);
             goto out;
         }
-        pmk = PyString_AsString(pmk_obj);
-        if (pmk == NULL || PyString_Size(pmk_obj) != 32)
+        t = (unsigned char*)PyString_AsString(pmk_obj);
+        if (t == NULL || PyString_Size(pmk_obj) != 32)
         {
             PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
             Py_DECREF(result_obj);
-            Py_DECREF(passwd_obj);
             Py_DECREF(pmk_obj);
+            PyMem_Free(pmkbuffer);
             goto out;
         }
-        memcpy(pmk_buffer + itemcount*32, pmk, 32);
-        Py_DECREF(pmk_obj);
-        
+        memcpy(pmkbuffer + itemcount*32, t, 32);
         itemcount += 1;
+        Py_DECREF(pmk_obj);
         Py_DECREF(result_obj);
     }
     
-    if (itemcount > 0)
-    {
-        Py_BEGIN_ALLOW_THREADS;
-        i = 0;
-        do
-        {
-            fourwise_sha1hmac(self->pke, 100, &pmk_buffer[i*32], 32, (unsigned char*)&mics);
-            for (j = 0; j < 4; j++)
-                memcpy(eapol_mic_keys[j], mics[j], 16);
-            if (self->keyscheme == HMAC_MD5_RC4)
-                for (j = 0; j < 4; j++)
-                    HMAC(EVP_md5(), eapol_mic_keys[j], 16, self->eapolframe, self->eapolframe_size, mics[j], NULL);
-            else
-                fourwise_sha1hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&eapol_mic_keys, 16, (unsigned char*)&mics);
-            for (j = 0; j < 4; j++)
-                if (memcmp(&mics[j], self->keymic, 16) == 0)
-                    solution_obj = passwd_objbuffer[i+j];
-        i += 4;
-        } while (i < itemcount && solution_obj == NULL);
-        Py_END_ALLOW_THREADS;
-    }
-    if (!solution_obj)
-        solution_obj = Py_None;
-    Py_INCREF(solution_obj);
-    
-    out:
-    Py_DECREF(result_seq);
-    if (pmk_buffer)
-        PyMem_Free(pmk_buffer);
-    if (passwd_objbuffer)
-    {
-        for (i = 0; i < itemcount; i++)
-            Py_DECREF(passwd_objbuffer[i]);
-        PyMem_Free(passwd_objbuffer);
-    } 
+    pmkbuffer_ptr[0] = pmkbuffer;
 
+    out:
+    Py_DECREF(result_iter);
+
+    return itemcount * 32;
+}
+
+
+PyDoc_STRVAR(EAPOLCracker_solve__doc__, 
+    "solve(object) -> solution or None\n\n"
+    "Try to find the password that corresponds to this instance's EAPOL-session.\n");
+
+static PyObject*
+EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
+{
+    PyObject *result_seq, *pmkbuffer_obj, *solution_obj;
+    unsigned char *pmkbuffer, *t, mics[4][20], eapol_mic_keys[4][16];
+    Py_ssize_t buffersize;
+    int i, j, solution_idx;
+    PyBufferProcs *pb;
+
+    pmkbuffer = NULL;
+
+    if (!PyArg_ParseTuple(args, "O", &result_seq))
+        return NULL;
+
+    /* Try to get the PMKs through the object's buffer-protocol (faster) */
+    if (PyObject_HasAttrString(result_seq, "getpmkbuffer"))
+    {
+        pmkbuffer_obj = PyObject_CallMethod(result_seq, "getpmkbuffer", NULL);
+        if (pmkbuffer_obj)
+        {
+            if (!PyBuffer_Check(pmkbuffer_obj))
+            {
+                PyErr_SetString(PyExc_ValueError, "The object's .getpmkbuffer() must provide a buffer-object.");
+                Py_DECREF(pmkbuffer_obj);
+                return NULL;
+            } else {
+                pb = pmkbuffer_obj->ob_type->tp_as_buffer;
+                buffersize = (*pb->bf_getreadbuffer)(pmkbuffer_obj, 0, (void**)&t);
+                if (buffersize % 32 != 0)
+                {
+                    PyErr_SetString(PyExc_ValueError, "Object's buffer's length is not a multiple of 32.");
+                    Py_DECREF(pmkbuffer_obj);
+                    return NULL;
+                }
+                /* Align size to 4*32 for SSE2 */
+                pmkbuffer = PyMem_Malloc(buffersize + 128 - (buffersize % 128));
+                if (!pmkbuffer)
+                {
+                    PyErr_NoMemory();
+                    Py_DECREF(pmkbuffer_obj);
+                    return NULL;
+                }
+                memcpy(pmkbuffer, t, buffersize);
+                Py_DECREF(pmkbuffer_obj);
+            }
+        } else {
+            /* Pass the error from getpmkbuffer() */
+            return NULL;
+        }
+    } else {
+        /* Basic sequence-like objects must be unpacked */
+        buffersize = EAPOLCracker_unpack(result_seq, &pmkbuffer);
+        if (!pmkbuffer)
+            return NULL;
+    }
+
+    solution_idx = -1;
+    Py_BEGIN_ALLOW_THREADS;
+    for (i = 0; i < buffersize / 32 && solution_idx == -1; i += 4)
+    {
+        fourwise_sha1hmac(self->pke, 100, &pmkbuffer[i*32], 32, (unsigned char*)&mics);
+        for (j = 0; j < 4; j++)
+            memcpy(eapol_mic_keys[j], mics[j], 16);
+        if (self->keyscheme == HMAC_MD5_RC4)
+            for (j = 0; j < 4; j++)
+                HMAC(EVP_md5(), eapol_mic_keys[j], 16, self->eapolframe, self->eapolframe_size, mics[j], NULL);
+        else
+            fourwise_sha1hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&eapol_mic_keys, 16, (unsigned char*)&mics);
+        for (j = 0; j < 4; j++)
+            if (memcmp(&mics[j], self->keymic, 16) == 0)
+                solution_idx = i + j;
+    }
+    Py_END_ALLOW_THREADS;
+
+    PyMem_Free(pmkbuffer);
+
+    if (solution_idx == -1)
+    {
+        solution_obj = Py_None;
+        Py_INCREF(solution_obj);
+    } else {
+        solution_obj = PySequence_GetItem(result_seq, solution_idx);
+    }
+    
     return solution_obj;
 }
 
-static PyObject *
-util_unpackcowpentries(PyObject *self, PyObject *args)
+
+/*
+    ###########################################################################
+    
+    CowpattyResult
+    
+    ###########################################################################
+*/
+
+static void
+CowpattyResult_dealloc(CowpattyResult* self)
 {
-    PyObject *result, *result_list, *entry_tuple;
-    int stringsize, entrylen;
-    char *string, *entry;
-    
-    if (!PyArg_ParseTuple(args, "s#", &string, &stringsize))
-        return NULL;
-        
-    if (stringsize < 1+8+32 || string[0] > stringsize)
-    {
-        PyErr_SetString(PyExc_ValueError, "Input-string is too short.");
-        return NULL;
-    }
-
-    entry = string;
-    result_list = PyList_New(0);
-    do
-    {
-        entrylen = (int)entry[0];
-        if (entrylen < 1+8+32 || entrylen > 1+63+32)
-        {
-            PyErr_Format(PyExc_ValueError, "Entry of invalid size: %i", entrylen);
-            goto errout;
-        }
-        if ((entry - string) + entrylen > stringsize)
-            break;
-        entry_tuple = PyTuple_New(2);
-        if (entry_tuple == NULL)
-        {
-            PyErr_NoMemory();
-            goto errout;
-        }
-        PyTuple_SetItem(entry_tuple, 0, PyString_FromStringAndSize(entry + 1, entrylen - (32 + 1)));
-        PyTuple_SetItem(entry_tuple, 1, PyString_FromStringAndSize(entry + entrylen - 32, 32));
-        if (PyList_Append(result_list, entry_tuple) == -1)
-        {
-            PyErr_NoMemory();
-            goto errout;
-        }
-        Py_DECREF(entry_tuple);
-        entry += entrylen;
-    } while ((entry - string) + entrylen < stringsize);
-
-    result = PyTuple_New(2);
-    if (result == NULL)
-    {
-        PyErr_NoMemory();
-        goto errout;
-    }
-    PyTuple_SetItem(result, 0, result_list);
-    PyTuple_SetItem(result, 1, PyString_FromStringAndSize(entry, stringsize - (entry - string)));
-    
-    return result;
-
-errout:
-    Py_DECREF(result_list);
-    return NULL;
-
+    if (self->buffer)
+        PyMem_Free(self->buffer);
+    self->ob_type->tp_free((PyObject*)self);
 }
 
+static Py_ssize_t
+CowpattyResult_bf_getreadbuffer(CowpattyResult* self, Py_ssize_t segment, void **ptrptr)
+{
+    if (segment != 0)
+    {
+        PyErr_SetString(PyExc_SystemError, "Invalid segment to CowpattyResult-buffer.");
+        return -1;
+    }
+    ptrptr[0] = self->buffer;
+    return self->itemcount * 32;
+}
+
+static Py_ssize_t
+CowpattyResult_bf_getsegcount(CowpattyResult* self, Py_ssize_t *lenp)
+{
+    if (lenp)
+        lenp[0] = self->itemcount * 32;
+    return 1;
+}
+
+static Py_ssize_t
+CowpattyResult_sq_length(CowpattyResult* self)
+{
+    return self->itemcount;
+}
+
+static PyObject*
+CowpattyResult_sq_item(CowpattyResult* self, Py_ssize_t idx)
+{
+    PyObject *result;
+    int entrylen, i, consumed;
+    
+    if (idx < 0 || idx > self->itemcount - 1)
+    {
+        PyErr_SetString(PyExc_IndexError, "Index out of bounds for CowpattyResult.");
+        return NULL;
+    }
+    
+    consumed = 0;
+    for (i = 0; i < idx; i++)
+        consumed += (int)self->buffer[self->itemcount * 32 + consumed];
+
+    result = PyTuple_New(2);
+    if (!result)
+    {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    
+    entrylen = (int)self->buffer[self->itemcount * 32 + consumed];
+    PyTuple_SetItem(result, 0, PyString_FromStringAndSize((char*)&self->buffer[self->itemcount * 32 + consumed + 1], entrylen - 1));
+    PyTuple_SetItem(result, 1, PyString_FromStringAndSize((char*)&self->buffer[idx * 32], 32));
+
+    return result;
+}
+
+static PyObject*
+CowpattyResult_iter(CowpattyResult* self)
+{
+    Py_INCREF(self);
+    return (PyObject*)self;
+}
+
+static PyObject*
+CowpattyResult_iternext(CowpattyResult *self)
+{
+    PyObject *result;
+    int entrylen;
+
+    if (self->current_idx >= self->itemcount)
+        return NULL;
+
+    result = PyTuple_New(2);
+    if (!result)
+    {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    
+    entrylen = (int)self->current_ptr[0];
+    PyTuple_SetItem(result, 0, PyString_FromStringAndSize((char*)self->current_ptr + 1, entrylen - 1));
+    PyTuple_SetItem(result, 1, PyString_FromStringAndSize((char*)self->buffer + self->current_idx * 32, 32));
+    
+    self->current_ptr += entrylen;
+    self->current_idx += 1;
+    
+    return result;
+}
+
+PyDoc_STRVAR(CowpattyResult_getpmkbuffer__doc__, 
+    "getpmkbuffer() -> buffer-object\n\n"
+    "Return a buffer-object to directly access the PMKs held by this object.");
+
+static PyObject*
+CowpattyResult_getpmkbuffer(PyObject *self, PyObject *args)
+{
+    return PyBuffer_FromObject(self, 0, Py_END_OF_BUFFER);
+}
+
+/*
+    ###########################################################################
+    
+    CowpattyFile
+    
+    ###########################################################################
+*/
+
+PyDoc_STRVAR(CowpattyFile_gencowpentries__doc__, 
+    "gencowpentries(iterable) -> string\n\n"
+    "Generate a data-string in cowpatty-like format from a iterable of (password-PMK)-tuples.");
 
 static PyObject *
-util_gencowpentries(PyObject *self, PyObject *args)
+CowpattyFile_gencowpentries(PyObject *self, PyObject *args)
 {
     PyObject *result_seq, *result_obj, *passwd_obj, *pmk_obj, *result;
     char *passwd, *pmk;
@@ -955,6 +1110,108 @@ util_gencowpentries(PyObject *self, PyObject *args)
     return NULL;
 }
 
+PyDoc_STRVAR(CowpattyFile_unpackcowpentries__doc__, 
+    "unpackcowpentries(string) -> (CowpattyResult, string)\n\n"
+    "Unpack a data-string in cowpatty-like format and return a tuple with results and unfinished tail.");
+
+static PyObject *
+CowpattyFile_unpackcowpentries(PyObject *self, PyObject *args)
+{
+    CowpattyResult *iter;
+    PyObject *result;
+    int i, stringsize, consumed, entrylen, itemcount;
+    char *string;
+
+    if (!PyArg_ParseTuple(args, "s#", &string, &stringsize))
+        return NULL;
+        
+    if (stringsize < 1+8+32 || string[0] > stringsize)
+    {
+        PyErr_SetString(PyExc_ValueError, "Input-string is too short.");
+        return NULL;
+    }
+
+    itemcount = consumed = 0;
+    do
+    {
+        entrylen = (int)string[consumed];
+        if (entrylen < 1+8+32 || entrylen > 1+63+32)
+        {
+            PyErr_Format(PyExc_ValueError, "Entry of invalid size: %i", entrylen);
+            return NULL;
+        }
+        if (consumed + entrylen > stringsize)
+            break;
+        consumed += entrylen;
+        itemcount += 1;
+    } while (consumed < stringsize);
+
+    iter = (CowpattyResult*)PyObject_New(CowpattyResult, &CowpattyResult_type);
+    if (!iter)
+    {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    iter->buffersize = consumed;
+    iter->current_idx = 0;
+    iter->itemcount = itemcount;
+    
+    iter->buffer = PyMem_Malloc(consumed);
+    if (!iter->buffer)
+    {
+        Py_DECREF(iter);
+        PyErr_NoMemory();
+        return NULL;
+    }
+    iter->current_ptr = iter->buffer + (itemcount * 32);
+
+    consumed = 0;
+    for (i = 0; i < itemcount; i++)
+    {
+        entrylen = (int)string[consumed];
+        memcpy(&iter->buffer[32 * i], &string[consumed + entrylen - 32], 32);
+        iter->buffer[32 * itemcount + consumed - (32 * i)] = entrylen - 32;
+        memcpy(&iter->buffer[32 * itemcount + consumed - (32 * i) + 1], &string[consumed + 1], entrylen - (32 + 1));
+        consumed += entrylen;
+    }
+    
+    result = PyTuple_New(2);
+    if (!result)
+    {
+        PyErr_NoMemory();
+        Py_DECREF(iter);
+        return NULL;
+    }
+    PyTuple_SetItem(result, 0, (PyObject*)iter);
+    PyTuple_SetItem(result, 1, PyString_FromStringAndSize(string + consumed, stringsize - consumed));
+    
+    return result;
+}
+
+
+/*
+    ###########################################################################
+    
+    Module functions
+    
+    ###########################################################################
+*/
+
+PyDoc_STRVAR(cpyrit_getPlatform__doc__, 
+    "getPlatform() -> string\n\n"
+    "Determine CPU-type");
+
+static PyObject *
+cpyrit_getPlatform(PyObject *self, PyObject *args)
+{
+    Py_INCREF(PlatformString);
+    return PlatformString;
+}
+
+PyDoc_STRVAR(cpyrit_grouper__doc__, 
+    "grouper(string, groupsize) -> tuple\n\n"
+    "Group a large string into a tuple of strings of equal size each");
+
 static PyObject *
 cpyrit_grouper(PyObject *self, PyObject *args)
 {
@@ -981,13 +1238,21 @@ cpyrit_grouper(PyObject *self, PyObject *args)
         PyTuple_SetItem(result, i, PyString_FromStringAndSize(&string[i * groupsize], groupsize));
 
     return result;
-
 }
+
+
+/*
+    ###########################################################################
     
+    Class definitions
+    
+    ###########################################################################
+*/
+
 
 static PyMethodDef CPUDevice_methods[] =
 {
-    {"solve", (PyCFunction)cpyrit_solve, METH_VARARGS, "Calculate PMKs from ESSID and iterable of strings."},
+    {"solve", (PyCFunction)CPUDevice_solve, METH_VARARGS, CPUDevice_solve__doc__},
     {NULL, NULL}
 };
 
@@ -1038,7 +1303,7 @@ static PyTypeObject CPUDevice_type = {
 
 static PyMethodDef EAPOLCracker_methods[] =
 {
-    {"solve", (PyCFunction)eapolcracker_solve, METH_VARARGS, "Try to find the password that corresponds to this instance's EAPOL-session from a iterable of (passwords,PMK)-tuples."},
+    {"solve", (PyCFunction)EAPOLCracker_solve, METH_VARARGS, EAPOLCracker_solve__doc__},
     {NULL, NULL}
 };
 
@@ -1048,7 +1313,7 @@ static PyTypeObject EAPOLCracker_type = {
     "_cpyrit_cpu.EAPOLCracker",  /*tp_name*/
     sizeof(EAPOLCracker),       /*tp_basicsize*/
     0,                          /*tp_itemsize*/
-    (destructor)eapolcracker_dealloc,   /*tp_dealloc*/
+    (destructor)EAPOLCracker_dealloc,   /*tp_dealloc*/
     0,                          /*tp_print*/
     0,                          /*tp_getattr*/
     0,                          /*tp_setattr*/
@@ -1080,7 +1345,76 @@ static PyTypeObject EAPOLCracker_type = {
     0,                          /*tp_descr_get*/
     0,                          /*tp_descr_set*/
     0,                          /*tp_dictoffset*/
-    (initproc)eapolcracker_init,/*tp_init*/
+    (initproc)EAPOLCracker_init,/*tp_init*/
+    0,                          /*tp_alloc*/
+    0,                          /*tp_new*/
+    0,                          /*tp_free*/
+    0,                          /*tp_is_gc*/
+};
+
+static PyMethodDef CowpattyResult_methods[] =
+{
+    {"getpmkbuffer", CowpattyResult_getpmkbuffer, METH_NOARGS, CowpattyResult_getpmkbuffer__doc__},
+    {NULL, NULL}
+};
+
+static PyBufferProcs CowpattyResults_buffer_procs = {
+    (readbufferproc)CowpattyResult_bf_getreadbuffer, /* bf_getreadbuffer */
+    0,                                               /* bf_getwritebuffer */
+    (segcountproc)CowpattyResult_bf_getsegcount,     /* bf_getsegcount */
+    0                                                /* bf_getcharbuffer */
+};
+
+static PySequenceMethods CowpattyResult_seq_methods = {
+    (lenfunc)CowpattyResult_sq_length,    /* sq_length */
+    0,                                    /* sq_concat */
+    0,                                    /* sq_repeat */
+    (ssizeargfunc)CowpattyResult_sq_item, /* sq_item */
+    0,                                    /* sq_ass_item */
+    0,                                    /* sq_contains */
+    0,                                    /* sq_inplace_concat */
+    0                                     /* sq_inplace_repeat */
+};
+
+static PyTypeObject CowpattyResult_type = {
+    PyObject_HEAD_INIT(NULL)
+    0,                            /*ob_size*/
+    "_cpyrit_cpu.CowpattyResult", /*tp_name*/
+    sizeof(CowpattyResult),       /*tp_basicsize*/
+    0,                            /*tp_itemsize*/
+    (destructor)CowpattyResult_dealloc, /*tp_dealloc*/
+    0,                          /*tp_print*/
+    0,                          /*tp_getattr*/
+    0,                          /*tp_setattr*/
+    0,                          /*tp_compare*/
+    0,                          /*tp_repr*/
+    0,                          /*tp_as_number*/
+    0,                          /*tp_as_sequence*/
+    0,                          /*tp_as_mapping*/
+    0,                          /*tp_hash*/
+    0,                          /*tp_call*/
+    0,                          /*tp_str*/
+    0,                          /*tp_getattro*/
+    0,                          /*tp_setattro*/
+    0,                          /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+     | Py_TPFLAGS_BASETYPE,
+    0,                          /*tp_doc*/
+    0,                          /*tp_traverse*/
+    0,                          /*tp_clear*/
+    0,                          /*tp_richcompare*/
+    0,                          /*tp_weaklistoffset*/
+    (getiterfunc)CowpattyResult_iter,      /*tp_iter*/
+    (iternextfunc)CowpattyResult_iternext, /*tp_iternext*/
+    CowpattyResult_methods,     /*tp_methods*/
+    0,                          /*tp_members*/
+    0,                          /*tp_getset*/
+    0,                          /*tp_base*/
+    0,                          /*tp_dict*/
+    0,                          /*tp_descr_get*/
+    0,                          /*tp_descr_set*/
+    0,                          /*tp_dictoffset*/
+    0,                          /*tp_init*/
     0,                          /*tp_alloc*/
     0,                          /*tp_new*/
     0,                          /*tp_free*/
@@ -1089,8 +1423,8 @@ static PyTypeObject EAPOLCracker_type = {
 
 static PyMethodDef CowpattyFile_methods[] =
 {
-    {"genCowpEntries", util_gencowpentries, METH_VARARGS, "Generate a data-string in cowpatty-like format from a iterable of password:PMK tuples."},
-    {"unpackCowpEntries", util_unpackcowpentries, METH_VARARGS, "Unpack a data-string in cowpatty-like format and return a tuple with results and unfinished tail."},
+    {"genCowpEntries", CowpattyFile_gencowpentries, METH_VARARGS, CowpattyFile_gencowpentries__doc__},
+    {"unpackCowpEntries", CowpattyFile_unpackcowpentries, METH_VARARGS, CowpattyFile_unpackcowpentries__doc__},
     {NULL, NULL}
 };
 
@@ -1140,8 +1474,8 @@ static PyTypeObject CowpattyFile_type = {
 };
 
 static PyMethodDef CPyritCPUMethods[] = {
-    {"getPlatform", cpyrit_getPlatform, METH_VARARGS, "Determine CPU-type/name"},
-    {"grouper", cpyrit_grouper, METH_VARARGS, "Group a large string into a tuple of strings of equal size"},
+    {"getPlatform", cpyrit_getPlatform, METH_NOARGS, cpyrit_getPlatform__doc__},
+    {"grouper", cpyrit_grouper, METH_VARARGS, cpyrit_grouper__doc__},
     {NULL, NULL, 0, NULL}
 };
 
@@ -1153,7 +1487,8 @@ static void pathconfig(void)
             PlatformString = PyString_FromString("VIA Padlock");
             prepare_pmk = prepare_pmk_padlock;
             finalize_pmk = finalize_pmk_padlock;
-            fourwise_sha1hmac = fourwise_sha1hmac_openssl;
+            fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_sse2;
+            fourwise_sha1hmac = fourwise_sha1hmac_sse2;
             return;
         }
     #endif
@@ -1163,6 +1498,7 @@ static void pathconfig(void)
             PlatformString = PyString_FromString("SSE2");
             prepare_pmk = prepare_pmk_openssl;
             finalize_pmk = finalize_pmk_sse2;
+            fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_sse2;
             fourwise_sha1hmac = fourwise_sha1hmac_sse2;
             return;
         }
@@ -1171,24 +1507,23 @@ static void pathconfig(void)
     PlatformString = PyString_FromString("x86");
     prepare_pmk = prepare_pmk_openssl;
     finalize_pmk = finalize_pmk_openssl;
+    fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_openssl;
     fourwise_sha1hmac = fourwise_sha1hmac_openssl;
 }
+
+
+/*
+    ###########################################################################
+    
+    Module initialization
+    
+    ###########################################################################
+*/
 
 PyMODINIT_FUNC
 init_cpyrit_cpu(void)
 {
     PyObject *m;
-    int i;
-
-    for (i = 0; i < 4; i++)
-    {
-        sha1_constants[0][i] = 0x5A827999; /* const_stage0 */
-        sha1_constants[1][i] = 0x6ED9EBA1; /* const_stage1 */
-        sha1_constants[2][i] = 0x8F1BBCDC; /* const_stage2 */
-        sha1_constants[3][i] = 0xCA62C1D6; /* const_stage3 */
-        sha1_constants[4][i] = 0xFF00FF00; /* const_ff00   */
-        sha1_constants[5][i] = 0x00FF00FF; /* const_00ff   */
-    }
 
     pathconfig();
 
@@ -1215,6 +1550,16 @@ init_cpyrit_cpu(void)
     CowpattyFile_type.tp_free = _PyObject_Del;
     if (PyType_Ready(&CowpattyFile_type) < 0)
 	    return;
+    
+    CowpattyResult_type.tp_getattro = PyObject_GenericGetAttr;
+    CowpattyResult_type.tp_setattro = PyObject_GenericSetAttr;
+    CowpattyResult_type.tp_alloc  = PyType_GenericAlloc;
+    CowpattyResult_type.tp_new = PyType_GenericNew;
+    CowpattyResult_type.tp_free = _PyObject_Del;
+    CowpattyResult_type.tp_as_sequence = &CowpattyResult_seq_methods;
+    CowpattyResult_type.tp_as_buffer = &CowpattyResults_buffer_procs;
+    if (PyType_Ready(&CowpattyResult_type) < 0)
+	    return;
 
     m = Py_InitModule("_cpyrit_cpu", CPyritCPUMethods);
 
@@ -1226,6 +1571,9 @@ init_cpyrit_cpu(void)
 
     Py_INCREF(&CowpattyFile_type);
     PyModule_AddObject(m, "CowpattyFile", (PyObject*)&CowpattyFile_type);
+
+    Py_INCREF(&CowpattyResult_type);
+    PyModule_AddObject(m, "CowpattyResult", (PyObject*)&CowpattyResult_type);
 
     PyModule_AddStringConstant(m, "VERSION", VERSION);
 }

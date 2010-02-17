@@ -247,16 +247,24 @@ class EAPOLCrackerThread(threading.Thread, _cpyrit_cpu.EAPOLCracker):
         _cpyrit_cpu.EAPOLCracker.__init__(self, auth.version, auth.pke,
                                             auth.keymic, auth.keymic_frame)
         self.workqueue = workqueue
+        self.shallStop = False
         self.solution = None
+        self.numSolved = 0
         self.setDaemon(True)
         self.start()
 
     def run(self):
-        while True:
-            solution = self.solve(self.workqueue.get())
-            if solution:
-                self.solution = solution
-            self.workqueue.task_done()
+        while not self.shallStop:
+            try:
+                results = self.workqueue.get(block=True, timeout=0.5)
+            except Queue.Empty:
+                pass
+            else:
+                solution = self.solve(results)
+                self.numSolved += len(results)
+                if solution:
+                    self.solution = solution[0]
+                self.workqueue.task_done()
 
 
 class EAPOLCracker(object):
@@ -281,7 +289,12 @@ class EAPOLCracker(object):
 
     def join(self):
         self.queue.join()
+        for worker in self.workers:
+            worker.shallStop = True
         self._getSolution()
+
+    def __len__(self):
+        return sum(worker.numSolved for worker in self.workers)
 
     def __enter__(self):
         return self
