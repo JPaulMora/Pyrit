@@ -301,7 +301,7 @@ class CowpattyFile(_cpyrit_cpu.CowpattyFile):
     def next(self):
         if self.mode != 'r':
             raise TypeError("Can't read from write-only file.")
-        self.tail = self.tail + self.f.read(50 * 1024)
+        self.tail = self.tail + self.f.read(512 * 1024)
         if len(self.tail) == 0:
             self.eof = True
             raise StopIteration

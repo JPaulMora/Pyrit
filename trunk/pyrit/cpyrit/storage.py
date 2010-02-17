@@ -95,43 +95,69 @@ class BasePYR_Buffer(object):
     pyr_len = struct.calcsize(pyr_head)
 
     def unpack(self, buf):
-            md = hashlib.md5()
-            magic, essidlen = struct.unpack(self.pyr_head, buf[:self.pyr_len])
-            if magic == 'PYR2':
-                delimiter = '\n'
-            elif magic == 'PYRT':
-                delimiter = '\00'
+            self._magic, essidlen = struct.unpack(self.pyr_head, buf[:self.pyr_len])
+            if self._magic == 'PYR2':
+                self._delimiter = '\n'
+            elif self._magic == 'PYRT':
+                self._delimiter = '\00'
             else:
                 raise ValueError("Not a PYRT- or PYR2-buffer.")
-            headfmt = "<%ssi%ss" % (essidlen, md.digest_size)
+            headfmt = "<%ssi16s" % (essidlen, )
             headsize = struct.calcsize(headfmt)
             header = struct.unpack(headfmt, \
                                    buf[self.pyr_len:self.pyr_len + headsize])
-            self.essid, numElems, digest = header
+            self.essid, self._numElems, self._digest = header
             pmkoffset = self.pyr_len + headsize
-            pwoffset = pmkoffset + numElems * 32
-            pmkbuffer = buf[pmkoffset:pwoffset]
-            if len(pmkbuffer) % 32 != 0:
+            pwoffset = pmkoffset + self._numElems * 32
+            self._pwbuffer = buf[pwoffset:]
+            self._pmkbuffer = buf[pmkoffset:pwoffset]
+            if len(self._pmkbuffer) % 32 != 0:
                 raise RuntimeError("pmkbuffer seems truncated")
-            pwbuffer = zlib.decompress(buf[pwoffset:]).split(delimiter)
-            if len(pwbuffer) != numElems:
+
+    def _unpack(self):
+        if hasattr(self, '_pwbuffer'):
+            pwbuffer = zlib.decompress(self._pwbuffer).split(self._delimiter)
+            if len(pwbuffer) != self._numElems:
                 raise RuntimeError("Wrong number of elements")
+            md = hashlib.md5()
             md.update(self.essid)
-            if magic == 'PYR2':
-                md.update(buf[pmkoffset:])
+            if self._magic == 'PYR2':
+                md.update(self._pmkbuffer)
+                md.update(self._pwbuffer)
             else:
-                md.update(pmkbuffer)
+                md.update(self._pmkbuffer)
                 md.update(''.join(pwbuffer))
-            if md.digest() != digest:
+            if md.digest() != self._digest:
                 raise IOError("Digest check failed")
-            self.results = zip(pwbuffer, util.grouper(pmkbuffer, 32))
+            self.results = zip(pwbuffer, util.grouper(self._pmkbuffer, 32))
+            del self._pwbuffer
+            del self._digest
+            del self._magic
+            del self._delimiter
+
+    def __getitem__(self, idx):
+        self._unpack()
+        return self.results[idx]
+
+    def __len__(self):
+        if not hasattr(self, '_numElems'):
+            return len(self.collection)
+        else:
+            return self._numElems
+
+    def __iter__(self):
+        self._unpack()
+        return self.results.__iter__()            
+
+    def getpmkbuffer(self):
+        return buffer(self._pmkbuffer)
 
 
 class PYRT_Buffer(ResultCollection, BasePYR_Buffer):
     pass
 
 
-class PYR2_Buffer(ResultCollection, BasePYR_Buffer):
+class PYR2_Buffer(BasePYR_Buffer, ResultCollection):
 
     def pack(self):
         pws, pmks = zip(*self.results)
