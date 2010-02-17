@@ -546,7 +546,7 @@ CPUDevice_solve(PyObject *self, PyObject *args)
         }        
         
         /* Interleave buffer four times for SSE2-processing */
-        prepared_msg = retval + 16 - ((int)retval % 16);
+        prepared_msg = retval + 16 - ((long)retval % 16);
         for (i = 0; i < buffer_len / 64; i++)
             for (j = 0; j < 16; j++)
                 for (k = 0; k < 4; k++)
@@ -589,7 +589,7 @@ CPUDevice_solve(PyObject *self, PyObject *args)
         fourwise_sha1_ctx ctx;
         
         key_length = key_length <= 64 ? key_length : 64;
-        prepared_msg = prepared_msg + 16 - ((int)prepared_msg % 16);
+        prepared_msg = prepared_msg + 16 - ((long)prepared_msg % 16);
         message_length = message_length + (64 - ((message_length + 1 + 8) % 64)) + 1 + 8;
         
         /* Step 1: Inner hash = IPAD ^ K // message */
