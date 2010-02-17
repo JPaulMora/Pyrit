@@ -797,6 +797,12 @@ if 'sqlalchemy' in sys.modules:
             self.key = key
             self.pack(results)
 
+        def _unpack(self):
+            if not hasattr(self, 'results'):
+                self.results = PYR2_Buffer()
+                self.results.unpack(self.results_buffer)
+                assert len(self.results) == self.numElems
+
         def pack(self, results):
             self.numElems = len(results)
             self.results_buffer = PYR2_Buffer(str(self.essid), results).pack()
@@ -805,12 +811,16 @@ if 'sqlalchemy' in sys.modules:
             return self.numElems
 
         def __iter__(self):
-            if not hasattr(self, 'results'):
-                self.results = PYR2_Buffer()
-                self.results.unpack(self.results_buffer)
-                assert len(self.results) == self.numElems
+            self._unpack()
             return self.results.__iter__()
 
+        def __getitem__(self, idx):
+            self._unpack()
+            return self.results[idx]
+
+        def getpmkbuffer(self):
+            self._unpack()
+            return self.results.getpmkbuffer()
 
     orm.mapper(ESSID_DBObject, \
                essids_table, \
