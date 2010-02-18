@@ -33,6 +33,13 @@ typedef struct {
     uint32_t cst[6][4];
 } fourwise_sha1_ctx;
 
+typedef struct {
+    uint32_t a[4];
+    uint32_t b[4];
+    uint32_t c[4];
+    uint32_t d[4];
+} fourwise_md5_ctx;
+
 struct pmk_ctr
 {
     SHA_CTX ctx_ipad;
@@ -72,16 +79,24 @@ typedef struct
 static PyObject *PlatformString;
 static PyTypeObject CowpattyResult_type;
 
+/* Function pointers depend on the execution path that got compiled and that we can take (SSE2, Padlock, x86) */
+/* CPUDevice */
 static void (*prepare_pmk)(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
-static void (*fourwise_sha1hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
+/* EAPOLCracker */
 static unsigned char* (*fourwise_sha1hmac_prepare)(unsigned char* msg, int msg_len) = NULL;
+static void (*fourwise_sha1hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
+static unsigned char* (*fourwise_md5hmac_prepare)(unsigned char* msg, int msg_len) = NULL;
+static void (*fourwise_md5hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
 
 #ifdef COMPILE_SSE2
+    uint32_t md5_constants[64][4];
     extern int detect_sse2(void);
     extern int sse2_sha1_update(uint32_t ctx[4*5+4*6], uint32_t data[4*16], uint32_t wrkbuf[4*80]) __attribute__ ((regparm(3)));
     extern int sse2_sha1_finalize(uint32_t ctx[4*5+4*6], uint32_t digests[4*5]) __attribute__ ((regparm(2)));
+    extern int sse2_md5_update(uint32_t ctx[4*5], uint32_t data[4*16], uint32_t constants[4*64]) __attribute__ ((regparm(3)));
 #endif
+
 
 /*
     ###########################################################################
@@ -537,7 +552,7 @@ CPUDevice_solve(PyObject *self, PyObject *args)
         memcpy(buffer, msg, msg_len);
         buffer[msg_len] = 0x80;
         PUT_BE((64 + msg_len) * 8, buffer, buffer_len - 4);
-        
+
         retval = PyMem_Malloc(buffer_len * 4 + 16);
         if (!retval)
         {
@@ -553,8 +568,8 @@ CPUDevice_solve(PyObject *self, PyObject *args)
                     ((uint32_t*)prepared_msg)[(i * 64) + (j * 4) + k] = ((uint32_t*)buffer)[(i * 16) + j];
                 
         PyMem_Free(buffer);
+
         return retval;
-    
     }
 
     static inline void
@@ -640,13 +655,130 @@ CPUDevice_solve(PyObject *self, PyObject *args)
         for (i = 0; i < 4; i++)
             for (j = 0; j < 5; j++)
                 ((uint32_t*)hmacs)[i * 5 + j] = blockbuffer[j][i];
+    }
 
+    static unsigned char*
+    fourwise_md5hmac_prepare_sse2(unsigned char* msg, int msg_len)
+    {
+        int buffer_len, i, j, k;
+        unsigned char *retval, *buffer, *prepared_msg;
+                
+        /* Align length to 56 bytes for for message, 1 for terminator, 8 for size */
+        buffer_len = msg_len + (64 - ((msg_len + 1 + 8) % 64)) + 1 + 8;
+        buffer = PyMem_Malloc(buffer_len);
+        if (!buffer)
+            return NULL;
+        
+        /* Terminate msg, total length = 64 bytes for IPAD + sizeof(msg) in bits */
+        memset(buffer, 0, buffer_len);
+        memcpy(buffer, msg, msg_len);
+        buffer[msg_len] = 0x80;
+        ((uint32_t*)buffer)[buffer_len / 4 - 2] = (64 + msg_len) * 8;
+        
+        retval = PyMem_Malloc(buffer_len * 4 + 16);
+        if (!retval)
+        {
+            PyMem_Free(buffer);
+            return NULL;
+        }        
+        
+        /* Interleave buffer four times for SSE2-processing */
+        prepared_msg = retval + 16 - ((long)retval % 16);
+        for (i = 0; i < buffer_len / 64; i++)
+            for (j = 0; j < 16; j++)
+                for (k = 0; k < 4; k++)
+                    ((uint32_t*)prepared_msg)[(i * 64) + (j * 4) + k] = ((uint32_t*)buffer)[(i * 16) + j];
+                
+        PyMem_Free(buffer);
+
+        return retval;
+    }
+    
+    static inline void
+    fourwise_md5_init(fourwise_md5_ctx* ctx)
+    {
+        int i;
+        
+        for (i = 0; i < 4; i++)
+        {
+            ctx->a[i] = 0x67452301; ctx->b[i] = 0xEFCDAB89;
+            ctx->c[i] = 0x98BADCFE; ctx->d[i] = 0x10325476;
+        }
+    }
+
+    static void
+    fourwise_md5hmac_sse2(unsigned char* prepared_msg, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
+    {
+        int i, j;
+        uint32_t buffer[16];
+        uint32_t blockbuffer[16][4]  __attribute__ ((aligned (16)));
+        uint32_t digests[4][4];
+        fourwise_md5_ctx ctx;
+        
+        key_length = key_length <= 64 ? key_length : 64;
+        prepared_msg = prepared_msg + 16 - ((long)prepared_msg % 16);
+        message_length = message_length + (64 - ((message_length + 1 + 8) % 64)) + 1 + 8;
+        
+        /* Step 1: Inner hash = IPAD ^ K // message */
+        fourwise_md5_init(&ctx);
+        
+        /* Process IPAD ^ K */
+        for (i = 0; i < 4; i++)
+        {
+            memcpy(&buffer, &keys[key_length * i], key_length);
+            memset(&((unsigned char*)buffer)[key_length], 0, sizeof(buffer) - key_length);
+            for (j = 0; j < 16; j++)
+                blockbuffer[j][i] = buffer[j] ^ 0x36363636;
+        }
+        sse2_md5_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, (uint32_t*)&md5_constants);
+        
+        for (i = 0; i < message_length / 64; i++)
+            sse2_md5_update((uint32_t*)&ctx, (uint32_t*)(prepared_msg + 64 * 4 * i), (uint32_t*)&md5_constants);
+
+        /* First hash done */
+        for (i = 0; i < 4; i++)
+        {
+                digests[i][0] = ctx.a[i];
+                digests[i][1] = ctx.b[i];
+                digests[i][2] = ctx.c[i];
+                digests[i][3] = ctx.d[i];
+        }
+        
+        /* Step 2: Outer hash = OPAD ^ K // inner hash */
+        fourwise_md5_init(&ctx);
+        for (i = 0; i < 4; i++)
+        {
+            memcpy(&buffer, &keys[key_length * i], key_length);
+            memset(&((unsigned char*)buffer)[key_length], 0, sizeof(buffer) - key_length);
+            for (j = 0; j < 16; j++)
+                blockbuffer[j][i] = buffer[j] ^ 0x5C5C5C5C;
+        }
+        sse2_md5_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, (uint32_t*)&md5_constants);
+
+        memset(blockbuffer, 0, sizeof(blockbuffer));
+        for (i = 0; i < 4; i++)
+        {
+            for (j = 0; j < 4; j++)
+                blockbuffer[j][i] = digests[i][j];
+            blockbuffer[ 4][i] = 0x80;        /* Terminator bit */
+            blockbuffer[14][i] = (64+16) * 8; /* Size in bits */
+        }
+        sse2_md5_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, (uint32_t*)&md5_constants);
+
+        /* Second hash == HMAC */
+        for (i = 0; i < 4; i++)
+        {
+                ((uint32_t*)hmacs)[i * 4 + 0] = ctx.a[i];
+                ((uint32_t*)hmacs)[i * 4 + 1] = ctx.b[i];
+                ((uint32_t*)hmacs)[i * 4 + 2] = ctx.c[i];
+                ((uint32_t*)hmacs)[i * 4 + 3] = ctx.d[i];
+        }
     }
     
 #endif // COMPILE_SSE2
 
 static unsigned char*
-fourwise_sha1hmac_prepare_openssl(unsigned char* msg, int msg_len)
+fourwise_hmac_prepare_openssl(unsigned char* msg, int msg_len)
 {
     unsigned char* prep_msg;
     
@@ -666,6 +798,15 @@ fourwise_sha1hmac_openssl(unsigned char* message, int message_length, unsigned c
     
     for (i = 0; i < 4; i++)
         HMAC(EVP_sha1(), &keys[i * key_length], key_length, message, message_length, &hmacs[i * 20], NULL);
+}
+
+static void
+fourwise_md5hmac_openssl(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) 
+{
+    int i;
+    
+    for (i = 0; i < 4; i++)
+        HMAC(EVP_md5(), &keys[i * key_length], key_length, message, message_length, &hmacs[i * 16], NULL);
 }
 
 static int
@@ -702,26 +843,22 @@ EAPOLCracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
     
     if (strcmp(keyscheme, "HMAC_MD5_RC4") == 0)
     {
+        self->eapolframe = fourwise_md5hmac_prepare(eapolframe, eapolframe_size);
         self->keyscheme = HMAC_MD5_RC4;
-        self->eapolframe = PyMem_Malloc(eapolframe_size);
-        if (!self->eapolframe)
-        {
-            PyErr_NoMemory();
-            return -1;
-        }
-        memcpy(self->eapolframe, eapolframe, eapolframe_size);
     } else if (strcmp(keyscheme, "HMAC_SHA1_AES") == 0) {
-        self->keyscheme = HMAC_SHA1_AES;
         self->eapolframe = fourwise_sha1hmac_prepare(eapolframe, eapolframe_size);
-        if (!self->eapolframe)
-        {
-            PyErr_NoMemory();
-            return -1;
-        }
+        self->keyscheme = HMAC_SHA1_AES;
     } else {
         PyErr_SetString(PyExc_ValueError, "Invalid key-scheme.");
         return -1;
     }
+    
+    if (!self->eapolframe)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+
 
     return 0;
 
@@ -810,7 +947,7 @@ static PyObject*
 EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
 {
     PyObject *result_seq, *pmkbuffer_obj, *solution_obj;
-    unsigned char *pmkbuffer, *t, mics[4][20], eapol_mic_keys[4][16];
+    unsigned char *pmkbuffer, *t, kck[4][16], md5mics[4][16], sha1mics[4][20];
     Py_ssize_t buffersize;
     int i, j, solution_idx;
     PyBufferProcs *pb;
@@ -866,17 +1003,22 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
     Py_BEGIN_ALLOW_THREADS;
     for (i = 0; i < buffersize / 32 && solution_idx == -1; i += 4)
     {
-        fourwise_sha1hmac(self->pke, 100, &pmkbuffer[i*32], 32, (unsigned char*)&mics);
+        fourwise_sha1hmac(self->pke, 100, &pmkbuffer[i*32], 32, (unsigned char*)&sha1mics);
         for (j = 0; j < 4; j++)
-            memcpy(eapol_mic_keys[j], mics[j], 16);
+            memcpy(kck[j], sha1mics[j], 16);
         if (self->keyscheme == HMAC_MD5_RC4)
+        {
+            fourwise_md5hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&kck, 16, (unsigned char*)&md5mics);
             for (j = 0; j < 4; j++)
-                HMAC(EVP_md5(), eapol_mic_keys[j], 16, self->eapolframe, self->eapolframe_size, mics[j], NULL);
-        else
-            fourwise_sha1hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&eapol_mic_keys, 16, (unsigned char*)&mics);
-        for (j = 0; j < 4; j++)
-            if (memcmp(&mics[j], self->keymic, 16) == 0)
-                solution_idx = i + j;
+                if (memcmp(&md5mics[j], self->keymic, 16) == 0)
+                    solution_idx = i + j;
+        } else
+        {
+            fourwise_sha1hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&kck, 16, (unsigned char*)&sha1mics);
+            for (j = 0; j < 4; j++)
+                if (memcmp(&sha1mics[j], self->keymic, 16) == 0)
+                    solution_idx = i + j;
+        }
     }
     Py_END_ALLOW_THREADS;
 
@@ -1489,6 +1631,8 @@ static void pathconfig(void)
             finalize_pmk = finalize_pmk_padlock;
             fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_sse2;
             fourwise_sha1hmac = fourwise_sha1hmac_sse2;
+            fourwise_md5hmac_prepare = fourwise_md5hmac_prepare_sse2;
+            fourwise_md5hmac = fourwise_md5hmac_sse2;
             return;
         }
     #endif
@@ -1500,6 +1644,8 @@ static void pathconfig(void)
             finalize_pmk = finalize_pmk_sse2;
             fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_sse2;
             fourwise_sha1hmac = fourwise_sha1hmac_sse2;
+            fourwise_md5hmac_prepare = fourwise_md5hmac_prepare_sse2;
+            fourwise_md5hmac = fourwise_md5hmac_sse2;
             return;
         }
     #endif 
@@ -1507,8 +1653,10 @@ static void pathconfig(void)
     PlatformString = PyString_FromString("x86");
     prepare_pmk = prepare_pmk_openssl;
     finalize_pmk = finalize_pmk_openssl;
-    fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_openssl;
+    fourwise_sha1hmac_prepare = fourwise_hmac_prepare_openssl;
     fourwise_sha1hmac = fourwise_sha1hmac_openssl;
+    fourwise_md5hmac_prepare = fourwise_hmac_prepare_openssl;
+    fourwise_md5hmac = fourwise_md5hmac_openssl;
 }
 
 
@@ -1524,6 +1672,46 @@ PyMODINIT_FUNC
 init_cpyrit_cpu(void)
 {
     PyObject *m;
+
+#ifdef COMPILE_SSE2
+    int i;
+
+    for (i = 0; i < 4; i++)
+    {
+        md5_constants[ 0][i] = 0xD76AA478; md5_constants[ 1][i] = 0xE8C7B756;
+        md5_constants[ 2][i] = 0x242070DB; md5_constants[ 3][i] = 0xC1BDCEEE;
+        md5_constants[ 4][i] = 0xF57C0FAF; md5_constants[ 5][i] = 0x4787C62A;
+        md5_constants[ 6][i] = 0xA8304613; md5_constants[ 7][i] = 0xFD469501;
+        md5_constants[ 8][i] = 0x698098D8; md5_constants[ 9][i] = 0x8B44F7AF;
+        md5_constants[10][i] = 0xFFFF5BB1; md5_constants[11][i] = 0x895CD7BE;
+        md5_constants[12][i] = 0x6B901122; md5_constants[13][i] = 0xFD987193;
+        md5_constants[14][i] = 0xA679438E; md5_constants[15][i] = 0x49B40821;
+        md5_constants[16][i] = 0xF61E2562; md5_constants[17][i] = 0xC040B340;
+        md5_constants[18][i] = 0x265E5A51; md5_constants[19][i] = 0xE9B6C7AA;
+        md5_constants[20][i] = 0xD62F105D; md5_constants[21][i] = 0x02441453;
+        md5_constants[22][i] = 0xD8A1E681; md5_constants[23][i] = 0xE7D3FBC8;
+        md5_constants[24][i] = 0x21E1CDE6; md5_constants[25][i] = 0xC33707D6;
+        md5_constants[26][i] = 0xF4D50D87; md5_constants[27][i] = 0x455A14ED;
+        md5_constants[28][i] = 0xA9E3E905; md5_constants[29][i] = 0xFCEFA3F8;
+        md5_constants[30][i] = 0x676F02D9; md5_constants[31][i] = 0x8D2A4C8A;
+        md5_constants[32][i] = 0xFFFA3942; md5_constants[33][i] = 0x8771F681;
+        md5_constants[34][i] = 0x6D9D6122; md5_constants[35][i] = 0xFDE5380C;
+        md5_constants[36][i] = 0xA4BEEA44; md5_constants[37][i] = 0x4BDECFA9;
+        md5_constants[38][i] = 0xF6BB4B60; md5_constants[39][i] = 0xBEBFBC70;
+        md5_constants[40][i] = 0x289B7EC6; md5_constants[41][i] = 0xEAA127FA;
+        md5_constants[42][i] = 0xD4EF3085; md5_constants[43][i] = 0x04881D05;
+        md5_constants[44][i] = 0xD9D4D039; md5_constants[45][i] = 0xE6DB99E5;
+        md5_constants[46][i] = 0x1FA27CF8; md5_constants[47][i] = 0xC4AC5665;
+        md5_constants[48][i] = 0xF4292244; md5_constants[49][i] = 0x432AFF97;
+        md5_constants[50][i] = 0xAB9423A7; md5_constants[51][i] = 0xFC93A039;
+        md5_constants[52][i] = 0x655B59C3; md5_constants[53][i] = 0x8F0CCC92;
+        md5_constants[54][i] = 0xFFEFF47D; md5_constants[55][i] = 0x85845DD1;
+        md5_constants[56][i] = 0x6FA87E4F; md5_constants[57][i] = 0xFE2CE6E0;
+        md5_constants[58][i] = 0xA3014314; md5_constants[59][i] = 0x4E0811A1;
+        md5_constants[60][i] = 0xF7537E82; md5_constants[61][i] = 0xBD3AF235;
+        md5_constants[62][i] = 0x2AD7D2BB; md5_constants[63][i] = 0xEB86D391;
+    }
+#endif // COMPILE_SSE2
 
     pathconfig();
 
@@ -1577,4 +1765,3 @@ init_cpyrit_cpu(void)
 
     PyModule_AddStringConstant(m, "VERSION", VERSION);
 }
-

@@ -25,13 +25,6 @@
 
 #ifdef COMPILE_SSE2
 
-#define const_stage0 4*5*4 + 4*0*4
-#define const_stage1 4*5*4 + 4*1*4
-#define const_stage2 4*5*4 + 4*2*4
-#define const_stage3 4*5*4 + 4*3*4
-#define const_ff00   4*5*4 + 4*4*4
-#define const_00ff   4*5*4 + 4*5*4
-
 #define ctxa %xmm0
 #define ctxb %xmm1
 #define ctxc %xmm2
@@ -59,19 +52,26 @@
     #define edx_rsi %edx
 #endif
 
-#define F0(x,y,z)       \
+#define sha1_cst_stage0 4*5*4 + 4*0*4
+#define sha1_cst_stage1 4*5*4 + 4*1*4
+#define sha1_cst_stage2 4*5*4 + 4*2*4
+#define sha1_cst_stage3 4*5*4 + 4*3*4
+#define sha1_cst_ff00   4*5*4 + 4*4*4
+#define sha1_cst_00ff   4*5*4 + 4*5*4
+
+#define SHA1_F0(x,y,z)  \
     movdqa  x, tmp2;    \
     movdqa  x, tmp1;    \
     pand    y, tmp2;    \
     pandn   z, tmp1;    \
     por     tmp2, tmp1; 
 
-#define F1(x,y,z)       \
+#define SHA1_F1(x,y,z)  \
     movdqa  z, tmp1;    \
     pxor    y, tmp1;    \
     pxor    x, tmp1;
 
-#define F2(x,y,z)       \
+#define SHA1_F2(x,y,z)  \
     movdqa  x, tmp1;    \
     movdqa  x, tmp2;    \
     pand    y, tmp1;    \
@@ -79,7 +79,7 @@
     pand    z, tmp2;    \
     por     tmp2, tmp1;
 
-#define subRoundX(a, b, c, d, e, f, k, data)    \
+#define SHA1_subRoundX(a, b, c, d, e, f, k, data) \
     f(b,c,d);                           \
     movdqa  a, tmp2;                    \
     movdqa  a, tmp3;                    \
@@ -95,8 +95,8 @@
     por     tmp2, b;                    \
     movdqa  (data*16)(edx_rsi), tmp1;   \
     movdqa  tmp1, tmp2;                 \
-    pand    const_ff00(eax_rdi), tmp1;  \
-    pand    const_00ff(eax_rdi), tmp2;  \
+    pand    sha1_cst_ff00(eax_rdi), tmp1;  \
+    pand    sha1_cst_00ff(eax_rdi), tmp2;  \
     psrld   $8, tmp1;                   \
     pslld   $8, tmp2;                   \
     por     tmp2, tmp1;                 \
@@ -107,35 +107,69 @@
     movdqa  tmp1, (data*16)(ecx_rdx);   \
     paddd   tmp1, e;
 
-#define subRoundY(a, b, c, d, e, f, k, data)\
-    movdqa  ((data- 3)*16)(ecx_rdx), tmp1;  \
-    pxor    ((data- 8)*16)(ecx_rdx), tmp1;  \
-    pxor    ((data-14)*16)(ecx_rdx), tmp1;  \
-    pxor    ((data-16)*16)(ecx_rdx), tmp1;  \
-    movdqa  tmp1, tmp2;                     \
-    pslld   $1, tmp1;                       \
-    psrld   $31, tmp2;                      \
-    por     tmp2, tmp1;                     \
-    movdqa  tmp1, (data*16)(ecx_rdx);       \
-    paddd   tmp1, e;                        \
-    f(b,c,d);                               \
-    movdqa  a, tmp2;                        \
-    movdqa  a, tmp3;                        \
-    paddd   tmp1, e;                        \
-    pslld   $5, tmp2;                       \
-    psrld   $27, tmp3;                      \
-    por     tmp3, tmp2;                     \
-    paddd   tmp2, e;                        \
-    movdqa  b, tmp2;                        \
-    pslld   $30, b;                         \
-    paddd   k, e;                           \
-    psrld   $2, tmp2;                       \
+#define SHA1_subRoundY(a, b, c, d, e, f, k, data) \
+    movdqa  ((data- 3)*16)(ecx_rdx), tmp1;        \
+    pxor    ((data- 8)*16)(ecx_rdx), tmp1;        \
+    pxor    ((data-14)*16)(ecx_rdx), tmp1;        \
+    pxor    ((data-16)*16)(ecx_rdx), tmp1;        \
+    movdqa  tmp1, tmp2;                           \
+    pslld   $1, tmp1;                             \
+    psrld   $31, tmp2;                            \
+    por     tmp2, tmp1;                           \
+    movdqa  tmp1, (data*16)(ecx_rdx);             \
+    paddd   tmp1, e;                              \
+    f(b,c,d);                                     \
+    movdqa  a, tmp2;                              \
+    movdqa  a, tmp3;                              \
+    paddd   tmp1, e;                              \
+    pslld   $5, tmp2;                             \
+    psrld   $27, tmp3;                            \
+    por     tmp3, tmp2;                           \
+    paddd   tmp2, e;                              \
+    movdqa  b, tmp2;                              \
+    pslld   $30, b;                               \
+    paddd   k, e;                                 \
+    psrld   $2, tmp2;                             \
     por     tmp2, b;
  
+#define MD5_F(b, c, d) \
+    movapd c, tmp1;    \
+    pxor   d, tmp1;    \
+    pand   b, tmp1;    \
+    pxor   d, tmp1
+
+#define MD5_G(b, c, d) \
+    movapd c, tmp1;    \
+    pxor   b, tmp1;    \
+    pand   d, tmp1;    \
+    pxor   c, tmp1
+
+#define MD5_H(b, c, d) \
+    movapd b, tmp1;    \
+    pxor   c, tmp1;    \
+    pxor   d, tmp1
+
+#define MD5_I(b, c, d) \
+    movapd d, tmp1;    \
+    pandn  tmp2, tmp1; \
+    por    b, tmp1;    \
+    pxor   c, tmp1;
+
+#define MD5_subRound(f, a, b, c, d, x, t, s) \
+    f(b, c, d);                              \
+    paddd  (x * 4*4)(edx_rsi), tmp1;           \
+    paddd  (t * 4*4)(ecx_rdx), a;              \
+    paddd  tmp1, a;                          \
+    movapd a, tmp3;                          \
+    psrld  $(32 - s), tmp3;                    \
+    pslld  $s, a;                            \
+    por    tmp3, a;                          \
+    paddd  b, a
 
 .globl detect_sse2, _detect_sse2;;
 .globl sse2_sha1_update, _sse2_sha1_update;
 .globl sse2_sha1_finalize, _sse2_sha1_finalize;
+.globl sse2_md5_update, _sse2_md5_update
 
 .text
 
@@ -150,12 +184,12 @@ sse2_sha1_finalize:
     movdqa   48(eax_rdi), ctxd
     movdqa   64(eax_rdi), ctxe
 
-    movdqa   const_ff00(eax_rdi), tmp3
+    movdqa   sha1_cst_ff00(eax_rdi), tmp3
     movdqa   ctxa, tmp1
     movdqa   ctxb, tmp2
     pand     tmp3, ctxa
     pand     tmp3, ctxb
-    movdqa   const_00ff(eax_rdi), tmp3
+    movdqa   sha1_cst_00ff(eax_rdi), tmp3
     pand     tmp3, tmp1
     pand     tmp3, tmp2
     psrld    $8, ctxa
@@ -175,14 +209,14 @@ sse2_sha1_finalize:
     movdqa   ctxa,  0(edx_rsi)
     movdqa   ctxb,  16(edx_rsi)
 
-    movdqa   const_ff00(eax_rdi), tmp5
+    movdqa   sha1_cst_ff00(eax_rdi), tmp5
     movdqa   ctxc, tmp1
     movdqa   ctxd, tmp2
     movdqa   ctxe, tmp3
     pand     tmp5, ctxc
     pand     tmp5, ctxd
     pand     tmp5, ctxe
-    movdqa   const_00ff(eax_rdi), tmp5
+    movdqa   sha1_cst_00ff(eax_rdi), tmp5
     pand     tmp5, tmp1
     pand     tmp5, tmp2
     pand     tmp5, tmp3
@@ -219,7 +253,7 @@ sse2_sha1_finalize:
 // arg 3 (ecx) (64bit: rdx): workspace  (4*80*4 bytes)
 _sse2_sha1_update:
 sse2_sha1_update:
-
+    
     movdqa    0(eax_rdi), ctxa
     movdqa   16(eax_rdi), ctxb
     movdqa   32(eax_rdi), ctxc
@@ -229,92 +263,92 @@ sse2_sha1_update:
     prefetchnta (edx_rsi)
 
 /* round0 */
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi),  0 );
-    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi),  1 );
-    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi),  2 );
-    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi),  3 );
-    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi),  4 );
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi),  5 );
-    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi),  6 );
-    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi),  7 );
-    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi),  8 );
-    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi),  9 );
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi), 10 );
-    subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi), 11 );
-    subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi), 12 );
-    subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi), 13 );
-    subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi), 14 );
-    subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, F0, const_stage0(eax_rdi), 15 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F0, const_stage0(eax_rdi), 16 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F0, const_stage0(eax_rdi), 17 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F0, const_stage0(eax_rdi), 18 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F0, const_stage0(eax_rdi), 19 );
+    SHA1_subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F0, sha1_cst_stage0(eax_rdi),  0 );
+    SHA1_subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F0, sha1_cst_stage0(eax_rdi),  1 );
+    SHA1_subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F0, sha1_cst_stage0(eax_rdi),  2 );
+    SHA1_subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F0, sha1_cst_stage0(eax_rdi),  3 );
+    SHA1_subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F0, sha1_cst_stage0(eax_rdi),  4 );
+    SHA1_subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F0, sha1_cst_stage0(eax_rdi),  5 );
+    SHA1_subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F0, sha1_cst_stage0(eax_rdi),  6 );
+    SHA1_subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F0, sha1_cst_stage0(eax_rdi),  7 );
+    SHA1_subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F0, sha1_cst_stage0(eax_rdi),  8 );
+    SHA1_subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F0, sha1_cst_stage0(eax_rdi),  9 );
+    SHA1_subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F0, sha1_cst_stage0(eax_rdi), 10 );
+    SHA1_subRoundX( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F0, sha1_cst_stage0(eax_rdi), 11 );
+    SHA1_subRoundX( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F0, sha1_cst_stage0(eax_rdi), 12 );
+    SHA1_subRoundX( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F0, sha1_cst_stage0(eax_rdi), 13 );
+    SHA1_subRoundX( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F0, sha1_cst_stage0(eax_rdi), 14 );
+    SHA1_subRoundX( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F0, sha1_cst_stage0(eax_rdi), 15 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F0, sha1_cst_stage0(eax_rdi), 16 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F0, sha1_cst_stage0(eax_rdi), 17 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F0, sha1_cst_stage0(eax_rdi), 18 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F0, sha1_cst_stage0(eax_rdi), 19 );
 
 /* round1 */
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 20 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 21 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 22 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 23 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 24 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 25 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 26 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 27 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 28 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 29 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 30 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 31 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 32 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 33 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 34 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage1(eax_rdi), 35 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage1(eax_rdi), 36 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage1(eax_rdi), 37 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage1(eax_rdi), 38 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage1(eax_rdi), 39 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage1(eax_rdi), 20 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage1(eax_rdi), 21 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage1(eax_rdi), 22 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage1(eax_rdi), 23 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage1(eax_rdi), 24 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage1(eax_rdi), 25 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage1(eax_rdi), 26 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage1(eax_rdi), 27 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage1(eax_rdi), 28 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage1(eax_rdi), 29 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage1(eax_rdi), 30 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage1(eax_rdi), 31 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage1(eax_rdi), 32 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage1(eax_rdi), 33 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage1(eax_rdi), 34 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage1(eax_rdi), 35 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage1(eax_rdi), 36 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage1(eax_rdi), 37 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage1(eax_rdi), 38 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage1(eax_rdi), 39 );
 
 /* round2 */
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 40 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 41 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 42 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 43 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 44 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 45 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 46 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 47 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 48 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 49 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 50 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 51 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 52 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 53 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 54 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F2, const_stage2(eax_rdi), 55 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F2, const_stage2(eax_rdi), 56 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F2, const_stage2(eax_rdi), 57 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F2, const_stage2(eax_rdi), 58 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F2, const_stage2(eax_rdi), 59 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F2, sha1_cst_stage2(eax_rdi), 40 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F2, sha1_cst_stage2(eax_rdi), 41 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F2, sha1_cst_stage2(eax_rdi), 42 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F2, sha1_cst_stage2(eax_rdi), 43 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F2, sha1_cst_stage2(eax_rdi), 44 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F2, sha1_cst_stage2(eax_rdi), 45 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F2, sha1_cst_stage2(eax_rdi), 46 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F2, sha1_cst_stage2(eax_rdi), 47 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F2, sha1_cst_stage2(eax_rdi), 48 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F2, sha1_cst_stage2(eax_rdi), 49 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F2, sha1_cst_stage2(eax_rdi), 50 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F2, sha1_cst_stage2(eax_rdi), 51 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F2, sha1_cst_stage2(eax_rdi), 52 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F2, sha1_cst_stage2(eax_rdi), 53 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F2, sha1_cst_stage2(eax_rdi), 54 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F2, sha1_cst_stage2(eax_rdi), 55 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F2, sha1_cst_stage2(eax_rdi), 56 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F2, sha1_cst_stage2(eax_rdi), 57 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F2, sha1_cst_stage2(eax_rdi), 58 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F2, sha1_cst_stage2(eax_rdi), 59 );
 
 /* round3 */
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 60 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 61 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 62 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 63 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 64 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 65 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 66 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 67 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 68 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 69 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 70 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 71 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 72 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 73 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 74 );
-    subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, F1, const_stage3(eax_rdi), 75 );
-    subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, F1, const_stage3(eax_rdi), 76 );
-    subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, F1, const_stage3(eax_rdi), 77 );
-    subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, F1, const_stage3(eax_rdi), 78 );
-    subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, F1, const_stage3(eax_rdi), 79 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage3(eax_rdi), 60 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage3(eax_rdi), 61 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage3(eax_rdi), 62 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage3(eax_rdi), 63 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage3(eax_rdi), 64 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage3(eax_rdi), 65 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage3(eax_rdi), 66 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage3(eax_rdi), 67 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage3(eax_rdi), 68 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage3(eax_rdi), 69 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage3(eax_rdi), 70 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage3(eax_rdi), 71 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage3(eax_rdi), 72 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage3(eax_rdi), 73 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage3(eax_rdi), 74 );
+    SHA1_subRoundY( ctxa, ctxb, ctxc, ctxd, ctxe, SHA1_F1, sha1_cst_stage3(eax_rdi), 75 );
+    SHA1_subRoundY( ctxe, ctxa, ctxb, ctxc, ctxd, SHA1_F1, sha1_cst_stage3(eax_rdi), 76 );
+    SHA1_subRoundY( ctxd, ctxe, ctxa, ctxb, ctxc, SHA1_F1, sha1_cst_stage3(eax_rdi), 77 );
+    SHA1_subRoundY( ctxc, ctxd, ctxe, ctxa, ctxb, SHA1_F1, sha1_cst_stage3(eax_rdi), 78 );
+    SHA1_subRoundY( ctxb, ctxc, ctxd, ctxe, ctxa, SHA1_F1, sha1_cst_stage3(eax_rdi), 79 );
 
     paddd    0(eax_rdi), ctxa
     paddd   16(eax_rdi), ctxb
@@ -322,13 +356,109 @@ sse2_sha1_update:
     paddd   48(eax_rdi), ctxd
     paddd   64(eax_rdi), ctxe
 
-    movdqa    ctxa,  0(eax_rdi)
-    movdqa    ctxb, 16(eax_rdi)
-    movdqa    ctxc, 32(eax_rdi)
-    movdqa    ctxd, 48(eax_rdi)
-    movdqa    ctxe, 64(eax_rdi)
+    movdqa  ctxa,  0(eax_rdi)
+    movdqa  ctxb, 16(eax_rdi)
+    movdqa  ctxc, 32(eax_rdi)
+    movdqa  ctxd, 48(eax_rdi)
+    movdqa  ctxe, 64(eax_rdi)
 
     ret
+
+// arg 1 (eax) (64bit: rdi): context (4*4*4 bytes)
+// arg 2 (edx) (64bit: rsi): input data (4*64 bytes)
+// arg 3 (ecx) (64bit: rdx): constants (4*64*4 bytes)
+_sse2_md5_update:
+sse2_md5_update:
+
+    movdqa    0(eax_rdi), ctxa
+    movdqa   16(eax_rdi), ctxb
+    movdqa   32(eax_rdi), ctxc
+    movdqa   48(eax_rdi), ctxd
+
+    prefetchnta (edx_rsi)
+
+    MD5_subRound( MD5_F, ctxa, ctxb, ctxc, ctxd,  0,  0,  7 )
+    MD5_subRound( MD5_F, ctxd, ctxa, ctxb, ctxc,  1,  1, 12 )
+    MD5_subRound( MD5_F, ctxc, ctxd, ctxa, ctxb,  2,  2, 17 )
+    MD5_subRound( MD5_F, ctxb, ctxc, ctxd, ctxa,  3,  3, 22 )
+    MD5_subRound( MD5_F, ctxa, ctxb, ctxc, ctxd,  4,  4,  7 )
+    MD5_subRound( MD5_F, ctxd, ctxa, ctxb, ctxc,  5,  5, 12 )
+    MD5_subRound( MD5_F, ctxc, ctxd, ctxa, ctxb,  6,  6, 17 )
+    MD5_subRound( MD5_F, ctxb, ctxc, ctxd, ctxa,  7,  7, 22 )
+    MD5_subRound( MD5_F, ctxa, ctxb, ctxc, ctxd,  8,  8,  7 )
+    MD5_subRound( MD5_F, ctxd, ctxa, ctxb, ctxc,  9,  9, 12 )
+    MD5_subRound( MD5_F, ctxc, ctxd, ctxa, ctxb, 10, 10, 17 )
+    MD5_subRound( MD5_F, ctxb, ctxc, ctxd, ctxa, 11, 11, 22 )
+    MD5_subRound( MD5_F, ctxa, ctxb, ctxc, ctxd, 12, 12,  7 )
+    MD5_subRound( MD5_F, ctxd, ctxa, ctxb, ctxc, 13, 13, 12 )
+    MD5_subRound( MD5_F, ctxc, ctxd, ctxa, ctxb, 14, 14, 17 )
+    MD5_subRound( MD5_F, ctxb, ctxc, ctxd, ctxa, 15, 15, 22 )
+
+    MD5_subRound( MD5_G, ctxa, ctxb, ctxc, ctxd,  1, 16,  5 )
+    MD5_subRound( MD5_G, ctxd, ctxa, ctxb, ctxc,  6, 17,  9 )
+    MD5_subRound( MD5_G, ctxc, ctxd, ctxa, ctxb, 11, 18, 14 )
+    MD5_subRound( MD5_G, ctxb, ctxc, ctxd, ctxa,  0, 19, 20 )
+    MD5_subRound( MD5_G, ctxa, ctxb, ctxc, ctxd,  5, 20,  5 )
+    MD5_subRound( MD5_G, ctxd, ctxa, ctxb, ctxc, 10, 21,  9 )
+    MD5_subRound( MD5_G, ctxc, ctxd, ctxa, ctxb, 15, 22, 14 )
+    MD5_subRound( MD5_G, ctxb, ctxc, ctxd, ctxa,  4, 23, 20 )
+    MD5_subRound( MD5_G, ctxa, ctxb, ctxc, ctxd,  9, 24,  5 )
+    MD5_subRound( MD5_G, ctxd, ctxa, ctxb, ctxc, 14, 25,  9 )
+    MD5_subRound( MD5_G, ctxc, ctxd, ctxa, ctxb,  3, 26, 14 )
+    MD5_subRound( MD5_G, ctxb, ctxc, ctxd, ctxa,  8, 27, 20 )
+    MD5_subRound( MD5_G, ctxa, ctxb, ctxc, ctxd, 13, 28,  5 )
+    MD5_subRound( MD5_G, ctxd, ctxa, ctxb, ctxc,  2, 29,  9 )
+    MD5_subRound( MD5_G, ctxc, ctxd, ctxa, ctxb,  7, 30, 14 )
+    MD5_subRound( MD5_G, ctxb, ctxc, ctxd, ctxa, 12, 31, 20 )
+
+    MD5_subRound( MD5_H, ctxa, ctxb, ctxc, ctxd,  5, 32,  4 )
+    MD5_subRound( MD5_H, ctxd, ctxa, ctxb, ctxc,  8, 33, 11 )
+    MD5_subRound( MD5_H, ctxc, ctxd, ctxa, ctxb, 11, 34, 16 )
+    MD5_subRound( MD5_H, ctxb, ctxc, ctxd, ctxa, 14, 35, 23 )
+    MD5_subRound( MD5_H, ctxa, ctxb, ctxc, ctxd,  1, 36,  4 )
+    MD5_subRound( MD5_H, ctxd, ctxa, ctxb, ctxc,  4, 37, 11 )
+    MD5_subRound( MD5_H, ctxc, ctxd, ctxa, ctxb,  7, 38, 16 )
+    MD5_subRound( MD5_H, ctxb, ctxc, ctxd, ctxa, 10, 39, 23 )
+    MD5_subRound( MD5_H, ctxa, ctxb, ctxc, ctxd, 13, 40,  4 )
+    MD5_subRound( MD5_H, ctxd, ctxa, ctxb, ctxc,  0, 41, 11 )
+    MD5_subRound( MD5_H, ctxc, ctxd, ctxa, ctxb,  3, 42, 16 )
+    MD5_subRound( MD5_H, ctxb, ctxc, ctxd, ctxa,  6, 43, 23 )
+    MD5_subRound( MD5_H, ctxa, ctxb, ctxc, ctxd,  9, 44,  4 )
+    MD5_subRound( MD5_H, ctxd, ctxa, ctxb, ctxc, 12, 45, 11 )
+    MD5_subRound( MD5_H, ctxc, ctxd, ctxa, ctxb, 15, 46, 16 )
+    MD5_subRound( MD5_H, ctxb, ctxc, ctxd, ctxa,  2, 47, 23 )
+
+    pcmpeqd tmp2, tmp2;  // Bitmask for logical NOT in MD5_I
+    MD5_subRound( MD5_I, ctxa, ctxb, ctxc, ctxd,  0, 48,  6 )
+    MD5_subRound( MD5_I, ctxd, ctxa, ctxb, ctxc,  7, 49, 10 )
+    MD5_subRound( MD5_I, ctxc, ctxd, ctxa, ctxb, 14, 50, 15 )
+    MD5_subRound( MD5_I, ctxb, ctxc, ctxd, ctxa,  5, 51, 21 )
+    MD5_subRound( MD5_I, ctxa, ctxb, ctxc, ctxd, 12, 52,  6 )
+    MD5_subRound( MD5_I, ctxd, ctxa, ctxb, ctxc,  3, 53, 10 )
+    MD5_subRound( MD5_I, ctxc, ctxd, ctxa, ctxb, 10, 54, 15 )
+    MD5_subRound( MD5_I, ctxb, ctxc, ctxd, ctxa,  1, 55, 21 )
+    MD5_subRound( MD5_I, ctxa, ctxb, ctxc, ctxd,  8, 56,  6 )
+    MD5_subRound( MD5_I, ctxd, ctxa, ctxb, ctxc, 15, 57, 10 )
+    MD5_subRound( MD5_I, ctxc, ctxd, ctxa, ctxb,  6, 58, 15 )
+    MD5_subRound( MD5_I, ctxb, ctxc, ctxd, ctxa, 13, 59, 21 )
+    MD5_subRound( MD5_I, ctxa, ctxb, ctxc, ctxd,  4, 60,  6 )
+    MD5_subRound( MD5_I, ctxd, ctxa, ctxb, ctxc, 11, 61, 10 )
+    MD5_subRound( MD5_I, ctxc, ctxd, ctxa, ctxb,  2, 62, 15 )
+    MD5_subRound( MD5_I, ctxb, ctxc, ctxd, ctxa,  9, 63, 21 )
+
+    paddd    0(eax_rdi), ctxa
+    paddd   16(eax_rdi), ctxb
+    paddd   32(eax_rdi), ctxc
+    paddd   48(eax_rdi), ctxd
+
+    movdqa  ctxa,  0(eax_rdi)
+    movdqa  ctxb, 16(eax_rdi)
+    movdqa  ctxc, 32(eax_rdi)
+    movdqa  ctxd, 48(eax_rdi)
+
+    ret
+
+
 
 /* returns 1 if SSE2 is supported, 0 otherwise */
 _detect_sse2:
@@ -374,4 +504,3 @@ cpuid_exit:
 #if defined(__linux__) && defined(__ELF__)
     .section .note.GNU-stack,"",%progbits
 #endif
-
