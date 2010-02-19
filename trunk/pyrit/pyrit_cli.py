@@ -57,10 +57,6 @@ class Pyrit_CLI(object):
                 stream.flush()
 
     def initFromArgv(self):
-        self.tell("Pyrit %s (C) 2008-2010 Lukas Lueg " \
-                  "http://pyrit.googlecode.com\n" \
-                  "This code is distributed under the GNU General Public " \
-                  "License v3+\n" % cpyrit.util.VERSION, stream=sys.stderr)
         options = {}
         args, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:i:o:r:b:')
         args = dict(args)
@@ -73,10 +69,8 @@ class Pyrit_CLI(object):
         func = self.commands[command]
 
         req_params, opt_params = func.cli_options
-        if '-u' not in args and '-u' in req_params:
-            args['-u'] = cpyrit.config.cfg['default_storage']
         for param in req_params:
-            if param not in args:
+            if param not in ('-u',) and param not in args:
                 raise PyritRuntimeError("The command '%s' requires the " \
                                         "option '%s'. See 'help'." % \
                                         (command, param))
@@ -95,13 +89,20 @@ class Pyrit_CLI(object):
                         self.verbose = False
                 elif arg == '-r':
                     options['capturefile'] = value
-                elif arg == '-u':
-                    options['storage'] = self._getStorage(value)
             else:
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
 
-        self.tell('')
+        self.tell("Pyrit %s (C) 2008-2010 Lukas Lueg " \
+                  "http://pyrit.googlecode.com\n" \
+                  "This code is distributed under the GNU General Public " \
+                  "License v3+\n" % cpyrit.util.VERSION, stream=sys.stdout)
+        if '-u' in req_params:
+            if '-u' in args:
+                storage_url = args['-u']
+            else:
+                storage_url = cpyrit.config.cfg['default_storage']
+            options['storage'] = self._getStorage(storage_url)
         func(self, **options)
 
     def print_help(self):
@@ -191,7 +192,7 @@ class Pyrit_CLI(object):
                                             "that ESSID in the capture file.")
             else:
                 if ap.essid is not None and ap.essid != essid:
-                    self.tell("Warning: AccessPoint %s has ESSID '%s'. " \
+                    self.tell("WARNING: AccessPoint %s has ESSID '%s'. " \
                               "Using '%s' anyway." % (ap, ap.essid, essid), \
                               stream=sys.stderr)
         else:
@@ -629,7 +630,7 @@ class Pyrit_CLI(object):
 
     @requires_pckttools()
     def attack_passthrough(self, infile, capturefile, \
-                            essid=None, bssid=None):
+                            essid=None, bssid=None, outfile=None):
         """Attack a handshake with passwords from a file"""
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
@@ -658,13 +659,17 @@ class Pyrit_CLI(object):
             cracker.join()
             if cracker.solution is not None:
                 self.tell("\nThe password is '%s'.\n" % cracker.solution)
+                if outfile is not None:
+                    with cpyrit.util.FileWrapper(outfile, 'w') as writer:
+                        writer.write(cracker.solution)
                 break
         else:
             raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_passthrough.cli_options = (('-i', '-r'), ('-e', '-b'))
+    attack_passthrough.cli_options = (('-i', '-r'), ('-e', '-b', '-o'))
 
     @requires_pckttools()
-    def attack_batch(self, storage, capturefile, essid=None, bssid=None):
+    def attack_batch(self, storage, capturefile, \
+                        essid=None, bssid=None, outfile=None):
         """Attack a handshake with PMKs/passwords from the db"""
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
@@ -692,13 +697,17 @@ class Pyrit_CLI(object):
                     self.tell('')
             if cracker.solution is not None:
                 self.tell("\nThe password is '%s'.\n" % cracker.solution)
+                if outfile is not None:
+                    with cpyrit.util.FileWrapper(outfile, 'w') as writer:
+                        writer.write(cracker.solution)
                 break
         else:
             raise PyritRuntimeError("\nThe password was not found.\n")
-    attack_batch.cli_options = (('-r', '-u'), ('-e', '-b'))
+    attack_batch.cli_options = (('-r', '-u'), ('-e', '-b', '-o'))
 
     @requires_pckttools()
-    def attack_db(self, storage, capturefile, bssid=None, essid=None):
+    def attack_db(self, storage, capturefile, \
+                    bssid=None, essid=None, outfile=None):
         """Attack a handshake with PMKs from the db"""
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
@@ -730,13 +739,17 @@ class Pyrit_CLI(object):
                 self.tell('')
             if cracker.solution is not None:
                 self.tell("\nThe password is '%s'.\n" % cracker.solution)
+                if outfile is not None:
+                    with cpyrit.util.FileWrapper(outfile, 'w') as writer:
+                        writer.write(cracker.solution)
                 break
         else:
             raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_db.cli_options = (('-r', '-u'), ('-e', '-b'))
+    attack_db.cli_options = (('-r', '-u'), ('-e', '-b', '-o'))
 
     @requires_pckttools()
-    def attack_cowpatty(self, capturefile, infile, bssid=None, essid=None):
+    def attack_cowpatty(self, capturefile, infile,
+                        bssid=None, essid=None, outfile=None):
         """Attack a handshake with PMKs from a cowpatty-file"""
         with cpyrit.util.CowpattyFile(infile) as cowreader:
             if essid is None:
@@ -771,10 +784,13 @@ class Pyrit_CLI(object):
                             (perfcounter.total, perfcounter.avg))
                 if cracker.solution is not None:
                     self.tell("\nThe password is '%s'.\n" % cracker.solution)
+                    if outfile is not None:
+                        with cpyrit.util.FileWrapper(outfile, 'w') as writer:
+                            writer.write(cracker.solution)
                     break
             else:
                 raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b'))
+    attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b', '-o'))
 
     def benchmark(self, timeout=60):
         """Determine performance of available cores"""

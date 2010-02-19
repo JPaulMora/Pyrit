@@ -157,11 +157,11 @@
 
 #define MD5_subRound(f, a, b, c, d, x, t, s) \
     f(b, c, d);                              \
-    paddd  (x * 4*4)(edx_rsi), tmp1;           \
-    paddd  (t * 4*4)(ecx_rdx), a;              \
+    paddd  (x * 4*4)(edx_rsi), tmp1;         \
+    paddd  (t * 4*4)(ecx_rdx), a;            \
     paddd  tmp1, a;                          \
     movapd a, tmp3;                          \
-    psrld  $(32 - s), tmp3;                    \
+    psrld  $(32 - s), tmp3;                  \
     pslld  $s, a;                            \
     por    tmp3, a;                          \
     paddd  b, a

@@ -738,10 +738,10 @@ CPUDevice_solve(PyObject *self, PyObject *args)
         /* First hash done */
         for (i = 0; i < 4; i++)
         {
-                digests[i][0] = ctx.a[i];
-                digests[i][1] = ctx.b[i];
-                digests[i][2] = ctx.c[i];
-                digests[i][3] = ctx.d[i];
+            digests[i][0] = ctx.a[i];
+            digests[i][1] = ctx.b[i];
+            digests[i][2] = ctx.c[i];
+            digests[i][3] = ctx.d[i];
         }
         
         /* Step 2: Outer hash = OPAD ^ K // inner hash */
@@ -768,10 +768,10 @@ CPUDevice_solve(PyObject *self, PyObject *args)
         /* Second hash == HMAC */
         for (i = 0; i < 4; i++)
         {
-                ((uint32_t*)hmacs)[i * 4 + 0] = ctx.a[i];
-                ((uint32_t*)hmacs)[i * 4 + 1] = ctx.b[i];
-                ((uint32_t*)hmacs)[i * 4 + 2] = ctx.c[i];
-                ((uint32_t*)hmacs)[i * 4 + 3] = ctx.d[i];
+            ((uint32_t*)hmacs)[i * 4 + 0] = ctx.a[i];
+            ((uint32_t*)hmacs)[i * 4 + 1] = ctx.b[i];
+            ((uint32_t*)hmacs)[i * 4 + 2] = ctx.c[i];
+            ((uint32_t*)hmacs)[i * 4 + 3] = ctx.d[i];
         }
     }
     
