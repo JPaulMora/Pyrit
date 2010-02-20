@@ -29,6 +29,13 @@
 
 from __future__ import with_statement
 
+# prevent call to socket.getfqdn
+import BaseHTTPServer
+def fast_address_string(self):
+    return '%s' % self.client_address[0]
+BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
+del fast_address_string
+
 import hashlib
 import select
 import SimpleXMLRPCServer
