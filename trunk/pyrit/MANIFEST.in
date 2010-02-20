@@ -1,0 +1,4 @@
+include CHANGELOG
+include COPYING
+include README
+recursive-include test dict.gz wpa2psk-linksys.dump.gz wpapsk-linksys.dump.gz test_pyrit.py

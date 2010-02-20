@@ -463,7 +463,10 @@ class PerformanceCounter(object):
         if len(self.datapoints) < 2:
             return 0.0
         t = self.datapoints[-1][0] - self.datapoints[0][0]
-        return sum(x[1] for x in self.datapoints) / t
+        if t > 0.0:
+            return sum(x[1] for x in self.datapoints) / t
+        else:
+            return 0.0
 
     def __str__(self):
         return str(self.value())
