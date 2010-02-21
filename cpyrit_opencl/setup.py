@@ -43,10 +43,10 @@ else:
 try:
     svn_info = subprocess.Popen(('svn', 'info'), \
                                 stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.5-dev (svn r%i)' % \
+    version_string = '0.3.0-dev (svn r%i)' % \
                     int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = '0.2.5-dev'
+    version_string = '0.3.0'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
@@ -95,7 +95,7 @@ opencl_extension = Extension('cpyrit._cpyrit_opencl',
 
 setup_args = dict(
         name = 'cpyrit-opencl',
-        version = '0.2.5',
+        version = '0.3.0',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         long_description = \
             "Pyrit allows to create massive databases, pre-computing part " \
@@ -120,7 +120,7 @@ setup_args = dict(
         ext_modules = [opencl_extension],
         cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
         options = {'install': {'optimize': 1}, \
-                   'bdist_rpm': {'requires': 'Pyrit = 0.2.5-1'}}
+                   'bdist_rpm': {'requires': 'pyrit = 0.3.0-1'}}
         )
         
 if __name__ == "__main__":

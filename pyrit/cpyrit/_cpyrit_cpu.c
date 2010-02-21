@@ -515,7 +515,7 @@ CPUDevice_solve(PyObject *self, PyObject *args)
 
         result = PyTuple_New(arraysize);
         for (i = 0; i < arraysize; i++)
-            PyTuple_SetItem(result, i, Py_BuildValue("s#", pmk_buffer[i].e1, 32));
+            PyTuple_SetItem(result, i, PyString_FromStringAndSize((char*)pmk_buffer[i].e1, 32));
     } else {
         result = PyTuple_New(0);
     }

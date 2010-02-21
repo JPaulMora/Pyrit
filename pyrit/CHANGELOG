@@ -1,5 +1,5 @@
 Changes since 0.2.4:
- * Removed CPyrit-Stream in favor if OpenCL
+ * Removed CPyrit-Stream in favor of OpenCL
  * Added Network-Core
  * Added SQL-Storage
  * Added Remote-Storage
@@ -10,6 +10,7 @@ Changes since 0.2.4:
  * Added CLI-function 'serve'
  * Added SSE2-support for EAPOLCracker
  * Added output-option to all attack-modes
+ * Fixed EAPOLCracker picking the wrong KeyScheme
  * Improved lazy-loading of files
  * Sourcecode now almost completly PEP8-compliant
 

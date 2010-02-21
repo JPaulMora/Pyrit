@@ -42,10 +42,10 @@ else:
 try:
     svn_info = subprocess.Popen(('svn', 'info'), \
                                 stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.5-dev (svn r%i)' % \
+    version_string = '0.3.0 (svn r%i)' % \
                     int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = '0.2.5-dev'
+    version_string = '0.3.0'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
@@ -126,7 +126,7 @@ cuda_extension = Extension('cpyrit._cpyrit_cuda',
 
 setup_args = dict(
         name = 'cpyrit-cuda',
-        version = '0.2.5',
+        version = '0.3.0',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         long_description = \
             "Pyrit allows to create massive databases, pre-computing part " \
@@ -151,7 +151,7 @@ setup_args = dict(
         ext_modules = [cuda_extension],
         cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
         options = {'install': {'optimize': 1}, \
-                    'bdist_rpm': {'requires': 'pyrit = 0.2.5-1'}})
+                    'bdist_rpm': {'requires': 'pyrit = 0.3.0-1'}})
 
 if __name__ == "__main__":
     setup(**setup_args)

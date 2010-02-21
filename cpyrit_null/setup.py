@@ -50,7 +50,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [null_extension],
         options = {'install': {'optimize':1}, \
-                   'bdist_rpm': {'requires': 'Pyrit = 0.2.5-1'}})
+                   'bdist_rpm': {'requires': 'pyrit = 0.2.5-1'}})
 
 if __name__ == "__main__":
     setup(**setup_args)
