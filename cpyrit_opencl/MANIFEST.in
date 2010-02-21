@@ -1,4 +1,0 @@
-include COPYING
-include README
-include _cpyrit_opencl.h
-include _cpyrit_oclkernel.cl

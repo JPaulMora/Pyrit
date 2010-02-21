@@ -1,4 +1,0 @@
-include COPYING
-include README
-include _cpyrit_cuda.h
-include _cpyrit_cudakernel.cu
