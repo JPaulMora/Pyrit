@@ -20,23 +20,6 @@ The error was fixed in version '0.2.4 r152'.
 
 This error was fixed in version '0.2.3'. You either have to update to '0.2.3' or downgrade to CUDA 2.1.
 
-
-=== Compiling CPyrit-Stream throws an error message '_explicit template specialization cannot have a storage class_' ===
-
-The error usually refers to 'brtvector.hpp' and is caused by a bug in the ATI-Stream SDK. To fix it open '/usr/local/atibrook/sdk/include/brook/CPU/brtvector.hpp' and search for
-
-{{{
-#define SPECIALGETAT(TYP) template <> static TYP GetAt (const TYP& in,int i) {return in;}
-}}}
-
-Remove the word 'static' from the line above so it becomes:
-
-{{{
-#define SPECIALGETAT(TYP) template <> TYP GetAt (const TYP& in,int i) {return in;}
-}}}
-
-Save the file and re-compile.
-
 === Pyrit no longer uses all CPUs after installing a GPU-driven extension-module ===
 
 This behaviour is intended. Pyrit keeps one CPU free for scheduling work with every GPU it uses.
@@ -45,10 +28,10 @@ This behaviour is intended. Pyrit keeps one CPU free for scheduling work with ev
 
 Pyrit suppresses most errors that occur while loading the GPU-extensions as they are usually caused by simply not having compatible hardware installed. Open a terminal and try loading the offending module directly to get more information.
 
-For CPyrit-Stream:
+For CPyrit-OpenCL:
 
 {{{
-python -c 'from cpyrit import _cpyrit_stream'
+python -c 'from cpyrit import _cpyrit_opencl'
 }}}
 
 For CPyrit-CUDA:
@@ -59,13 +42,9 @@ python -c 'from cpyrit import _cpyrit_cuda'
 
 There is no output at all if the module was loaded successfully. Some of the errors you might get include:
 
- * *`ImportError: cannot import name _cpyrit_cuda / ImportError: cannot import name _cpyrit_stream`*
+ * *`ImportError: cannot import name _cpyrit_cuda / ImportError: cannot import name _cpyrit_opencl`*
 
- The CPyrit-Stream or CPyrit-CUDA modules are simply not installed or can't be found in the current Python-environment. Try (re-) installing the extension modules and make sure you don't mix the Python-interpreters you use (this can happen on MacOS which tends to have multiple versions of Python installed).
-
- * *`ImportError: libaticalcl.so not found.`*
-
- The CPyrit-Stream module requires ATIs proprietary driver 'fglrx' to be installed. 
+ The CPyrit-OpenCL or CPyrit-CUDA modules are simply not installed or can't be found in the current Python-environment. Try (re-) installing the extension modules and make sure you don't mix the Python-interpreters you use (this can happen on MacOS which tends to have multiple versions of Python installed).
 
  * *`ImportError: libcuda.so.1: cannot open shared object file: No such file or directory`*
 
@@ -83,11 +62,6 @@ There is no output at all if the module was loaded successfully. Some of the err
  * *`ImportError: CUDA seems to be unavailable or no device reported.`*
 
  The CUDA-driver has loaded but failed to initialize or reports that none of your GPUs is compatible. Take a look at [http://www.nvidia.com/object/cuda_learn_products.html this page] to find out if your GPU is supported. You may need to update your drivers.
-
- * *`ImportError: No CAL-compatible devices available`*
-
- Same reason as above. Check [http://developer.amd.com/gpu/ATIStreamSDK/pages/ATIStreamSystemRequirements.aspx#cards this list] to find out if your GPU is compatible.
-
 
 === Xorg becomes slow and unresponsive when using Pyrit on the GPU ===
 
