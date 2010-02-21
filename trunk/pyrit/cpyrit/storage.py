@@ -58,8 +58,8 @@ def getStorage(url):
         return FSStorage(url)
     elif protocol == 'http':
         return RPCStorage(url)
-    elif protocol in ('sqlite', 'mysql', 'postgres', 'oracle', 'mssql', \
-                      'firebird'):
+    elif protocol in ('sqlite', 'mysql', 'postgres', 'postgresql', \
+                      'oracle', 'mssql', 'firebird'):
         if 'sqlalchemy' not in sys.modules:
             raise util.SqlalchemyImportError("SQLAlchemy seems to be " \
                                              "unavailable.")
@@ -154,7 +154,7 @@ class BasePYR_Buffer(object):
 
     def __iter__(self):
         self._unpack()
-        return self.results.__iter__()            
+        return self.results.__iter__()
 
     def getpmkbuffer(self):
         return buffer(self._pmkbuffer)
@@ -250,7 +250,7 @@ class PasswordStore(object):
 
     def __enter__(self):
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
             self.flush_buffer()
@@ -311,7 +311,6 @@ class Storage(object):
         return self.passwords.iterpasswords()
 
 
-
 class FSStorage(Storage):
     """Storage-class that uses the filesystem
 
@@ -367,7 +366,7 @@ class FSEssidStore(ESSIDStore):
                         self.essids[essid][1][pyrfile[:len(pyrfile)-4]] = \
                                             os.path.join(essidpath, pyrfile)
             else:
-                print >>sys.stderr, "ESSID %s is corrupted." % essid_hash
+                print >> sys.stderr, "ESSID %s is corrupted." % essid_hash
 
     def __getitem__(self, (essid, key)):
         """Receive a iterable of (password,PMK)-tuples stored under
@@ -392,8 +391,8 @@ class FSEssidStore(ESSIDStore):
                 raise RuntimeError("Invalid ESSID in result-collection")
             return results
         except:
-            print >>sys.stderr, "Error while loading results %s for " \
-                                "ESSID '%s'" % (key, essid)
+            print >> sys.stderr, "Error while loading results %s for " \
+                                 "ESSID '%s'" % (key, essid)
             raise
 
     def __setitem__(self, (essid, key), results):
@@ -512,7 +511,7 @@ class FSPasswordStore(PasswordStore):
             if inp.key != key:
                 raise IOError("File doesn't match the key '%s'." % inp.key)
         except:
-            print >>sys.stdout, "Error while opening '%s'" % filename
+            print >> sys.stdout, "Error while opening '%s'" % filename
             raise
         return inp
 
@@ -539,7 +538,7 @@ class FSPasswordStore(PasswordStore):
 
 
 class RPCStorage(Storage):
-    
+
     def __init__(self, url):
         self.cli = xmlrpclib.ServerProxy(url)
         self.essids = RPCESSIDStore(self.cli)
@@ -550,7 +549,7 @@ class RPCStorage(Storage):
 
 
 class RPCESSIDStore(ESSIDStore):
-    
+
     def __init__(self, cli):
         self.cli = cli
 
@@ -674,16 +673,16 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
             raise AttributeError
         else:
             return self.methods[method](*params)
-    
+
     def getStats(self):
         return self.storage.getStats()
-    
+
     def passwords_keys(self):
         return list(self.storage.passwords)
-        
+
     def passwords_len(self):
         return len(self.storage.passwords)
-    
+
     def passwords_contains(self, key):
         return key in self.storage.passwords
 
@@ -702,10 +701,10 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
 
     def essids_len(self):
         return len(self.storage.essids)
-        
+
     def essids_contains(self, essid):
         return essid in self.storage.essids
-    
+
     def essids_getitem(self, essid, key):
         results = self.storage.essids[essid, key]
         buf = PYR2_Buffer(essid, results).pack()
@@ -722,13 +721,13 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
     def essids_delitem(self, essid):
         del self.storage.essids[essid]
         return True
-    
+
     def essids_keycount(self, essid):
         return self.storage.essids.keycount(essid)
-    
+
     def essids_containskey(self, essid, key):
         return self.storage.essids.containskey(essid, key)
-    
+
     def essids_create_essid(self, essid):
         self.storage.essids.create_essid(essid)
         return True
@@ -760,7 +759,7 @@ if 'sqlalchemy' in sys.modules:
                                    sql.ForeignKey('essids.essid_id'), \
                                    primary_key=True),
                         sql.Column('numElems', sql.Integer, nullable=False),
-                        sql.Column('results_buffer', sql.Binary(2**24-1), \
+                        sql.Column('results_buffer', sql.Binary(2**24 - 1), \
                                    nullable=False), \
                         mysql_engine='InnoDB')
 
@@ -774,7 +773,6 @@ if 'sqlalchemy' in sys.modules:
 
         def __str__(self):
             return str(self.essid)
-
 
     class PAW2_DBObject(object):
 
@@ -794,7 +792,6 @@ if 'sqlalchemy' in sys.modules:
                 self.collection.unpack(self.collection_buffer)
                 assert len(self.collection) == self.numElems
             return self.collection.__iter__()
-
 
     class PYR2_DBObject(object):
 
@@ -843,7 +840,6 @@ if 'sqlalchemy' in sys.modules:
                results_table, \
                properties={'_key': orm.synonym('key', map_column=True)})
 
-
     class SessionContext(object):
         """A wrapper around classes given by sessionmake to add a
           context-manager.
@@ -859,7 +855,6 @@ if 'sqlalchemy' in sys.modules:
             if type is not None:
                 self.session.rollback()
             self.session.close()
-
 
     class SQLStorage(Storage):
 
@@ -886,7 +881,6 @@ if 'sqlalchemy' in sys.modules:
                     else:
                         essid_results[str(essid)] = 0
                 return (pwtotal, essid_results)
-
 
     class SQLEssidStore(ESSIDStore):
 
@@ -1012,7 +1006,6 @@ if 'sqlalchemy' in sys.modules:
                 essid_obj = ESSID_DBObject(essid)
                 session.add(essid_obj)
                 session.commit()
-
 
     class SQLPasswordStore(PasswordStore):
 

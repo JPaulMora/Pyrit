@@ -97,10 +97,26 @@ setup_args = dict(
         name = 'cpyrit-opencl',
         version = '0.2.5',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
+        long_description = \
+            "Pyrit allows to create massive databases, pre-computing part " \
+            "of the WPA/WPA2-PSK authentication phase in a space-time-" \
+            "tradeoff. Exploiting the computational power of Many-Core- " \
+            "and other platforms through ATI-Stream, Nvidia CUDA, OpenCL " \
+            "and VIA Padlock, it is currently by far the most powerful " \
+            "attack against one of the world's most used security-protocols.",
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
         author_email = 'lukas.lueg@gmail.com',
         url = 'http://pyrit.googlecode.com',
+        classifiers = \
+              ['Development Status :: 4 - Beta',
+               'Environment :: Console',
+               'License :: OSI Approved :: GNU General Public License (GPL)',
+               'Natural Language :: English',
+               'Operating System :: OS Independent',
+               'Programming Language :: Python',
+               'Topic :: Security'],
+        platforms = ['any'],
         ext_modules = [opencl_extension],
         cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
         options = {'install': {'optimize': 1}, \

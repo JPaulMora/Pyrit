@@ -585,7 +585,7 @@ class Pyrit_CLI(object):
                                 totalKeys, \
                                 100.0 * solvedKeys / totalKeys, \
                                 perfcounter.avg), \
-                              end = None, sep = None)
+                              end=None, sep=None)
             self.tell("Processed all workunits for ESSID '%s'; " \
                       "%i PMKs per second." % \
                       (cur_essid, perfcounter.avg))
@@ -731,7 +731,7 @@ class Pyrit_CLI(object):
                     perfcounter += len(results)
                     self.tell("Tried %i PMKs so far (%.1f%%); " \
                               "%i PMKs per second.\r" % (perfcounter.total,
-                                100.0 * (idx+1) / WUcount,
+                                100.0 * (idx + 1) / WUcount,
                                 perfcounter.avg),
                               end=None, sep=None)
                     if cracker.solution is not None:
@@ -800,7 +800,7 @@ class Pyrit_CLI(object):
             self.tell("Calibrating...", end=None)
             t = time.time()
             while time.time() - t < 3:
-                cp.enqueue('foo', ['barbarbar']*1500)
+                cp.enqueue('foo', ['barbarbar'] * 1500)
                 cp.dequeue(block=False)
             for r in cp:
                 pass
@@ -840,7 +840,7 @@ class Pyrit_CLI(object):
         with cpyrit.cpyrit.CPyrit() as cp:
             self.tell("Cores incorporated in the test:")
             for i, core in enumerate(cp.cores):
-                self.tell("#%i:  '%s'" % (i+1, core))
+                self.tell("#%i:  '%s'" % (i + 1, core))
             self.tell("\nRunning selftest...")
             workunits = []
             t = time.time()

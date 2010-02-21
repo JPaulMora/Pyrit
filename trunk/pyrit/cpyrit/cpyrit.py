@@ -56,7 +56,7 @@ import _cpyrit_cpu
 def version_check(mod):
     ver = getattr(mod, "VERSION", "unknown")
     if ver != _cpyrit_cpu.VERSION:
-        print >>sys.stderr, \
+        print >> sys.stderr, \
                 "WARNING: Version mismatch between %s ('%s') and %s ('%s')\n" \
                 % (_cpyrit_cpu, _cpyrit_cpu.VERSION, mod, ver)
 
@@ -116,7 +116,7 @@ class Core(threading.Thread):
                 self.compTime += time.time() - t
                 self.resCount += len(res)
                 self.callCount += 1
-                avg = (2*self.buffersize + (self.resCount / self.compTime * 3)) / 3
+                avg = (2 * self.buffersize + (self.resCount / self.compTime * 3)) / 3
                 self.buffersize = int(max(self.minBufferSize,
                                   min(self.maxBufferSize, avg)))
                 self.queue._scatter(essid, pwlist, res)
@@ -146,7 +146,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >>sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
+    print >> sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
 else:
     version_check(_cpyrit_opencl)
 
@@ -159,7 +159,7 @@ else:
             self.name = "OpenCL-Device '%s'" % self.deviceName
             self.minBufferSize = 1024
             self.buffersize = 4096
-            maxhwsize = reduce(lambda x,y: x*y, self.maxWorkSizes)
+            maxhwsize = reduce(lambda x, y: x * y, self.maxWorkSizes)
             self.maxBufferSize = min(61440, maxhwsize)
             self.start()
 
@@ -169,7 +169,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >>sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
+    print >> sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
 else:
     version_check(_cpyrit_cuda)
 
@@ -179,7 +179,7 @@ else:
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
             _cpyrit_cuda.CUDADevice.__init__(self, dev_idx)
-            self.name = "CUDA-Device #%i '%s'" % (dev_idx+1, self.deviceName)
+            self.name = "CUDA-Device #%i '%s'" % (dev_idx + 1, self.deviceName)
             self.minBufferSize = 1024
             self.buffersize = 4096
             self.maxBufferSize = 40960
@@ -222,7 +222,6 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
                         self.core.rpc_unregister(uuid)
                 time.sleep(3)
 
-
     class NetworkClient(object):
 
         def __init__(self, known_uuids):
@@ -233,7 +232,6 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
 
         def ping(self):
             self.lastseen = time.time()
-
 
     def __init__(self, queue, host='', port=17935):
         SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, (host, port), \
@@ -265,7 +263,7 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
         while not self.shallStop:
             r, w, e = select.select([self], [], [], 0.5)
             if r:
-                self.handle_request()            
+                self.handle_request()
 
     def _get_client(self, uuid):
         with self.client_lock:
@@ -296,7 +294,7 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
                 return True
             else:
                 return False
-    
+
     def rpc_gather(self, client_uuid, buffersize):
         client = self._get_client(client_uuid)
         essid, pwlist = self.queue._gather(buffersize, block=False)
@@ -306,7 +304,7 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
             client.workunits.append((essid, pwlist))
             key, buf = storage.PAW2_Buffer(pwlist).pack()
             return (essid, xmlrpclib.Binary(buf))
-    
+
     def rpc_scatter(self, client_uuid, encoded_buf):
         client = self._get_client(client_uuid)
         essid, pwlist = client.workunits.pop(0)
@@ -319,14 +317,14 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
         if len(buf) != len(pwlist) * 32:
             raise ValueError("Result has invalid size of %i. Expected %i." % \
                                 (len(buf), len(pwlist) * 32))
-        results = [buf[i*32:i*32+32] for i in xrange(len(pwlist))]
+        results = [buf[i * 32:i * 32 + 32] for i in xrange(len(pwlist))]
         self.compTime = time.time() - self.startTime
         self.resCount += len(results)
         self.callCount += 1
         self.queue._scatter(essid, pwlist, results)
         client.ping()
         return True
-    
+
     def rpc_revoke(self, client_uuid):
         client = self._get_client(client_uuid)
         essid, passwords = client.workunits.pop()
@@ -562,8 +560,7 @@ class CPyrit(object):
                             newslice = pwslice[:restsize]
                             del pwdict[idx]
                             if len(pwslice[len(newslice):]) > 0:
-                                pwdict[idx+len(newslice)] = \
-                                 pwslice[len(newslice):]
+                                pwdict[idx + len(newslice)] = pwslice[len(newslice):]
                             pwslices.append((idx, len(newslice)))
                             passwords.extend(newslice)
                             restsize -= len(newslice)
@@ -603,7 +600,7 @@ class CPyrit(object):
                 del self.slices[wu]
             ptr = 0
             for idx, length in slices:
-                self.outqueue[idx] = list(results[ptr:ptr+length])
+                self.outqueue[idx] = list(results[ptr:ptr + length])
                 ptr += length
             for idx in sorted(self.outqueue.iterkeys(), reverse=True)[1:]:
                 res = self.outqueue[idx]
@@ -634,6 +631,6 @@ class CPyrit(object):
                 self.inqueue.insert(0, (essid, d))
             ptr = 0
             for idx, length in slices:
-                d[idx] = passwordlist[ptr:ptr+length]
+                d[idx] = passwordlist[ptr:ptr + length]
                 ptr += length
             self.cv.notifyAll()

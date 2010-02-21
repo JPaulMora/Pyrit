@@ -27,6 +27,7 @@ import xmlrpclib
 
 import storage
 
+
 class NetworkClient(threading.Thread):
 
     class NetworkGatherer(threading.Thread):
@@ -196,7 +197,7 @@ class NetworkServer(threading.Thread):
 
 
 class NetworkAnnouncer(threading.Thread):
-    """Announce the existence of a server via UDP-unicast and -broadcast""" 
+    """Announce the existence of a server via UDP-unicast and -broadcast"""
 
     def __init__(self, port=17935, clients=[], broadcast=True):
         threading.Thread.__init__(self)
@@ -283,13 +284,13 @@ class NetworkAnnouncementListener(threading.Thread):
                         return None
                 else:
                     return self.servers.pop(0)
-                    
+
     def __iter__(self):
         return self
-        
+
     def next(self):
         return self.waitForAnnouncement(block=True)
-    
+
     def shutdown(self):
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
