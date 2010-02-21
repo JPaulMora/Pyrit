@@ -28,10 +28,10 @@ UnixCCompiler.src_extensions.append('.S')
 try:
     svn_info = subprocess.Popen(('svn', 'info'), \
                                 stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.5-dev (svn r%i)' % \
+    version_string = '0.3.0 (svn r%i)' % \
                     int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = '0.2.5-dev'
+    version_string = '0.3.0'
 EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
 
 
@@ -43,7 +43,7 @@ cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
 
 setup_args = dict(
         name = 'pyrit',
-        version = '0.2.5',
+        version = '0.3.0',
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         long_description = \
             "Pyrit allows to create massive databases, pre-computing part " \

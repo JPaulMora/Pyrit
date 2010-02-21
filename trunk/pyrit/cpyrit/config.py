@@ -25,7 +25,7 @@ import sys
 
 def default_config():
     config = {'default_storage': 'file://', \
-              'rpc_server': 'true', \
+              'rpc_server': 'false', \
               'rpc_announce': 'true', \
               'rpc_announce_broadcast': 'false', \
               'rpc_knownclients': ''}

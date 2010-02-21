@@ -322,7 +322,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
         PUT_BE(c_outbuffer[i].pmk1.h2, temp, 8); PUT_BE(c_outbuffer[i].pmk1.h3, temp, 12); 
         PUT_BE(c_outbuffer[i].pmk1.h4, temp, 16);PUT_BE(c_outbuffer[i].pmk2.h0, temp, 20); 
         PUT_BE(c_outbuffer[i].pmk2.h1, temp, 24);PUT_BE(c_outbuffer[i].pmk2.h2, temp, 28); 
-        PyTuple_SetItem(result, i, Py_BuildValue("s#", temp, 32));
+        PyTuple_SetItem(result, i, PyString_FromStringAndSize((char*)temp, 32));
     }
     
     PyMem_Free(c_outbuffer);
