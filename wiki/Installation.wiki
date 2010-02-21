@@ -10,14 +10,15 @@ Pyrit compiles and runs on Linux, FreeBSD and MacOS. Windows is not (and probabl
 Pyrit consists of basically two parts:
 
   * The main module features the commandline-client, the scheduling- and database-code and a basic extension-module that uses the CPU for computation. The main module is required for everyone...
-  * There are currently three extension modules that add support for more advanced hardware. The extension modules for [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA] and [http://www.amd.com/US/PRODUCTS/TECHNOLOGIES/STREAM-TECHNOLOGY/Pages/stream-technology.aspx ATI-Stream] may be installed optionally and are used if available and supported by local hardware. There is also a extension module for [http://www.khronos.org/opencl/ OpenCL] which currently lacks supporting hardware-vendors :-)
+  * There are currently two extension modules that add support for more advanced hardware. The extension modules for [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA] and [http://www.khronos.org/opencl/ OpenCL] may be installed optionally and are used if available and supported by local hardware.
 
-You may want to take a look at [http://www.nvidia.com/object/cuda_learn_products.html this page] to find out if your hardware supports [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA]. People with interest in [http://www.amd.com/US/PRODUCTS/TECHNOLOGIES/STREAM-TECHNOLOGY/Pages/stream-technology.aspx ATI-Stream] can take a look [http://developer.amd.com/gpu/ATIStreamSDK/pages/ATIStreamSystemRequirements.aspx#cards here]. Nvidia is currently the only vendor with a working software implementation of [http://www.khronos.org/opencl/ OpenCL]; other possible OpenCL-platforms like [http://www-03.ibm.com/technology/cell/ IBM's Cell B.E.] (that powers the Playstation 3) are still waiting for supporting drivers.
+You can choose between OpenCL and CUDA if you have a compatible Nvidia-GPU; you may want to take a look at [http://www.nvidia.com/object/cuda_learn_products.html this page] to find out if your hardware supports [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA].
+People with GPUs from ATI are supported through [http://ati.amd.com/technology/streamcomputing/opencl.html AMD's OpenCL-implementation] and may find [http://ati.amd.com/technology/streamcomputing/requirements.html this page] of interest; other possible OpenCL-platforms like [http://www-03.ibm.com/technology/cell/ IBM's Cell B.E.] (that powers the Playstation 3) should work but are untested at the moment.
 
 
 = Compiling from sources =
 
-Compiling from source-code is the preferred way of getting Pyrit onto your system. Linux users running a binary distribution may need to install the development packages for [http://www.python.org Python] (e.g. _python-devel_), [http://www.openssl.org/ OpenSSL] (e.g. _openssl-devel_ or _libssl-dev_) and [http://zlib.net/ Zlib] (e.g. _zlib-devel_). You also need a C-compiler like _gcc_. Users of MacOS probably only need to have [http://developer.apple.com/TOOLS/Xcode/ Xcode] installed.
+Compiling from source-code is the preferred way of getting Pyrit onto your system. Linux users running a binary distribution may need to install the development packages for [http://www.python.org Python] (e.g. _python-devel_), [http://www.openssl.org/ OpenSSL] (e.g. _openssl-devel_ or _libssl-dev_) and [http://zlib.net/ Zlib] (e.g. _zlib-devel_). You also need a C-compiler like _gcc_. Users of MacOS probably only need to have [http://developer.apple.com/TOOLS/Xcode/ XCode] installed.
 
 From time to time Pyrit get's packed into (hopefully) stable packages. In general you should download, compile and install these source-code packages from the [http://code.google.com/p/pyrit/downloads/list Download] area.
 The more adventurous among you may instead want to try the latest source-code in Pyrit's repository. The code in [http://pyrit.googlecode.com/svn/trunk/ svn-trunk] may include more features and provide better performance but also may cause random problems or even not compile at all. Use the fixed packages when in doubt.
@@ -26,15 +27,14 @@ The more adventurous among you may instead want to try the latest source-code in
 
 Download the source-code package for Pyrit and (optionally) a extension-module.
 
-  * Pyrit (required): [http://pyrit.googlecode.com/files/Pyrit-0.2.4.tar.gz Version 0.2.4]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.2.4.tar.gz Version 0.2.4]
-  * CPyrit-Stream (optional, for ATI-hardware): [http://pyrit.googlecode.com/files/CPyrit-Stream-0.2.4.tar.gz Version 0.2.4]
-  * CPyrit-OpenCL (optional, for compatible hardware): [http://pyrit.googlecode.com/files/CPyrit-OpenCL-0.2.4.tar.gz Version 0.2.4]
+  * Pyrit (required): [http://pyrit.googlecode.com/files/pyrit-0.3.0.tar.gz Version 0.3.0]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.3.0.tar.gz Version 0.3.0]
+  * CPyrit-OpenCL (optional, for compatible hardware): [http://pyrit.googlecode.com/files/CPyrit-OpenCL-0.3.0.tar.gz Version 0.3.0]
 
 Now unpack the source-code into a new directory like this:
 {{{
-tar xvzf Pyrit-0.2.4.tar.gz
-tar xvzf CPyrit-CUDA-0.2.4.tar.gz
+tar xvzf pyrit-0.3.0.tar.gz
+tar xvzf cpyrit-cuda-0.3.0.tar.gz
 }}}
 
 Continue with the compiling as explained below.
@@ -55,7 +55,7 @@ This will create a new directory _'pyrit_svn'_ that holds all of Pyrit's latest 
 Switch to the main module's directory which should be 'Pyrit-0.2.4' (if you used a source-code package) or 'pyrit_svn/pyrit' (if you're on svn). We use Python's _distutils_ to compile and install the code:
 
 {{{
-cd Pyrit-0.2.4
+cd pyrit-0.3.0
 python setup.py build
 }}}
 
@@ -69,44 +69,36 @@ You can now execute 'pyrit' from your commandline; leave the source-code's direc
 
 ==== ... support for Nvidia-CUDA ====
 
-Get yourself a copy of the CUDA-*Toolkit* from [http://www.nvidia.com/object/cuda_get.html]. You need to modify either _$PATH_ and _ldconfig_ or setup.py if you choose not to install the Toolkit into either '/usr/local/cuda' or '/opt/cuda' so CPyrit-CUDA's installation routine can find Nvidia's compiler 'nvcc'. 
+Get yourself a copy of the CUDA-*Toolkit* from [http://www.nvidia.com/object/cuda_get.html]. You need to modify either _$PATH_ and _ldconfig_ or setup.py if you choose not to install the Toolkit into either '/usr/local/cuda' or '/opt/cuda' so CPyrit-CUDA's installation routine can find Nvidia's compiler 'nvcc'. You also need to have Nvidia's proprietary hardware-drivers installed in the way that fits your OS.
 
 Switch to the directory holding CPyrit-CUDA's source-code and compile and install it just like you did with Pyrit:
 
 {{{
-cd CPyrit-CUDA-0.2.4
+cd cpyrit-cuda-0.3.0
 python setup.py build
 sudo python setup.py install
 }}}
 
-You also need to have Nvidia's proprietary hardware-drivers installed in the way that fits your OS.
-
-==== ... support for ATI-Stream ====
-
-Download the ATI-Stream SDK from [http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx here] and install it. You need to modify setup.py or modify _$PATH_ and _ldconfig_ if you choose not to install into either '/usr/local/atibrook/sdk' or '/opt/atibrook/sdk'. As ATI's software is (once again) of extremely bad quality, you probably need to apply a series of workarounds for common bugs in the Stream-SDK. See [http://pyrit.wordpress.com/2009/02/12/compiling-amd-stream-core-with-g-43/ here], [http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=521323 here] and [http://developer.amd.com/support/KnowledgeBase/Lists/KnowledgeBase/DispForm.aspx?ID=28 here]. Building CPyrit-Stream requires a C++-compiler which should be provided by your distribution (e.g. _gcc-c++_).
-
-Switch to the directory holding CPyrit-Stream's source-code and compile and install it just like you did with Pyrit:
-
-{{{
-cd CPyrit-Stream-0.2.4
-python setup.py build
-sudo python setup.py install
-}}}
-
-You also need to have ATI's proprietary hardware-drivers 'fglrx' installed in the way that fits your OS.
+Executing _'pyrit list_cores'_ should list your GPUs. Please see [http://code.google.com/p/pyrit/wiki/Troubleshooting the troubleshooting-wiki] if it doesn't work.
 
 ==== ... support for OpenCL ====
 
-Vendor-support for OpenCL is in a very early stage and currently Nvidia is the only provider of [http://www.nvidia.com/object/cuda_opencl.html a working OpenCL environment]. Other hardware-platforms, including [http://www-03.ibm.com/technology/cell/ IBM's Cell B.E.], should however support OpenCL in the near future.
+OpenCL is currently supported by Nvidia (_GeForce_ GPUs), AMD (_ATI Radeon_ GPUs and SSE3-capable CPUs) and IBM (_CELL B.E._ CPUs). You can get a copy of the SDKs that are required to build CPyrit-OpenCL from the following sites (registration required):
 
-You can use Pyrit's OpenCL-core if you happen to have a working OpenCL-environment:
+ * [http://developer.nvidia.com/object/opencl-download.html Nvidia OpenCL SDK/Toolkit]
+ * [http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx ATI Stream SDK]
+
+
+Please see the drivers' installation instruction for how to get everything up and running. The SDKs usually include simple demos and examples. First try to get those demos working and you'll most probably have no problems installing CPyrit-OpenCL.
+
+Switch to the directory holding CPyrit-OpenCL's source-code and compile and install it just like you did with Pyrit:
 {{{
-cd CPyrit-OpenCL-0.2.4
+cd cpyrit-cuda-0.3.0
 python setup.py build
 sudo python setup.py install
 }}}
 
-Please notice that the OpenCL-Core is not used for Nvidia-GPUs if CPyrit-CUDA is also installed.
+Executing _'pyrit list_cores'_ should list your GPUs. Please see [http://code.google.com/p/pyrit/wiki/Troubleshooting the troubleshooting-wiki] if it doesn't work
 
 = Using binary packages =
 
