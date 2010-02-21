@@ -1,4 +1,8 @@
 include CHANGELOG
 include COPYING
 include README
-recursive-include test dict.gz wpa2psk-linksys.dump.gz wpapsk-linksys.dump.gz test_pyrit.py
+include cpyrit/_cpyrit_cpu.h
+include test/dict.gz
+include test/wpa2psk-linksys.dump.gz
+include test/wpapsk-linksys.dump.gz
+include test/test_pyrit.py

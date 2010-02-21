@@ -121,15 +121,15 @@ class EAPOL_AbstractEAPOLKey(scapy.packet.Packet):
                                  "encrypted"]),
         scapy.fields.ShortField("KeyLength", 0),
         scapy.fields.LongField("ReplayCounter", 0),
-        XStrFixedLenField("Nonce", '\x00'*32, 32),
-        XStrFixedLenField("KeyIV", '\x00'*16, 16),
-        XStrFixedLenField("WPAKeyRSC", '\x00'*8, 8),
-        XStrFixedLenField("WPAKeyID", '\x00'*8, 8),
-        XStrFixedLenField("WPAKeyMIC", '\x00'*16, 16),
+        XStrFixedLenField("Nonce", '\x00' * 32, 32),
+        XStrFixedLenField("KeyIV", '\x00' * 16, 16),
+        XStrFixedLenField("WPAKeyRSC", '\x00' * 8, 8),
+        XStrFixedLenField("WPAKeyID", '\x00' * 8, 8),
+        XStrFixedLenField("WPAKeyMIC", '\x00' * 16, 16),
         scapy.fields.ShortField("WPAKeyLength", 0),
         scapy.fields.ConditionalField(
                             XStrLenField("WPAKey", None,
-                                length_from = lambda pkt: pkt.WPAKeyLength),\
+                                length_from=lambda pkt: pkt.WPAKeyLength), \
                             lambda pkt: pkt.WPAKeyLength > 0)]
 
 
@@ -453,7 +453,7 @@ class PacketParser(object):
             # We need a revirginized version of the EAPOL-frame which produced
             # that MIC.
             frame = dot11_pckt[scapy.layers.dot11.EAPOL].copy()
-            frame.WPAKeyMIC = '\x00'* len(frame.WPAKeyMIC)
+            frame.WPAKeyMIC = '\x00' * len(frame.WPAKeyMIC)
             # Strip padding and cruft
             auth.keymic_frame = str(frame)[:frame.len + 4]
             if self.new_auth_callback is not None and auth.isCompleted():

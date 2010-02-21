@@ -186,7 +186,7 @@ oclplatf_dealloc(OpenCLPlatform *self)
     Py_XDECREF(self->numDevices);
     Py_XDECREF(self->platform_name);
     Py_XDECREF(self->platform_vendor);
-    PyObject_Del(self);
+    self->ob_type->tp_free((PyObject*)self);
 }
 
 static int
@@ -403,7 +403,7 @@ ocldevice_dealloc(OpenCLDevice *self)
     Py_XDECREF(self->dev_name);
     Py_XDECREF(self->dev_type);
     Py_XDECREF(self->dev_maxworksize);
-    PyObject_Del(self);
+    self->ob_type->tp_free((PyObject*)self);
 }
 
 static cl_int

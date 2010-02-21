@@ -25,7 +25,7 @@
    getting workunits from the database, passing them to the hardware if
    necessary and yielding the results to a client.
 
-   CowpattyWriter eases writing files in cowpatty's binary format.
+   CowpattyFile eases reading/writing files in cowpatty's binary format.
 
    ncpus equals the number of available CPUs in the system.
 
@@ -39,6 +39,7 @@ import cStringIO
 import gzip
 import os
 import Queue
+import random
 import sys
 import struct
 import time
@@ -104,7 +105,9 @@ class StorageIterator(object):
         self.workunits = []
         self.essid = essid
         self.storage = storage
-        self.keys = iter(self.storage.passwords)
+        keys = list(self.storage.passwords)
+        random.shuffle(keys)
+        self.keys = iter(keys)
         self.yieldOldResults = yieldOldResults
         self.yieldNewResults = yieldNewResults
 
@@ -430,6 +433,7 @@ class AsyncFileWriter(threading.Thread):
 
 
 class PerformanceCounter(object):
+
     def __init__(self, window=30.0):
         self.window = window
         self.datapoints = [[time.time(), 0.0]]

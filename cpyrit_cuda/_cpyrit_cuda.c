@@ -133,7 +133,7 @@ cudadev_dealloc(CUDADevice *self)
     if (self->dev_ctx)
         cuCtxDestroy(self->dev_ctx);
     Py_XDECREF(self->dev_name);
-    PyObject_Del(self);
+    self->ob_type->tp_free((PyObject*)self);
 }
 
 static PyObject*

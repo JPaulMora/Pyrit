@@ -22,6 +22,7 @@ from __future__ import with_statement
 import os
 import sys
 
+
 def default_config():
     config = {'default_storage': 'file://', \
               'rpc_server': 'true', \
@@ -29,6 +30,7 @@ def default_config():
               'rpc_announce_broadcast': 'false', \
               'rpc_knownclients': ''}
     return config
+
 
 def read_configfile(filename):
     config = default_config()
@@ -40,9 +42,10 @@ def read_configfile(filename):
             if option in config:
                 config[option] = value
             else:
-                print >>sys.stderr, "WARNING: Unknown option '%s' " \
+                print >> sys.stderr, "WARNING: Unknown option '%s' " \
                                     "in configfile '%s'" % (option, filename)
     return config
+
 
 def write_configfile(config, filename):
     with open(filename, 'wb') as f:
