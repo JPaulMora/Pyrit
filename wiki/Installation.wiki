@@ -28,8 +28,8 @@ The more adventurous among you may instead want to try the latest source-code in
 Download the source-code package for Pyrit and (optionally) a extension-module.
 
   * Pyrit (required): [http://pyrit.googlecode.com/files/pyrit-0.3.0.tar.gz Version 0.3.0]
-  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/CPyrit-CUDA-0.3.0.tar.gz Version 0.3.0]
-  * CPyrit-OpenCL (optional, for compatible hardware): [http://pyrit.googlecode.com/files/CPyrit-OpenCL-0.3.0.tar.gz Version 0.3.0]
+  * CPyrit-CUDA (optional, for Nvidia-hardware): [http://pyrit.googlecode.com/files/cpyrit-cuda-0.3.0.tar.gz Version 0.3.0]
+  * CPyrit-OpenCL (optional, for compatible hardware): [http://pyrit.googlecode.com/files/cpyrit-opencl-0.3.0.tar.gz Version 0.3.0]
 
 Now unpack the source-code into a new directory like this:
 {{{
