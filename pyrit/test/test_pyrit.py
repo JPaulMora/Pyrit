@@ -46,23 +46,28 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def tearDown(self):
         pass
 
-    def _createPasswords(self, filename, count=5000):
-        test_passwds = ['test123%i' % i for i in xrange(count-1)]
+    def _createPasswords(self, filename):
+        test_passwds = ['test123%i' % i for i in xrange(5000-3)]
         test_passwds += ['dictionary']
+        test_passwds += ['helium02']
+        test_passwds += ['MOM12345']
         random.shuffle(test_passwds)
         with cpyrit.util.AsyncFileWriter(filename) as f:
             f.write('\n'.join(test_passwds))
         return test_passwds
 
-    def _createDatabase(self, storage, essid='linksys', count=5000):
+    def _createDatabase(self, storage):
         self.cli.create_essid(storage, 'linksys')
-        self._createPasswords(self.tempfile1, count)
+        self._createPasswords(self.tempfile1)
         self.cli.import_passwords(storage, self.tempfile1)
+        
+    def _computeDatabase(self, storage, essid):
+        self.cli.create_essid(storage, essid)
         l = 0
         with cpyrit.util.StorageIterator(storage, essid) as dbiter:
             for results in dbiter:
                 l += len(results)
-        self.assertEqual(l, count)
+        self.assertEqual(l, 5000)
 
     def testListEssids(self):
         storage = self.getStorage()
@@ -117,15 +122,27 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testAttackDB(self):
         storage = self.getStorage()
         self._createDatabase(storage)
+        self._computeDatabase(storage, 'linksys')
         self.cli.attack_db(storage, 'wpapsk-linksys.dump.gz')
         self.cli.attack_db(storage, 'wpa2psk-linksys.dump.gz')
+        self._computeDatabase(storage, 'MOM1')
+        self.cli.attack_db(storage, 'wpa2psk-MOM1.dump.gz')
+        self._computeDatabase(storage, '2WIRE972')
+        self.cli.attack_db(storage, 'wpa2psk-2WIRE972.dump.gz')
 
     def testAttackCowpatty(self):
         storage = self.getStorage()
         self._createDatabase(storage)
+        self._computeDatabase(storage, 'linksys')
         self.cli.export_cowpatty(storage, 'linksys', self.tempfile1)
         self.cli.attack_cowpatty('wpapsk-linksys.dump.gz', self.tempfile1)
         self.cli.attack_cowpatty('wpa2psk-linksys.dump.gz', self.tempfile1)
+        self._computeDatabase(storage, 'MOM1')
+        self.cli.export_cowpatty(storage, 'MOM1', self.tempfile1)
+        self.cli.attack_cowpatty('wpa2psk-MOM1.dump.gz', self.tempfile1)
+        self._computeDatabase(storage, '2WIRE972')
+        self.cli.export_cowpatty(storage, '2WIRE972', self.tempfile1)
+        self.cli.attack_cowpatty('wpa2psk-2WIRE972.dump.gz', self.tempfile1)
 
     def testAttackBatch(self):
         storage = self.getStorage()
@@ -142,7 +159,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
             fileresults.extend(results)
         dbresults = []
         with cpyrit.util.StorageIterator(storage, 'linksys', \
-                                            yieldNewResults=False) as dbiter:
+                                            yieldNewResults=True) as dbiter:
             for results in dbiter:
                 dbresults.extend(results)
         self.assertEqual(sorted(fileresults), sorted(dbresults))
@@ -185,19 +202,22 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testEval(self):
         storage = self.getStorage()
         self._createDatabase(storage)
+        self._computeDatabase(storage, 'test1')
+        self._computeDatabase(storage, 'test2')
         self.cli.eval_results(storage)
 
     def testVerify(self):
         storage = self.getStorage()
         self._createDatabase(storage)
+        self._computeDatabase(storage, 'test')
         # Should be OK
         self.cli.verify(storage)
-        keys = list(storage.essids.iterkeys('linksys')) 
+        keys = list(storage.essids.iterkeys('test')) 
         for i in xrange(25):
             key = random.choice(keys)
-            results = storage.essids['linksys', key]
+            results = storage.essids['test', key]
             corrupted = tuple((pw, 'x'*32) for pw, pmk in results)
-            storage.essids['linksys', key] = corrupted
+            storage.essids['test', key] = corrupted
         # Should fail
         self.assertRaises(pyrit_cli.PyritRuntimeError, self.cli.verify, storage)
 
@@ -213,12 +233,13 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testExportCowpatty(self):
         storage = self.getStorage()
         self._createDatabase(storage)
-        self.cli.export_cowpatty(storage, 'linksys', self.tempfile1)
+        self._computeDatabase(storage, 'test')
+        self.cli.export_cowpatty(storage, 'test', self.tempfile1)
         fileresults = []
         for results in cpyrit.util.CowpattyFile(self.tempfile1):
             fileresults.extend(results)
         dbresults = []
-        with cpyrit.util.StorageIterator(storage, 'linksys', \
+        with cpyrit.util.StorageIterator(storage, 'test', \
                                             yieldNewResults=False) as dbiter:
             for results in dbiter:
                 dbresults.extend(results)
@@ -227,6 +248,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
     def testExportHashdb(self):
         storage = self.getStorage()
         self._createDatabase(storage)
+        self._computeDatabase(storage, 'test')
         os.unlink(self.tempfile1)
         self.cli.export_hashdb(storage, self.tempfile1)
 
@@ -257,10 +279,13 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
     def testAnalyze(self):
         self.cli.analyze(capturefile='wpapsk-linksys.dump.gz')
         self.cli.analyze(capturefile='wpa2psk-linksys.dump.gz')
+        self.cli.analyze(capturefile='wpa2psk-MOM1.dump.gz')
+        self.cli.analyze(capturefile='wpa2psk-2WIRE972.dump.gz')
 
     def testStripCapture(self):
         storage = self.getStorage()
         self._createDatabase(storage)
+        self._computeDatabase(storage, 'linksys')
         self.cli.stripCapture('wpapsk-linksys.dump.gz', self.tempfile1)
         parser = self.cli._getParser(self.tempfile1)
         self.assertTrue('00:0b:86:c2:a4:85' in parser)
@@ -272,6 +297,7 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
     def testStripLive(self):
         storage = self.getStorage()
         self._createDatabase(storage)
+        self._computeDatabase(storage, 'linksys')
         self.cli.stripCapture('wpa2psk-linksys.dump.gz', self.tempfile1)
         parser = self.cli._getParser(self.tempfile1)
         self.assertTrue('00:0b:86:c2:a4:85' in parser)
@@ -284,6 +310,8 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
         self._createPasswords(self.tempfile1)
         self.cli.attack_passthrough(self.tempfile1, 'wpapsk-linksys.dump.gz')
         self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-linksys.dump.gz')
+        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-MOM1.dump.gz')
+        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-2WIRE972.dump.gz')
 
 
 if __name__ == "__main__":
