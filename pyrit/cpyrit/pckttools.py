@@ -429,9 +429,12 @@ class PacketParser(object):
             elif wpakey_pckt.isFlagSet('KeyInfo', EAPOL_RSNKey.keyscheme):
                 auth.version = EAPOL_RSNKey.keyscheme
             else:
-                # Fallback to default, in case the KeyScheme is never set
+                # Fallback to default, in case the KeyScheme is never set.
                 # Should not happen...
                 auth.version = wpakey_pckt.keyscheme
+
+        # Valid combinations to a full authentication are (Frame1 + Frame2)
+        # or (Frame2 + Frame3)
 
         # Frame 1: pairwise set, install unset, ack set, mic unset
         # results in ANonce
@@ -443,10 +446,13 @@ class PacketParser(object):
                 self.new_auth_callback(auth)
 
         # Frame 2: pairwise set, install unset, ack unset, mic set,
-        # WPAKeyLength > 0 results in MIC and keymic_frame
+        # WPAKeyLength > 0. ReplayCounter must match, if Frame1 is already
+        # present. Results in MIC and keymic_frame
         elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'mic')) \
          and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'ack')) \
-         and wpakey_pckt.WPAKeyLength > 0:
+         and wpakey_pckt.WPAKeyLength > 0 \
+         and (auth.frames[0] is None \
+          or auth.frames[0].ReplayCounter == wpakey_pckt.ReplayCounter):
             auth.keymic = wpakey_pckt.WPAKeyMIC
             auth.snonce = wpakey_pckt.Nonce
             auth.frames[1] = pckt.copy()
@@ -460,9 +466,11 @@ class PacketParser(object):
                 self.new_auth_callback(auth)
 
         # Frame 3: pairwise set, install set, ack set, mic set
-        # Results in ANonce
+        # ReplayCounter must match Frame2. Results in ANonce
         elif wpakey_pckt.areFlagsSet('KeyInfo', \
-                                     ('pairwise', 'install', 'ack', 'mic')):
+                                     ('pairwise', 'install', 'ack', 'mic')) \
+         and auth.frames[1] is not None \
+         and auth.frames[1].ReplayCounter + 1 == wpakey_pckt.ReplayCounter:
             auth.anonce = wpakey_pckt.Nonce
             auth.frames[2] = pckt.copy()
             if self.new_auth_callback is not None and auth.isCompleted():
