@@ -101,13 +101,13 @@ class StorageIterator(object):
 
     def __init__(self, storage, essid, \
                  yieldOldResults=True, yieldNewResults=True):
-        self.cp = None
+        self.cp = cpyrit.CPyrit() if yieldNewResults else None
         self.workunits = []
         self.essid = essid
         self.storage = storage
         keys = list(self.storage.passwords)
         random.shuffle(keys)
-        self.keys = iter(keys)
+        self.iterkeys = iter(keys)
         self.yieldOldResults = yieldOldResults
         self.yieldNewResults = yieldNewResults
 
@@ -128,32 +128,41 @@ class StorageIterator(object):
             self.cp.shutdown()
 
     def next(self):
-        for key in self.keys:
-            if self.storage.essids.containskey(self.essid, key):
-                if self.yieldOldResults:
-                    return self.storage.essids[self.essid, key]
-            else:
+        while True:
+            try:
+                key = self.iterkeys.next()
+            except StopIteration:
                 if self.yieldNewResults:
-                    if self.cp is None:
-                        self.cp = cpyrit.CPyrit()
+                    solvedPMKs = self.cp.dequeue(block=True)
+                    if solvedPMKs is not None:
+                        solvedEssid, solvedKey, solvedPasswords = \
+                          self.workunits.pop(0)
+                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        self.storage.essids[solvedEssid, solvedKey] = \
+                          solvedResults
+                        return solvedResults
+                assert len(self.workunits) == 0
+                raise StopIteration
+            else:
+                if self.yieldOldResults:
+                    try:
+                        results = self.storage.essids[self.essid, key]
+                    except KeyError:
+                        pass
+                    else:
+                        return results
+                if self.yieldNewResults:
                     passwords = self.storage.passwords[key]
                     self.workunits.append((self.essid, key, passwords))
                     self.cp.enqueue(self.essid, passwords)
                     solvedPMKs = self.cp.dequeue(block=False)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = \
-                            self.workunits.pop(0)
+                          self.workunits.pop(0)
                         solvedResults = zip(solvedPasswords, solvedPMKs)
                         self.storage.essids[solvedEssid, solvedKey] = \
-                            solvedResults
+                          solvedResults
                         return solvedResults
-        if self.yieldNewResults and self.cp is not None:
-            for solvedPMKs in self.cp:
-                solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
-                solvedResults = zip(solvedPasswords, solvedPMKs)
-                self.storage.essids[solvedEssid, solvedKey] = solvedResults
-                return solvedResults
-        raise StopIteration
 
 
 class PassthroughIterator(object):

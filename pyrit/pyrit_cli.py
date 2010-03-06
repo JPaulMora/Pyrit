@@ -58,7 +58,9 @@ class Pyrit_CLI(object):
 
     def initFromArgv(self):
         options = {}
-        args, commands = getopt.getopt(sys.argv[1:], 'u:v:c:e:i:o:r:b:')
+        args, commands = getopt.getopt(sys.argv[1:], \
+                                       'u:v:c:e:i:o:r:b:', \
+                                       ['all-handshakes'])
         args = dict(args)
 
         if len(commands) == 1 and commands[0] in self.commands:
@@ -89,6 +91,8 @@ class Pyrit_CLI(object):
                         self.verbose = False
                 elif arg == '-r':
                     options['capturefile'] = value
+                elif arg == '--all-handshakes':
+                    options['all_handshakes'] = True
             else:
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
@@ -110,12 +114,13 @@ class Pyrit_CLI(object):
         self.tell('Usage: pyrit [options] command'
             '\n'
             '\nRecognized options:'
-            '\n  -e    : Filters AccessPoint by ESSID'
-            '\n  -b    : Filters AccessPoint by BSSID'
-            "\n  -i    : Filename for input ('-' is stdin)"
-            "\n  -o    : Filename for output ('-' is stdout)"
-            "\n  -r    : Packet capture source in pcap-format"
-            "\n  -u    : URL of the storage-system to use"
+            '\n  -e               : Filters AccessPoint by ESSID'
+            '\n  -b               : Filters AccessPoint by BSSID'
+            "\n  -i               : Filename for input ('-' is stdin)"
+            "\n  -o               : Filename for output ('-' is stdout)"
+            "\n  -r               : Packet capture source in pcap-format"
+            "\n  -u               : URL of the storage-system to use"
+            '\n  --all-handshakes : Use all handshakes instead of just the best one'
             '\n'
             '\nRecognized commands:')
         m = max([len(command) for command in self.commands])
@@ -327,12 +332,21 @@ class Pyrit_CLI(object):
         """Analyze a packet-capture file"""
         parser = self._getParser(capturefile)
         for i, ap in enumerate(parser):
-            self.tell("#%i: AccessPoint %s ('%s')" % (i + 1, ap, ap.essid))
+            self.tell("#%i: AccessPoint %s ('%s'):" % (i + 1, ap, ap.essid))
             for j, sta in enumerate(ap):
-                self.tell("  #%i: Station %s" % (j, sta), end=None, sep=None)
-                self.tell(", handshake found" if sta.isCompleted() else '')
+                self.tell("  #%i: Station %s" % (j + 1, sta), \
+                          end=None, sep=None)
+                auths = sta.getAuthentications()
+                if len(auths) > 0:
+                    self.tell(", %i handshake(s):" % (len(auths),))
+                    for k, auth in enumerate(auths):
+                        self.tell("    #%i: %s quality (%s)" % (k + 1, \
+                                  ['Bad', 'Workable', 'Good'][auth.quality - 1], \
+                                  auth.version))
+                else:
+                    self.tell("")
         if not any(ap.isCompleted() and ap.essid is not None for ap in parser):
-            raise PyritRuntimeError("No valid EAOPL-handshake detected.")
+            raise PyritRuntimeError("No valid EAOPL-handshake + ESSID detected.")
     analyze.cli_options = (('-r', ), ())
 
     @requires_pckttools()
@@ -349,14 +363,20 @@ class Pyrit_CLI(object):
                 if ap.essidframe:
                     writer.write(ap.essidframe)
                 for j, sta in enumerate(ap):
-                    if not sta.isCompleted():
-                        continue
-                    self.tell("  #%i: Station %s (%i authentications)" % \
-                                (j, sta, len(sta)))
-                    for auth in sta:
-                        for idx in xrange(3):
-                            if auth.frames[idx] is not None:
-                                writer.write(auth.frames[idx])
+                    self.tell("  #%i: Station %s" % (j, sta), \
+                              end=None, sep=None)
+                    auths = sta.getAuthentications()
+                    if len(auths) > 0:
+                        self.tell(", %i handshake(s)" % (len(auths),))
+                        for k, auth in enumerate(auths):
+                            self.tell("    #%i: %s quality (%s)" % (k + 1, \
+                                      ['Bad', 'Workable', 'Good'][auth.quality - 1], \
+                                      auth.version))
+                    else:
+                        self.tell("")
+                    pckts = sta.frames[0] + sta.frames[1] + sta.frames[2]
+                    for pckt_idx, pckt in sorted(pckts):
+                        writer.write(pckt)
         self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
                     (outfile, writer.pcktcount, parser.pcktcount))
     stripCapture.cli_options = (('-r', '-o'), ('-e', '-b'))
@@ -374,21 +394,19 @@ class Pyrit_CLI(object):
             self.tell("%i/%i: New Station %s (AP %s)" % \
                         (writer.pcktcount, parser.pcktcount, sta, sta.ap))
 
-        def __new_auth(self, parser, writer, auth):
-            for i in xrange(3):
-                if auth.frames[i] is not None:
-                    writer.write(auth.frames[i])
+        def __new_keypckt(self, parser, writer, sta, pckt):
+            writer.write(pckt)
             self.tell("%i/%i: Auth AP %s <-> STA %s" % \
-                        (writer.pcktcount, parser.pcktcount, auth.station.ap, \
-                        auth.station))
+                        (writer.pcktcount, parser.pcktcount, sta.ap, sta))
 
         writer = cpyrit.pckttools.Dot11PacketWriter(outfile)
         parser = cpyrit.pckttools.PacketParser()
-        parser.new_ap_callback = lambda ap: __new_ap(self, parser, writer, ap)
-        parser.new_station_callback = lambda sta: __new_sta(self, parser, \
-                                                            writer, sta)
-        parser.new_auth_callback = lambda auth: __new_auth(self, parser, \
-                                                            writer, auth)
+        parser.new_ap_callback = \
+                lambda ap: __new_ap(self, parser, writer, ap)
+        parser.new_station_callback = \
+                lambda sta: __new_sta(self, parser, writer, sta)
+        parser.new_keypckt_callback = \
+                lambda (sta, pckt): __new_keypckt(self, parser, writer, sta, pckt)
         self.tell("Parsing packets from '%s'..." % capturefile)
         try:
             parser.parse_file(capturefile)
@@ -398,13 +416,20 @@ class Pyrit_CLI(object):
             self.tell("\nCapture-source was closed...\n")
         finally:
             writer.close()
-
         for i, ap in enumerate(parser):
             self.tell("#%i: AccessPoint %s ('%s')" % (i + 1, ap, ap.essid))
             for j, sta in enumerate(ap):
-                if sta.isCompleted():
-                    self.tell("  #%i: Station %s (%i authentications)" % \
-                                (j, sta, len(sta)))
+                self.tell("  #%i: Station %s" % (j, sta), \
+                          end=None, sep=None)
+                auths = sta.getAuthentications()
+                if len(auths) > 0:
+                    self.tell(", %i handshake(s)" % (len(auths),))
+                    for k, auth in enumerate(auths):
+                        self.tell("    #%i: %s quality (%s)" % (k + 1, \
+                                  ['Bad', 'Workable', 'Good'][auth.quality - 1], \
+                                  auth.version))
+                else:
+                    self.tell("")
         self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
                     (outfile, writer.pcktcount, parser.pcktcount))
     stripLive.cli_options = (('-r', '-o'), ())
@@ -629,8 +654,8 @@ class Pyrit_CLI(object):
     serve.cli_options = ((), ())
 
     @requires_pckttools()
-    def attack_passthrough(self, infile, capturefile, \
-                            essid=None, bssid=None, outfile=None):
+    def attack_passthrough(self, infile, capturefile, essid=None, \
+                           bssid=None, outfile=None, all_handshakes=False):
         """Attack a handshake with passwords from a file"""
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
@@ -639,9 +664,14 @@ class Pyrit_CLI(object):
         if essid is None:
             essid = ap.essid
         perfcounter = cpyrit.util.PerformanceCounter()
+        auths = ap.getCompletedAuthentications()
         crackers = []
-        for auth in ap.getCompletedAuthentications():
-            crackers.append(cpyrit.pckttools.EAPOLCracker(auth))
+        if not all_handshakes:
+            crackers.append(cpyrit.pckttools.EAPOLCracker(auths[0]))
+        else:
+            self.tell("Attacking %i handshake(s)." % (len(auths),))
+            for auth in auths:
+                crackers.append(cpyrit.pckttools.EAPOLCracker(auth))
         with cpyrit.util.FileWrapper(infile) as reader:
             with cpyrit.util.PassthroughIterator(essid, reader) as rstiter:
                 for results in rstiter:
@@ -665,11 +695,12 @@ class Pyrit_CLI(object):
                 break
         else:
             raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_passthrough.cli_options = (('-i', '-r'), ('-e', '-b', '-o'))
+    attack_passthrough.cli_options = (('-i', '-r'), ('-e', '-b', '-o', \
+                                                     '--all-handshakes'))
 
     @requires_pckttools()
-    def attack_batch(self, storage, capturefile, \
-                        essid=None, bssid=None, outfile=None):
+    def attack_batch(self, storage, capturefile, essid=None, bssid=None, \
+                    outfile=None, all_handshakes=False):
         """Attack a handshake with PMKs/passwords from the db"""
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
@@ -680,7 +711,12 @@ class Pyrit_CLI(object):
         if essid not in storage.essids:
             storage.essids.create_essid(essid)
         perfcounter = cpyrit.util.PerformanceCounter()
-        for auth in ap.getCompletedAuthentications():
+        auths = ap.getCompletedAuthentications()
+        if not all_handshakes:
+            auths = auths[:1]
+        else:
+            self.tell("Attacking %i handshake(s)." % (len(auths),))        
+        for auth in auths:
             with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
                 with cpyrit.util.StorageIterator(storage, essid) as dbiter:
                     self.tell("Attacking handshake with Station %s" % auth.station)
@@ -703,11 +739,12 @@ class Pyrit_CLI(object):
                 break
         else:
             raise PyritRuntimeError("\nThe password was not found.\n")
-    attack_batch.cli_options = (('-r', '-u'), ('-e', '-b', '-o'))
+    attack_batch.cli_options = (('-r', '-u'), ('-e', '-b', '-o', \
+                                               '--all-handshakes'))
 
     @requires_pckttools()
-    def attack_db(self, storage, capturefile, \
-                    bssid=None, essid=None, outfile=None):
+    def attack_db(self, storage, capturefile, essid=None, bssid=None, \
+                  outfile=None, all_handshakes=False):
         """Attack a handshake with PMKs from the db"""
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
@@ -720,7 +757,12 @@ class Pyrit_CLI(object):
                                     "database." % essid)
         WUcount = storage.essids.keycount(essid)
         perfcounter = cpyrit.util.PerformanceCounter()
-        for auth in ap.getCompletedAuthentications():
+        auths = ap.getCompletedAuthentications()
+        if not all_handshakes:
+            auths = auths[:1]
+        else:
+            self.tell("Attacking %i handshake(s)." % (len(auths),))        
+        for auth in auths:
             with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
                 self.tell("Attacking handshake with " \
                           "Station %s..." % auth.station)
@@ -745,11 +787,12 @@ class Pyrit_CLI(object):
                 break
         else:
             raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_db.cli_options = (('-r', '-u'), ('-e', '-b', '-o'))
+    attack_db.cli_options = (('-r', '-u'), ('-e', '-b', '-o', \
+                                            '--all-handshakes'))
 
     @requires_pckttools()
-    def attack_cowpatty(self, capturefile, infile,
-                        bssid=None, essid=None, outfile=None):
+    def attack_cowpatty(self, capturefile, infile, essid=None, bssid=None,\
+                        outfile=None, all_handshakes=False):
         """Attack a handshake with PMKs from a cowpatty-file"""
         with cpyrit.util.CowpattyFile(infile) as cowreader:
             if essid is None:
@@ -766,22 +809,29 @@ class Pyrit_CLI(object):
                                         "'%s' do not match" % \
                                         (essid, cowreader.essid))
             perfcounter = cpyrit.util.PerformanceCounter()
-            for auth in ap.getCompletedAuthentications():
-                with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
-                    self.tell("Attacking handshake with " \
-                              "Station %s..." % auth.station)
-                    for results in cowreader:
-                        cracker.enqueue(results)
-                        perfcounter.addAbsolutePoint(len(cracker))
-                        self.tell("Tried %i PMKs so far; " \
-                                  "%i PMKs per second.\r" % \
-                                    (perfcounter.total, perfcounter.avg),
-                                  end=None, sep=None)
-                        if cracker.solution is not None:
-                            break
-                perfcounter.addAbsolutePoint(len(cracker))
-                self.tell("Tried %i PMKs so far; %i PMKs per second." % \
-                            (perfcounter.total, perfcounter.avg))
+            auths = ap.getCompletedAuthentications()
+            crackers = []
+            if not all_handshakes:
+                crackers.append(cpyrit.pckttools.EAPOLCracker(auths[0]))
+            else:
+                self.tell("Attacking %i handshake(s)." % (len(auths),))
+                for auth in auths:
+                    crackers.append(cpyrit.pckttools.EAPOLCracker(auth))
+            for results in cowreader:
+                for cracker in crackers:
+                    cracker.enqueue(results)
+                perfcounter.addAbsolutePoint(len(crackers[0]))
+                self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
+                          (perfcounter.total, perfcounter.avg),
+                          end=None, sep=None)
+                if any(cracker.solution is not None for cracker in crackers):
+                    break
+            crackers[0].join()
+            perfcounter.addAbsolutePoint(len(crackers[0]))
+            self.tell("Tried %i PMKs so far; %i PMKs per second." % \
+                      (perfcounter.total, perfcounter.avg))
+            for cracker in crackers:
+                cracker.join()
                 if cracker.solution is not None:
                     self.tell("\nThe password is '%s'.\n" % cracker.solution)
                     if outfile is not None:
@@ -790,7 +840,8 @@ class Pyrit_CLI(object):
                     break
             else:
                 raise PyritRuntimeError("\nPassword was not found.\n")
-    attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b', '-o'))
+    attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b', '-o', \
+                                                  '--all-handshakes'))
 
     def benchmark(self, timeout=60):
         """Determine performance of available cores"""
