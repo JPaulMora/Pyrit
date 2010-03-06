@@ -38,8 +38,9 @@ import random
 import SimpleXMLRPCServer
 import struct
 import sys
-import zlib
+import threading
 import xmlrpclib
+import zlib
 try:
     import sqlalchemy as sql
 except ImportError:
@@ -68,20 +69,6 @@ def getStorage(url):
         raise RuntimeError("The protocol '%s' is unsupported." % protocol)
 
 
-class ResultCollection(object):
-    """A abstract collection of (Password,PMK)-tuples"""
-
-    def __init__(self, essid=None, results=None):
-        self.results = results
-        self.essid = essid
-
-    def __iter__(self):
-        return self.results.__iter__()
-
-    def __len__(self):
-        return len(self.results)
-
-
 class PasswordCollection(object):
     """An abstract collection of passwords."""
 
@@ -100,6 +87,11 @@ class BasePYR_Buffer(object):
     """The common parts of the PYRT- and PYR2-binary format."""
     pyr_head = '<4sH'
     pyr_len = struct.calcsize(pyr_head)
+
+    def __init__(self, essid=None, results=None):
+        self.results = results
+        self.essid = essid
+        self._unpackLock = threading.Lock()
 
     def unpack(self, buf):
             self._magic, essidlen = struct.unpack(self.pyr_head, buf[:self.pyr_len])
@@ -122,25 +114,26 @@ class BasePYR_Buffer(object):
                 raise RuntimeError("pmkbuffer seems truncated")
 
     def _unpack(self):
-        if hasattr(self, '_pwbuffer'):
-            pwbuffer = zlib.decompress(self._pwbuffer).split(self._delimiter)
-            if len(pwbuffer) != self._numElems:
-                raise RuntimeError("Wrong number of elements")
-            md = hashlib.md5()
-            md.update(self.essid)
-            if self._magic == 'PYR2':
-                md.update(self._pmkbuffer)
-                md.update(self._pwbuffer)
-            else:
-                md.update(self._pmkbuffer)
-                md.update(''.join(pwbuffer))
-            if md.digest() != self._digest:
-                raise IOError("Digest check failed")
-            self.results = zip(pwbuffer, util.grouper(self._pmkbuffer, 32))
-            del self._pwbuffer
-            del self._digest
-            del self._magic
-            del self._delimiter
+        with self._unpackLock:
+            if hasattr(self, '_pwbuffer'):
+                pwbuffer = zlib.decompress(self._pwbuffer).split(self._delimiter)
+                assert len(pwbuffer) == self._numElems
+                md = hashlib.md5()
+                md.update(self.essid)
+                if self._magic == 'PYR2':
+                    md.update(self._pmkbuffer)
+                    md.update(self._pwbuffer)
+                else:
+                    md.update(self._pmkbuffer)
+                    md.update(''.join(pwbuffer))
+                if md.digest() != self._digest:
+                    raise IOError("Digest check failed")
+                self.results = zip(pwbuffer, util.grouper(self._pmkbuffer, 32))
+                assert len(self.results) == self._numElems
+                del self._pwbuffer
+                del self._digest
+                del self._magic
+                del self._delimiter
 
     def __getitem__(self, idx):
         self._unpack()
@@ -148,7 +141,7 @@ class BasePYR_Buffer(object):
 
     def __len__(self):
         if not hasattr(self, '_numElems'):
-            return len(self.collection)
+            return len(self.results)
         else:
             return self._numElems
 
@@ -160,11 +153,10 @@ class BasePYR_Buffer(object):
         return buffer(self._pmkbuffer)
 
 
-class PYRT_Buffer(ResultCollection, BasePYR_Buffer):
+class PYRT_Buffer(BasePYR_Buffer):
     pass
 
-
-class PYR2_Buffer(BasePYR_Buffer, ResultCollection):
+class PYR2_Buffer(BasePYR_Buffer):
 
     def pack(self):
         pws, pmks = zip(*self.results)
@@ -375,25 +367,23 @@ class FSEssidStore(ESSIDStore):
            Returns a empty iterable if the key is not stored. Raises KeyError
            if the ESSID is not stored.
         """
-        if not self.containskey(essid, key):
-            return ()
         try:
-            with open(self.essids[essid][1][key], 'rb') as f:
+            fname = self.essids[essid][1][key]
+        except IndexError:
+            raise IndexError("No result for ESSID:Key (%s:%s)" % (essid, key))
+        else:
+            with open(fname, 'rb') as f:
                 buf = f.read()
             if buf.startswith('PYR2'):
                 results = PYR2_Buffer()
             elif buf.startswith('PYRT'):
                 results = PYRT_Buffer()
             else:
-                raise IOError("File-format for '%s' unknown." % filename)
+                raise IOError("File-format for '%s' unknown." % (fname,))
             results.unpack(buf)
             if results.essid != essid:
-                raise RuntimeError("Invalid ESSID in result-collection")
+                raise ValueError("Invalid ESSID in result-collection")
             return results
-        except:
-            print >> sys.stderr, "Error while loading results %s for " \
-                                 "ESSID '%s'" % (key, essid)
-            raise
 
     def __setitem__(self, (essid, key), results):
         """Store a iterable of (password,PMK)-tuples under the given
@@ -498,21 +488,17 @@ class FSPasswordStore(PasswordStore):
     def __getitem__(self, key):
         """Return the collection of passwords indexed by the given key."""
         filename = os.path.join(self.pwfiles[key], key) + '.pw'
-        try:
-            with open(filename, 'rb') as f:
-                buf = f.read()
-            if buf[:4] == "PAW2":
-                inp = PAW2_Buffer()
-            elif buf[:4] == "PAWD":
-                inp = PAWD_Buffer()
-            else:
-                raise IOError("'%s' is not a PasswordFile." % filename)
-            inp.unpack(buf)
-            if inp.key != key:
-                raise IOError("File doesn't match the key '%s'." % inp.key)
-        except:
-            print >> sys.stdout, "Error while opening '%s'" % filename
-            raise
+        with open(filename, 'rb') as f:
+            buf = f.read()
+        if buf[:4] == "PAW2":
+            inp = PAW2_Buffer()
+        elif buf[:4] == "PAWD":
+            inp = PAWD_Buffer()
+        else:
+            raise IOError("'%s' is not a PasswordFile." % filename)
+        inp.unpack(buf)
+        if inp.key != key:
+            raise IOError("File doesn't match the key '%s'." % inp.key)
         return inp
 
     def size(self, key):
@@ -561,11 +547,14 @@ class RPCESSIDStore(ESSIDStore):
            if the ESSID is not stored.
         """
         buf = self.cli.essids.getitem(essid, key)
-        results = PYR2_Buffer()
-        results.unpack(buf.data)
-        if results.essid != essid:
-            raise ValueError("Invalid ESSID in result-collection")
-        return results
+        if buf:
+            results = PYR2_Buffer()
+            results.unpack(buf.data)
+            if results.essid != essid:
+                raise ValueError("Invalid ESSID in result-collection")
+            return results
+        else:
+            raise KeyError
 
     def __setitem__(self, (essid, key), results):
         """Store a iterable of (password,PMK)-tuples under the given
@@ -706,9 +695,13 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
         return essid in self.storage.essids
 
     def essids_getitem(self, essid, key):
-        results = self.storage.essids[essid, key]
-        buf = PYR2_Buffer(essid, results).pack()
-        return xmlrpclib.Binary(buf)
+        try:
+            results = self.storage.essids[essid, key]
+        except KeyError:
+            return False
+        else:
+            buf = PYR2_Buffer(essid, results).pack()
+            return xmlrpclib.Binary(buf)
 
     def essids_setitem(self, essid, key, pyr2_buffer):
         results = PYR2_Buffer()
@@ -745,19 +738,20 @@ if 'sqlalchemy' in sys.modules:
 
     passwords_table = sql.Table('passwords', metadata, \
                         sql.Column('_key', sql.String(32), primary_key=True),
-                        sql.Column('h1', sql.String(2), nullable=False),
+                        sql.Column('h1', sql.String(2), nullable=False, \
+                                                        index=True),
                         sql.Column('numElems', sql.Integer, nullable=False),
                         sql.Column('collection_buffer', sql.Binary(2**24-1), \
                                    nullable=False), \
                         mysql_engine='InnoDB')
 
     results_table = sql.Table('results', metadata, \
-                        sql.Column('_key', sql.String(32), \
-                                   sql.ForeignKey('passwords._key'), \
-                                   primary_key=True),
                         sql.Column('essid_id', sql.Integer, \
                                    sql.ForeignKey('essids.essid_id'), \
                                    primary_key=True),
+                        sql.Column('_key', sql.String(32), \
+                                   sql.ForeignKey('passwords._key'), \
+                                   primary_key=True, index=True),
                         sql.Column('numElems', sql.Integer, nullable=False),
                         sql.Column('results_buffer', sql.Binary(2**24 - 1), \
                                    nullable=False), \
@@ -917,7 +911,8 @@ if 'sqlalchemy' in sys.modules:
                 result = q.filter(sql.and_(ESSID_DBObject.essid == essid, \
                                            PYR2_DBObject.key == key)).first()
                 if result is None:
-                    return ()
+                    raise KeyError("No result for ESSID:Key-combination " \
+                                     "(%s:%s)." % (essid, key))
                 else:
                     return result
 
@@ -928,27 +923,18 @@ if 'sqlalchemy' in sys.modules:
             with SessionContext(self.SessionClass) as session:
                 q = session.query(ESSID_DBObject)
                 essid_obj = q.filter(ESSID_DBObject.essid == essid).one()
-                q = session.query(PYR2_DBObject).join(ESSID_DBObject)
-                q = q.filter(sql.and_( \
-                                    ESSID_DBObject.essid == essid_obj.essid, \
-                                    PYR2_DBObject.key == key))
-                result_obj = q.first()
-                if result_obj is None:
-                    session.add(PYR2_DBObject(essid_obj, key, results))
-                    try:
-                        session.commit()
-                    except sql.exc.IntegrityError:
-                        # Assume we hit a concurrent insert that causes
-                        # a constraint-error on (essid-key).
-                        session.rollback()
-                        q = session.query(PYR2_DBObject).join(ESSID_DBObject)
-                        q = q.filter(sql.and_( \
-                                     ESSID_DBObject.essid == essid_obj.essid, \
-                                     PYR2_DBObject.key == key))
-                        result_obj = q.one()
-                        result_obj.pack(results)
-                        session.commit()
-                else:
+                session.add(PYR2_DBObject(essid_obj, key, results))
+                try:
+                    session.commit()
+                except sql.exc.IntegrityError:
+                    # Assume we hit a concurrent insert that causes
+                    # a constraint-error on (essid-key).
+                    session.rollback()
+                    q = session.query(PYR2_DBObject).join(ESSID_DBObject)
+                    q = q.filter(sql.and_( \
+                                 ESSID_DBObject.essid == essid_obj.essid, \
+                                 PYR2_DBObject.key == key))
+                    result_obj = q.one()
                     result_obj.pack(results)
                     session.commit()
 

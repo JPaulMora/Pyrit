@@ -1011,13 +1011,19 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
             fourwise_md5hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&kck, 16, (unsigned char*)&md5mics);
             for (j = 0; j < 4; j++)
                 if (memcmp(&md5mics[j], self->keymic, 16) == 0)
+                {
                     solution_idx = i + j;
+                    break;
+                }
         } else
         {
             fourwise_sha1hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&kck, 16, (unsigned char*)&sha1mics);
             for (j = 0; j < 4; j++)
                 if (memcmp(&sha1mics[j], self->keymic, 16) == 0)
+                {
                     solution_idx = i + j;
+                    break;
+                }
         }
     }
     Py_END_ALLOW_THREADS;
