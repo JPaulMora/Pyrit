@@ -28,6 +28,7 @@
     AccessPoint -> Station -> EAPOLAuthentication.
 """
 
+import tempfile
 import threading
 import Queue
 
@@ -225,31 +226,33 @@ class Station(object):
                                 # ReplayCounter. Technically, we don't benefit
                                 # from this combination any more than just
                                 # F2+F3 but this is the best we can get.
-                                cmbs.append((3, -abs(f3_idx - f2_idx), f2, f3))
+                                cmbs.append((3, -abs(f3_idx - f2_idx), None, f2, f3))
                             else:
                                 # ReplayCounters match but Nonces differ;
                                 # either Frame1 or Frame3 is in the wrong spot.
                                 # Both combinations are possible, yet we
                                 # favour F2+F3
-                                cmbs.append((2, -abs(f3_idx - f2_idx), f2, f3))
-                                cmbs.append((1, -abs(f1_idx - f2_idx), f2, f1))
+                                cmbs.append((2, -abs(f3_idx - f2_idx), None, f2, f3))
+                                cmbs.append((1, -abs(f1_idx - f2_idx), f1, f2, None))
                     else:
                         # There are no matching first-frames. That's OK.
-                        cmbs.append((2, -abs(f3_idx - f2_idx), f2, f3))
+                        cmbs.append((2, -abs(f3_idx - f2_idx), None, f2, f3))
             else:
                 # No third frames. Combinations with Frame1 are possible but
                 # can also be triggered by STAs that use an incorrect PMK.
                 for f1_idx, f1 in self.frames[0]:
                     if f1.ReplayCounter == f2.ReplayCounter:
-                        cmbs.append((1, -abs(f1_idx - f2_idx), f2, f1))
+                        cmbs.append((1, -abs(f1_idx - f2_idx), f1, f2, None))
 
         # Step2: Construct unique instances of EAPOLAuthentications.
         auths = []
-        for quality, spread, f2, g in sorted(cmbs, reverse=True):
+        for quality, spread, f1, f2, f3 in sorted(cmbs, reverse=True):
             if EAPOL_WPAKey in f2:
                 f2_keypckt = f2[EAPOL_WPAKey]
             elif EAPOL_RSNKey in f2:
                 f2_keypckt = f2[EAPOL_RSNKey]
+            else:
+                raise TypeError
 
             # WPAKeys 'should' set HMAC_MD5_RC4, RSNKeys HMAC_SHA1_AES
             # However we've seen cases where a WPAKey-packet sets
@@ -270,11 +273,12 @@ class Station(object):
             # Strip padding and cruft from frame
             keymic_frame = str(keymic_frame)[:keymic_frame.len + 4]
 
+            anonce = f3.Nonce if f3 is not None else f1.Nonce
             auth = EAPOLAuthentication(station=self, version=version, \
-                                       snonce=f2.Nonce, anonce=g.Nonce, \
+                                       snonce=f2.Nonce, anonce=anonce, \
                                        keymic=f2_keypckt.WPAKeyMIC, \
                                        keymic_frame=keymic_frame, \
-                                       quality=quality)
+                                       quality=quality, frames=(f1, f2, f3))
             if auth not in auths:
                 auths.append(auth)
         return auths
@@ -289,7 +293,7 @@ class Station(object):
 class EAPOLAuthentication(object):
 
     def __init__(self, station, version, snonce, anonce, keymic, \
-                    keymic_frame, quality):
+                    keymic_frame, quality, frames=None):
         self.station = station
         self.version = version
         self.snonce = snonce
@@ -297,6 +301,7 @@ class EAPOLAuthentication(object):
         self.keymic = keymic
         self.keymic_frame = keymic_frame
         self.quality = quality
+        self.frames = frames
 
     def getpke(self):
         pke = "Pairwise key expansion\x00" \
@@ -344,7 +349,77 @@ class Dot11PacketWriter(object):
         self.close()
 
 
+class PcapReader(_cpyrit_cpu.PcapReader):
+    """Read packets from a 'savefile' or a device using libpcap."""
+
+    def __init__(self, fname=None):
+        # Underlying PcapReader is bpf-filtered by default (if possible)
+        _cpyrit_cpu.PcapReader.__init__(self, True)
+        if fname:
+            self.open_offline(fname)
+            
+    def _set_datalink_handler(self):
+        try:
+            self.datalink_handler = scapy.config.conf.l2types[self.datalink]
+        except KeyError:
+            raise ValueError("Datalink-type %i not supported by Scapy" % \
+                            self.datalink)
+
+    def open_live(self, device_name):
+        """Open a device for capturing packets"""
+        _cpyrit_cpu.PcapReader.open_live(self, device_name)
+        self._set_datalink_handler()
+
+    def open_offline(self, fname):
+        """Open a pcap-savefile"""
+        if fname.endswith('.gz'):
+            tfile = tempfile.NamedTemporaryFile()
+            with util.FileWrapper(fname) as infile:
+                while True:
+                    buf = infile.read(1024**2)
+                    if not buf:
+                        break
+                    tfile.write(buf)
+            tfile.flush()
+            _cpyrit_cpu.PcapReader.open_offline(self, tfile.name)
+            tfile.close()
+        else:
+            _cpyrit_cpu.PcapReader.open_offline(self, fname)
+        self._set_datalink_handler()
+
+    def read(self):
+        """Read one packet from the capture-source."""
+        r = _cpyrit_cpu.PcapReader.read(self)
+        if r is not None:
+            ts, pckt_string = r
+            pckt = self.datalink_handler(pckt_string)
+            return (ts, pckt)
+        else:
+            return None
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        r = self.read()
+        if r is not None:
+            ts, pckt = r
+            return pckt
+        else:
+            raise StopIteration
+
+    def __enter__(self):
+        if self.type is None:
+            raise RuntimeError("No device/file opened yet")
+    
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+
 class PacketParser(object):
+    """Parse packets from a capture-source and reconstruct AccessPoints,
+       Stations and EAPOLAuthentications from the data.
+    """
 
     def __init__(self, pcapfile=None, new_ap_callback=None,
                 new_station_callback=None, new_keypckt_callback=None):
@@ -386,10 +461,44 @@ class PacketParser(object):
             self.new_keypckt_callback((station, pckt))
 
     def parse_file(self, pcapfile):
-        for pckt in scapy.utils.PcapReader(pcapfile):
-            self.parse_packet(pckt)
+        with PcapReader(pcapfile) as rdr:
+            self.parse_pcapreader(rdr)
 
+    def parse_pcapreader(self, reader):
+        """Parse all packets from a instance of PcapReader.
+           
+           This method is very fast as it updates PcapReader's BPF-filter
+           to exclude unwanted packets from Stations once we are aware of
+           their presence.
+        """
+
+        def _update_filter(reader, stations, callback, sta):
+            stations.add(sta.mac)
+            macs = " or ".join(stations)
+            # Once a station is known, we exclude encrypted data-traffic
+            # and other unwanted packets
+            bpf_string = "not type ctl" \
+                         " and not (wlan addr1 %s or wlan addr2 %s)" \
+                         " or subtype beacon or subtype probe-resp or" \
+                         " subtype assoc-req or (type data and" \
+                         " wlan[1] & 0x40 = 0 and not subtype null)" % (macs, macs)
+            reader.filter(bpf_string)
+            if callback is not None:
+                callback(sta)
+
+        if not isinstance(reader, PcapReader):
+            raise TypeError("Argument should be of type PcapReader")
+        filtered_stations = set()
+        old_callback = self.new_station_callback
+        self.new_station_callback = lambda sta: _update_filter(reader, \
+                                                        filtered_stations, \
+                                                        old_callback, sta)
+        for pckt in reader:
+            self.parse_packet(pckt)
+        
     def parse_packet(self, pckt):
+        """Parse one packet"""
+        
         self.pcktcount += 1
         if not scapy.layers.dot11.Dot11 in pckt:
             return
@@ -407,6 +516,10 @@ class PacketParser(object):
         # Get a AP and it's ESSID from a AssociationRequest
         if scapy.layers.dot11.Dot11AssoReq in dot11_pckt:
             self._add_ap(dot11_pckt.addr1, dot11_pckt)
+
+        # Get a AP and it's ESSID from a ProbeResponse
+        if scapy.layers.dot11.Dot11ProbeResp in dot11_pckt:
+            self._add_ap(dot11_pckt.addr2, dot11_pckt)
 
         # From now on we are only interested in targeted packets
         if dot11_pckt.isFlagSet('FCfield', 'to-DS') \

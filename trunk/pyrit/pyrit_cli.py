@@ -59,7 +59,7 @@ class Pyrit_CLI(object):
     def initFromArgv(self):
         options = {}
         args, commands = getopt.getopt(sys.argv[1:], \
-                                       'u:v:c:e:i:o:r:b:', \
+                                       'b:e:i:o:r:u:v', \
                                        ['all-handshakes'])
         args = dict(args)
 
@@ -114,12 +114,12 @@ class Pyrit_CLI(object):
         self.tell('Usage: pyrit [options] command'
             '\n'
             '\nRecognized options:'
-            '\n  -e               : Filters AccessPoint by ESSID'
             '\n  -b               : Filters AccessPoint by BSSID'
+            '\n  -e               : Filters AccessPoint by ESSID'
             "\n  -i               : Filename for input ('-' is stdin)"
             "\n  -o               : Filename for output ('-' is stdout)"
-            "\n  -r               : Packet capture source in pcap-format"
-            "\n  -u               : URL of the storage-system to use"
+            '\n  -r               : Packet capture source in pcap-format'
+            '\n  -u               : URL of the storage-system to use'
             '\n  --all-handshakes : Use all handshakes instead of just the best one'
             '\n'
             '\nRecognized commands:')
@@ -160,8 +160,8 @@ class Pyrit_CLI(object):
         for idx, capturefile in enumerate(filelist):
             self.tell("Parsing file '%s' (%i/%i)..." % (capturefile, idx + 1, \
                                                         len(filelist)))
-            parser.parse_file(capturefile)
-        self.tell("%i packets (%i 802.11-packets), %i APs\n" % \
+            parser.parse_pcapreader(cpyrit.pckttools.PcapReader(capturefile))
+        self.tell("Parsed %i packets (%i 802.11-packets), got %i AP(s)\n" % \
                     (parser.pcktcount, parser.dot11_pcktcount, len(parser)))
         return parser
 
@@ -408,8 +408,16 @@ class Pyrit_CLI(object):
         parser.new_keypckt_callback = \
                 lambda (sta, pckt): __new_keypckt(self, parser, writer, sta, pckt)
         self.tell("Parsing packets from '%s'..." % capturefile)
+        pckt_rdr = cpyrit.pckttools.PcapReader()
         try:
-            parser.parse_file(capturefile)
+            pckt_rdr.open_offline(capturefile)
+        except IOError, offline_error:
+            try:
+                pckt_rdr.open_live(capturefile)
+            except IOError, live_error:
+                raise PyritRuntimeError("Failed to open '%s' either as a file ('%s') or as a device ('%s')" % (capturefile, str(offline_error), str(live_error)))
+        try:
+            parser.parse_pcapreader(pckt_rdr)
         except (KeyboardInterrupt, SystemExit):
             self.tell("\nInterrupted...\n")
         else:
@@ -419,17 +427,14 @@ class Pyrit_CLI(object):
         for i, ap in enumerate(parser):
             self.tell("#%i: AccessPoint %s ('%s')" % (i + 1, ap, ap.essid))
             for j, sta in enumerate(ap):
-                self.tell("  #%i: Station %s" % (j, sta), \
-                          end=None, sep=None)
                 auths = sta.getAuthentications()
                 if len(auths) > 0:
-                    self.tell(", %i handshake(s)" % (len(auths),))
+                    self.tell("  #%i: Station %s, %i handshake(s)" % \
+                                (j, sta, len(auths)))
                     for k, auth in enumerate(auths):
                         self.tell("    #%i: %s quality (%s)" % (k + 1, \
                                   ['Bad', 'Workable', 'Good'][auth.quality - 1], \
                                   auth.version))
-                else:
-                    self.tell("")
         self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
                     (outfile, writer.pcktcount, parser.pcktcount))
     stripLive.cli_options = (('-r', '-o'), ())
