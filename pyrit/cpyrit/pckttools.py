@@ -473,16 +473,17 @@ class PacketParser(object):
         """
 
         def _update_filter(reader, stations, callback, sta):
-            stations.add(sta.mac)
-            macs = " or ".join(stations)
-            # Once a station is known, we exclude encrypted data-traffic
-            # and other unwanted packets
-            bpf_string = "not type ctl" \
-                         " and not (wlan addr1 %s or wlan addr2 %s)" \
-                         " or subtype beacon or subtype probe-resp or" \
-                         " subtype assoc-req or (type data and" \
-                         " wlan[1] & 0x40 = 0 and not subtype null)" % (macs, macs)
-            reader.filter(bpf_string)
+            if reader.filtered:
+                stations.add(sta.mac)
+                macs = " or ".join(stations)
+                # Once a station is known, we exclude encrypted data-traffic
+                # and other unwanted packets
+                bpf_string = "not type ctl" \
+                             " and not (wlan addr1 %s or wlan addr2 %s)" \
+                             " or subtype beacon or subtype probe-resp or" \
+                             " subtype assoc-req or (type data and" \
+                             " wlan[1] & 0x40 = 0 and not subtype null)" % (macs, macs)
+                reader.filter(bpf_string)
             if callback is not None:
                 callback(sta)
 

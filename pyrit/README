@@ -25,6 +25,8 @@ A couple of libraries and headers are required to build Pyrit:
     http://www.python.org
   * The OpenSSL library and headers
     http://www.openssl.org
+  * The Pcap library and it's headers
+    http://www.tcpdump.org
   * Scapy 2.x (optional/runtime)
     http://www.secdev.org/projects/scapy/
   * SQLAlchemy (optional/runtime)
