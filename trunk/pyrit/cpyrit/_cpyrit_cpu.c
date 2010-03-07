@@ -1412,7 +1412,6 @@ PcapReader_close(PcapReader *self, PyObject *args)
 static int
 PcapReader_setup(PcapReader *self, const char* type, const char* dev)
 {
-    struct bpf_program fp;
     const char *dlink_name;
 
     self->datalink = pcap_datalink(self->p);
@@ -1429,30 +1428,12 @@ PcapReader_setup(PcapReader *self, const char* type, const char* dev)
         }
     }
 
-    if (self->filtered)
-    {
-        if (self->datalink == DLT_IEEE802_11
-            || self->datalink == DLT_PRISM_HEADER
-            || self->datalink == DLT_IEEE802_11_RADIO_AVS
-            || self->datalink == DLT_IEEE802_11_RADIO)
-        {
-            if (pcap_compile(self->p, &fp, "not type ctl", 0, 0))
-            {
-                PyErr_Format(PyExc_SystemError, "Failed to compile BPF-filter (libpcap: %s)", pcap_geterr(self->p));
-                return 0;
-            }
-            if (pcap_setfilter(self->p, &fp))
-            {
-                PyErr_Format(PyExc_SystemError, "Failed to set BPF-filter (libpcap: %s)", pcap_geterr(self->p));
-                pcap_freecode(&fp);
-                return 0;
-            }
-            pcap_freecode(&fp);
-        } else
-        {
-            self->filtered = 0;
-        }
-    }
+    // Disable filtering on non-wlan linktypes
+    if (self->filtered && !(self->datalink == DLT_IEEE802_11
+                        || self->datalink == DLT_PRISM_HEADER
+                        || self->datalink == DLT_IEEE802_11_RADIO_AVS
+                        || self->datalink == DLT_IEEE802_11_RADIO))
+        self->filtered = 0;
     
     Py_DECREF(self->type);
     self->type = PyString_FromString(type);
@@ -1630,18 +1611,18 @@ PcapReader_filter(PcapReader *self, PyObject *args)
     {
         if (pcap_compile(self->p, &fp, filter_string, 0, 0))
         {
-            PyErr_Format(PyExc_RuntimeError, "Failed to compile BPF-filter (libpcap: %s)", pcap_geterr(self->p));
-            Py_DECREF(filter_string);
-            return NULL;
-        }
-        if (pcap_setfilter(self->p, &fp))
+            PyErr_WarnEx(PyExc_RuntimeWarning, "Failed to compile BPF-filter (old libpcap?). Falling back to unfiltered processing...", 0);
+            self->filtered = 0;
+        } else
         {
-            PyErr_Format(PyExc_RuntimeError, "Failed to set BPF-filter (libpcap: %s)", pcap_geterr(self->p));
+            if (pcap_setfilter(self->p, &fp))
+            {
+                PyErr_Format(PyExc_RuntimeError, "Failed to set BPF-filter (libpcap: %s)", pcap_geterr(self->p));
+                pcap_freecode(&fp);
+                return NULL;
+            }
             pcap_freecode(&fp);
-            Py_DECREF(filter_string);
-            return NULL;
         }
-        pcap_freecode(&fp);
     }
 
     Py_INCREF(Py_None);

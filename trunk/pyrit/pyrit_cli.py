@@ -394,19 +394,29 @@ class Pyrit_CLI(object):
             self.tell("%i/%i: New Station %s (AP %s)" % \
                         (writer.pcktcount, parser.pcktcount, sta, sta.ap))
 
-        def __new_keypckt(self, parser, writer, sta, pckt):
+        def __new_keypckt(self, parser, writer, sta, pckt, known_auths):
             writer.write(pckt)
             self.tell("%i/%i: Auth AP %s <-> STA %s" % \
                         (writer.pcktcount, parser.pcktcount, sta.ap, sta))
+            auths = sta.ap.getCompletedAuthentications()
+            for auth in auths:
+                if auth not in known_auths:
+                    known_auths.add(auth)
+                    self.tell("%i/%i: Handshake AP %s <-> STA %s" \
+                              " (%s)" % (writer.pcktcount, parser.pcktcount, \
+                                        sta.ap, sta, "*" * auth.quality))
 
         writer = cpyrit.pckttools.Dot11PacketWriter(outfile)
         parser = cpyrit.pckttools.PacketParser()
+        known_auths = set()
+        
         parser.new_ap_callback = \
                 lambda ap: __new_ap(self, parser, writer, ap)
         parser.new_station_callback = \
                 lambda sta: __new_sta(self, parser, writer, sta)
         parser.new_keypckt_callback = \
-                lambda (sta, pckt): __new_keypckt(self, parser, writer, sta, pckt)
+                lambda (sta, pckt): \
+                    __new_keypckt(self, parser, writer, sta, pckt, known_auths)
         self.tell("Parsing packets from '%s'..." % capturefile)
         pckt_rdr = cpyrit.pckttools.PcapReader()
         try:
@@ -415,7 +425,10 @@ class Pyrit_CLI(object):
             try:
                 pckt_rdr.open_live(capturefile)
             except IOError, live_error:
-                raise PyritRuntimeError("Failed to open '%s' either as a file ('%s') or as a device ('%s')" % (capturefile, str(offline_error), str(live_error)))
+                raise PyritRuntimeError("Failed to open '%s' either as a " \
+                                        "file ('%s') or as a device " \
+                                        "('%s')" (capturefile, \
+                                        str(offline_error), str(live_error)))
         try:
             parser.parse_pcapreader(pckt_rdr)
         except (KeyboardInterrupt, SystemExit):
@@ -699,7 +712,12 @@ class Pyrit_CLI(object):
                         writer.write(cracker.solution)
                 break
         else:
-            raise PyritRuntimeError("\nPassword was not found.\n")
+            errmsg = "\nPassword was not found."
+            if len(auths) > 1 and all_handshakes is False:
+                errmsg += " Retry the attack with '--all-handshakes'.\n"
+            else:
+                errmsg += "\n"
+            raise PyritRuntimeError(errmsg)
     attack_passthrough.cli_options = (('-i', '-r'), ('-e', '-b', '-o', \
                                                      '--all-handshakes'))
 
@@ -717,11 +735,9 @@ class Pyrit_CLI(object):
             storage.essids.create_essid(essid)
         perfcounter = cpyrit.util.PerformanceCounter()
         auths = ap.getCompletedAuthentications()
-        if not all_handshakes:
-            auths = auths[:1]
-        else:
+        if all_handshakes:
             self.tell("Attacking %i handshake(s)." % (len(auths),))        
-        for auth in auths:
+        for auth in auths if all_handshakes else auths[:1]:
             with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
                 with cpyrit.util.StorageIterator(storage, essid) as dbiter:
                     self.tell("Attacking handshake with Station %s" % auth.station)
@@ -743,7 +759,12 @@ class Pyrit_CLI(object):
                         writer.write(cracker.solution)
                 break
         else:
-            raise PyritRuntimeError("\nThe password was not found.\n")
+            errmsg = "\nPassword was not found."
+            if len(auths) > 1 and all_handshakes is False:
+                errmsg += " Retry the attack with '--all-handshakes'.\n"
+            else:
+                errmsg += "\n"
+            raise PyritRuntimeError(errmsg)
     attack_batch.cli_options = (('-r', '-u'), ('-e', '-b', '-o', \
                                                '--all-handshakes'))
 
@@ -763,11 +784,9 @@ class Pyrit_CLI(object):
         WUcount = storage.essids.keycount(essid)
         perfcounter = cpyrit.util.PerformanceCounter()
         auths = ap.getCompletedAuthentications()
-        if not all_handshakes:
-            auths = auths[:1]
-        else:
+        if all_handshakes:
             self.tell("Attacking %i handshake(s)." % (len(auths),))        
-        for auth in auths:
+        for auth in auths if all_handshakes else auths[:1]:
             with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
                 self.tell("Attacking handshake with " \
                           "Station %s..." % auth.station)
@@ -791,7 +810,12 @@ class Pyrit_CLI(object):
                         writer.write(cracker.solution)
                 break
         else:
-            raise PyritRuntimeError("\nPassword was not found.\n")
+            errmsg = "\nPassword was not found."
+            if len(auths) > 1 and all_handshakes is False:
+                errmsg += " Retry the attack with '--all-handshakes'.\n"
+            else:
+                errmsg += "\n"
+            raise PyritRuntimeError(errmsg)
     attack_db.cli_options = (('-r', '-u'), ('-e', '-b', '-o', \
                                             '--all-handshakes'))
 
@@ -844,7 +868,12 @@ class Pyrit_CLI(object):
                             writer.write(cracker.solution)
                     break
             else:
-                raise PyritRuntimeError("\nPassword was not found.\n")
+                errmsg = "\nPassword was not found."
+                if len(auths) > 1 and all_handshakes is False:
+                    errmsg += " Retry the attack with '--all-handshakes'.\n"
+                else:
+                    errmsg += "\n"
+                raise PyritRuntimeError(errmsg)
     attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b', '-o', \
                                                   '--all-handshakes'))
 
