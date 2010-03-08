@@ -1919,7 +1919,7 @@ static PyMemberDef PcapReader_members[] =
     {"type", T_OBJECT, offsetof(PcapReader, type), READONLY},
     {"datalink", T_INT, offsetof(PcapReader, datalink), READONLY},
     {"datalink_name", T_OBJECT, offsetof(PcapReader, datalink_name), READONLY},
-    {"filtered", T_BOOL, offsetof(PcapReader, filtered), READONLY},
+    {"filtered", T_BYTE, offsetof(PcapReader, filtered), READONLY},
     {NULL}
 };
 

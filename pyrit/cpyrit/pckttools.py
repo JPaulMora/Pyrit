@@ -28,6 +28,8 @@
     AccessPoint -> Station -> EAPOLAuthentication.
 """
 
+from __future__ import with_statement
+
 import tempfile
 import threading
 import Queue
@@ -374,15 +376,17 @@ class PcapReader(_cpyrit_cpu.PcapReader):
         """Open a pcap-savefile"""
         if fname.endswith('.gz'):
             tfile = tempfile.NamedTemporaryFile()
-            with util.FileWrapper(fname) as infile:
-                while True:
-                    buf = infile.read(1024**2)
-                    if not buf:
-                        break
-                    tfile.write(buf)
-            tfile.flush()
-            _cpyrit_cpu.PcapReader.open_offline(self, tfile.name)
-            tfile.close()
+            try:
+                with util.FileWrapper(fname) as infile:
+                    while True:
+                        buf = infile.read(1024**2)
+                        if not buf:
+                            break
+                        tfile.write(buf)
+                tfile.flush()
+                _cpyrit_cpu.PcapReader.open_offline(self, tfile.name)
+            finally:
+                tfile.close()
         else:
             _cpyrit_cpu.PcapReader.open_offline(self, fname)
         self._set_datalink_handler()
@@ -411,6 +415,7 @@ class PcapReader(_cpyrit_cpu.PcapReader):
     def __enter__(self):
         if self.type is None:
             raise RuntimeError("No device/file opened yet")
+        return self
     
     def __exit__(self, type, value, traceback):
         self.close()
@@ -435,6 +440,7 @@ class PacketParser(object):
     def _find_ssid(self, pckt):
         for elt_pckt in pckt.iterSubPackets(scapy.layers.dot11.Dot11Elt):
             if elt_pckt.isFlagSet('ID', 'SSID') \
+             and len(elt_pckt.info) == elt_pckt.len \
              and not all(c == '\x00' for c in elt_pckt.info):
                 return elt_pckt.info
 

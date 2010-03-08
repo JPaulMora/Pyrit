@@ -89,3 +89,13 @@ Pyrit is free software - free as in freedom. Everyone can inspect, copy or
 modify it and share derived work under the GNU General Public License v3.
 You should have received a copy of the GNU General Public License along with
 Pyrit. If not, see <http://www.gnu.org/licenses/>.
+
+Pyrit comes with a set of test-files:
+ * "wpapsk-linksys.dump.gz" and "wpa2psk-linksys.dump.gz" from Cowpatty with
+   permission from Joshua Wright (http://www.willhackforsushi.com).
+ * "wpa2psk-MOM1.dump.gz" from Pyrit issue #120 with permission from the
+   original owner (http://code.google.com/p/pyrit/issues/detail?id=120).
+ * "wpa2psk-2WIRE972.dump.gz" from Pyrit issue #111 with permission from the
+   original owner (http://code.google.com/p/pyrit/issues/detail?id=111)
+ * "wpapsk-virgin_broadband.dump.gz" from Aircrack-ng ticket #721 with
+   permission from the original owner (http://trac.aircrack-ng.org/ticket/721).
