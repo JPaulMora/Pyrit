@@ -340,9 +340,7 @@ class Pyrit_CLI(object):
                 if len(auths) > 0:
                     self.tell(", %i handshake(s):" % (len(auths),))
                     for k, auth in enumerate(auths):
-                        self.tell("    #%i: %s quality (%s)" % (k + 1, \
-                                  ['Bad', 'Workable', 'Good'][auth.quality - 1], \
-                                  auth.version))
+                        self.tell("    #%i: %s" % (k + 1, auth))
                 else:
                     self.tell("")
         if not any(ap.isCompleted() and ap.essid is not None for ap in parser):
@@ -369,54 +367,58 @@ class Pyrit_CLI(object):
                     if len(auths) > 0:
                         self.tell(", %i handshake(s)" % (len(auths),))
                         for k, auth in enumerate(auths):
-                            self.tell("    #%i: %s quality (%s)" % (k + 1, \
-                                      ['Bad', 'Workable', 'Good'][auth.quality - 1], \
-                                      auth.version))
+                            self.tell("    #%i: %s" % (k + 1, auth))
                     else:
                         self.tell("")
-                    pckts = sta.frames[0] + sta.frames[1] + sta.frames[2]
-                    for pckt_idx, pckt in sorted(pckts):
-                        writer.write(pckt)
+                    for frames in sta.frames.itervalues():
+                        for i in xrange(3):
+                            for pckt_idx, pckt in frames[i].itervalues():
+                                writer.write(pckt)
         self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
                     (outfile, writer.pcktcount, parser.pcktcount))
     stripCapture.cli_options = (('-r', '-o'), ('-e', '-b'))
+
+    def _stripLive_newAP(self, parser, writer, ap):
+        writer.write(ap.essidframe)
+        self.tell("%i/%i: New AccessPoint %s ('%s')" % \
+                  (writer.pcktcount, parser.pcktcount, ap, ap.essid))
+
+    def _stripLive_newStation(self, parser, writer, station):
+        self.tell("%i/%i: New Station %s (AP %s)" % \
+                  (writer.pcktcount, parser.pcktcount, station, station.ap))
+
+    def _stripLive_newKeyPckt(self, parser, writer, station, idx, pckt):
+        writer.write(pckt)
+        self.tell("%i/%i: %s AP %s <-> STA %s" % \
+                  (writer.pcktcount, parser.pcktcount, \
+                  ["Challenge", "Response", "Confirmation"][idx], \
+                  station.ap, station))
+
+    def _stripLive_newAuth(self, parser, writer, station, auth):
+        self.tell("%i/%i: New Handshake AP %s: %s" % \
+                  (writer.pcktcount, parser.pcktcount, station.ap, auth))
 
     @requires_pckttools()
     def stripLive(self, capturefile, outfile):
         """Capture relevant packets from a live capture-source"""
 
-        def __new_ap(self, parser, writer, ap):
-            writer.write(ap.essidframe)
-            self.tell("%i/%i: New AccessPoint %s ('%s')" % \
-                        (writer.pcktcount, parser.pcktcount, ap, ap.essid))
-
-        def __new_sta(self, parser, writer, sta):
-            self.tell("%i/%i: New Station %s (AP %s)" % \
-                        (writer.pcktcount, parser.pcktcount, sta, sta.ap))
-
-        def __new_keypckt(self, parser, writer, sta, pckt, known_auths):
-            writer.write(pckt)
-            self.tell("%i/%i: Auth AP %s <-> STA %s" % \
-                        (writer.pcktcount, parser.pcktcount, sta.ap, sta))
-            auths = sta.ap.getCompletedAuthentications()
-            for auth in auths:
-                if auth not in known_auths:
-                    known_auths.add(auth)
-                    self.tell("%i/%i: Handshake AP %s <-> STA %s" \
-                              " (%s)" % (writer.pcktcount, parser.pcktcount, \
-                                        sta.ap, sta, "*" * auth.quality))
-
         writer = cpyrit.pckttools.Dot11PacketWriter(outfile)
         parser = cpyrit.pckttools.PacketParser()
-        known_auths = set()
         
         parser.new_ap_callback = \
-                lambda ap: __new_ap(self, parser, writer, ap)
+            lambda ap: self._stripLive_newAP(parser, writer, ap)
+        
         parser.new_station_callback = \
-                lambda sta: __new_sta(self, parser, writer, sta)
+            lambda sta: self._stripLive_newStation(parser, writer, sta)
+        
         parser.new_keypckt_callback = \
-                lambda (sta, pckt): \
-                    __new_keypckt(self, parser, writer, sta, pckt, known_auths)
+            lambda (sta, idx, pckt): \
+                    self._stripLive_newKeyPckt(parser, writer, sta, idx, pckt)
+
+        parser.new_auth_callback = \
+            lambda (sta, auth): self._stripLive_newAuth(parser, writer, sta, \
+                                                        auth)
+
         self.tell("Parsing packets from '%s'..." % capturefile)
         pckt_rdr = cpyrit.pckttools.PcapReader()
         try:
@@ -445,9 +447,7 @@ class Pyrit_CLI(object):
                     self.tell("  #%i: Station %s, %i handshake(s)" % \
                                 (j, sta, len(auths)))
                     for k, auth in enumerate(auths):
-                        self.tell("    #%i: %s quality (%s)" % (k + 1, \
-                                  ['Bad', 'Workable', 'Good'][auth.quality - 1], \
-                                  auth.version))
+                        self.tell("    #%i: %s" % (k + 1, auth))
         self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
                     (outfile, writer.pcktcount, parser.pcktcount))
     stripLive.cli_options = (('-r', '-o'), ())
