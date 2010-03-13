@@ -280,7 +280,7 @@ class Station(object):
                     # from this combination any more than just
                     # F2+F3 but this is the best we can get.
                     f1_idx, f1 = f1_frames[anonce]
-                    spread = max(abs(f3_idx - f2_idx), \
+                    spread = min(abs(f3_idx - f2_idx), \
                                  abs(f1_idx - f2_idx))
                     auth = EAPOLAuthentication(self, version, snonce, \
                                         anonce, WPAKeyMIC, keymic_frame, \
