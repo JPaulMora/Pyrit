@@ -128,8 +128,8 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.attack_db(storage, 'wpa2psk-MOM1.dump.gz')
         self._computeDatabase(storage, '2WIRE972')
         self.cli.attack_db(storage, 'wpa2psk-2WIRE972.dump.gz')
-        #self._computeDatabase(storage, 'Red Apple')
-        #self.cli.attack_db(storage, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
+        self._computeDatabase(storage, 'Red Apple')
+        self.cli.attack_db(storage, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
         self._computeDatabase(storage, 'virgin broadband')
         self.cli.attack_db(storage, 'wpapsk-virgin_broadband.dump.gz')
 
@@ -146,9 +146,9 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self._computeDatabase(storage, '2WIRE972')
         self.cli.export_cowpatty(storage, '2WIRE972', self.tempfile1)
         self.cli.attack_cowpatty('wpa2psk-2WIRE972.dump.gz', self.tempfile1)
-        #self._computeDatabase(storage, 'Red Apple')
-        #self.cli.export_cowpatty(storage, 'Red Apple', self.tempfile1)
-        #self.cli.attack_cowpatty('wpa2psk-Red_Apple.dump.gz', self.tempfile1, 'Red Apple', '00:1d:7e:2c:b1:af')
+        self._computeDatabase(storage, 'Red Apple')
+        self.cli.export_cowpatty(storage, 'Red Apple', self.tempfile1)
+        self.cli.attack_cowpatty('wpa2psk-Red_Apple.dump.gz', self.tempfile1, 'Red Apple', '00:1d:7e:2c:b1:af')
         self._computeDatabase(storage, 'virgin broadband')
         self.cli.export_cowpatty(storage, 'virgin broadband', self.tempfile1)
         self.cli.attack_cowpatty('wpapsk-virgin_broadband.dump.gz', self.tempfile1)
@@ -161,7 +161,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.attack_batch(storage, 'wpa2psk-linksys.dump.gz')
         self.cli.attack_batch(storage, 'wpa2psk-2WIRE972.dump.gz')
         self.cli.attack_batch(storage, 'wpa2psk-MOM1.dump.gz')
-        #self.cli.attack_batch(storage, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
+        self.cli.attack_batch(storage, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
         self.cli.attack_batch(storage, 'wpapsk-virgin_broadband.dump.gz')
 
     def testPassthrough(self):
@@ -314,8 +314,8 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
         self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
         self.cli.stripCapture('wpa2psk-2WIRE972.dump.gz', self.tempfile1)
         self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        #self.cli.stripCapture('wpa2psk-Red_Apple.dump.gz', self.tempfile1)
-        #self.cli.attack_passthrough(self.tempfile2, self.tempfile1, "Red Apple", '00:1d:7e:2c:b1:af')
+        self.cli.stripCapture('wpa2psk-Red_Apple.dump.gz', self.tempfile1)
+        self.cli.attack_passthrough(self.tempfile2, self.tempfile1, "Red Apple", '00:1d:7e:2c:b1:af')
         self.cli.stripCapture('wpapsk-virgin_broadband.dump.gz', self.tempfile1)
         self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
 
@@ -336,8 +336,8 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
         self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
         self.cli.stripLive('wpa2psk-2WIRE972.dump.gz', self.tempfile1)
         self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        #self.cli.stripLive('wpa2psk-Red_Apple.dump.gz', self.tempfile1)
-        #self.cli.attack_passthrough(self.tempfile2, self.tempfile1, 'Red Apple', '00:1d:7e:2c:b1:af')
+        self.cli.stripLive('wpa2psk-Red_Apple.dump.gz', self.tempfile1)
+        self.cli.attack_passthrough(self.tempfile2, self.tempfile1, 'Red Apple', '00:1d:7e:2c:b1:af')
         self.cli.stripLive('wpapsk-virgin_broadband.dump.gz', self.tempfile1)
         self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
 
@@ -347,7 +347,7 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
         self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-linksys.dump.gz')
         self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-MOM1.dump.gz')
         self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-2WIRE972.dump.gz')
-        #self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-Red-Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
+        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
         self.cli.attack_passthrough(self.tempfile1, 'wpapsk-virgin_broadband.dump.gz')
 
 

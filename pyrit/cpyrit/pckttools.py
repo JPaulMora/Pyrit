@@ -193,7 +193,7 @@ class Station(object):
     def __init__(self, mac, ap):
         self.ap = ap
         self.mac = mac
-        self.frames = ([],[],[])
+        self.frames = {}
 
     def __str__(self):
         return self.mac
@@ -202,88 +202,115 @@ class Station(object):
         return self.getAuthentications().__iter__()
 
     def __len__(self):
-        return len(self.getAuthentications())
+        return len(self.auths)
 
-    def getAuthentications(self):
-        """Reconstruct a candidate-list of EAPOLAuthentications from captured
-           handshake-packets. Best matches come first.
-        """
-        # Step1: Reconstruct combinations
-        # Combinations are sorted by quality and spread of packet-index
-        # (the closer together, the better).
-        cmbs = []
-        for f2_idx, f2 in self.frames[1]:
+    def addAuthenticationFrame(self, idx, pckt_idx, pckt):
+        if idx == 0:
+            return self.addChallengeFrame(pckt_idx, pckt)
+        elif idx == 1:
+            return self.addResponseFrame(pckt_idx, pckt)
+        elif idx == 2:
+            return self.addConfirmationFrame(pckt_idx, pckt)
+        else:
+            raise IndexError("Invalid authentication-phase.")
+
+    def addChallengeFrame(self, pckt_idx, pckt):
+        """Store a packet that contains the EAPOL-challenge"""
+        frames = self.frames.setdefault(pckt.ReplayCounter, ({}, {}, {}))
+        if pckt.Nonce not in frames[0]:
+            frames[0][pckt.Nonce] = (pckt_idx, pckt)
+            return self._buildAuthentications({pckt.Nonce: (pckt_idx, pckt)}, \
+                                              frames[1], frames[2])
+
+    def addResponseFrame(self, pckt_idx, pckt):
+        """Store a packet that contains the EAPOL-response"""
+        frames = self.frames.setdefault(pckt.ReplayCounter, ({}, {}, {}))
+
+        if EAPOL_WPAKey in pckt:
+            keypckt = pckt[EAPOL_WPAKey]
+        elif EAPOL_RSNKey in pckt:
+            keypckt = pckt[EAPOL_RSNKey]
+        else:
+            raise TypeError("No key-packet in frame")
+
+        # WPAKeys 'should' set HMAC_MD5_RC4, RSNKeys HMAC_SHA1_AES
+        # However we've seen cases where a WPAKey-packet sets
+        # HMAC_SHA1_AES in it's KeyInfo-field (see issue #111)
+        if keypckt.isFlagSet('KeyInfo', EAPOL_WPAKey.keyscheme):
+            version = EAPOL_WPAKey.keyscheme
+        elif keypckt.isFlagSet('KeyInfo', EAPOL_RSNKey.keyscheme):
+            version = EAPOL_RSNKey.keyscheme
+        else:
+            # Fallback to packet-types's own default, in case the
+            # KeyScheme is never set. Should not happen...
+            version = keypckt.keyscheme
+
+        # We need a revirginized version of the EAPOL-frame which produced
+        # that MIC.
+        keymic_frame = pckt[scapy.layers.dot11.EAPOL].copy()
+        keymic_frame.WPAKeyMIC = '\x00' * len(keymic_frame.WPAKeyMIC)
+        # Strip padding and cruft from frame
+        keymic_frame = str(keymic_frame)[:keymic_frame.len + 4]
+
+        response = (version, keypckt.Nonce, keymic_frame, keypckt.WPAKeyMIC)
+        if response not in frames[1]:
+            frames[1][response] = (pckt_idx, pckt)
+            return self._buildAuthentications(frames[0], \
+                                              {response: (pckt_idx, pckt)}, \
+                                              frames[2])
+    
+    def addConfirmationFrame(self, pckt_idx, pckt):
+        """Store a packet that contains the EAPOL-confirmation"""
+        frames = self.frames.setdefault(pckt.ReplayCounter - 1, ({}, {}, {}))
+        if pckt.Nonce not in frames[2]:
+            frames[2][pckt.Nonce] = (pckt_idx, pckt)
+            return self._buildAuthentications(frames[0], frames[1], \
+                                              {pckt.Nonce: (pckt_idx, pckt)})
+    
+    def _buildAuthentications(self, f1_frames, f2_frames, f3_frames):
+        auths = []
+        for (version, snonce, keymic_frame, WPAKeyMIC), \
+          (f2_idx, f2) in f2_frames.iteritems():
             # Combinations with Frame3 are of higher value as the AP
             # acknowledges that the STA used the correct PMK in Frame2
-            thirdframes = [(f3_idx, f3) for f3_idx, f3 in self.frames[2] \
-                            if f3.ReplayCounter == f2.ReplayCounter + 1 ]
-            if len(thirdframes) > 0:
-                for f3_idx, f3 in thirdframes:
-                    firstframes = [(f1_idx, f1) for f1_idx, f1 in self.frames[0] \
-                                    if f1.ReplayCounter == f2.ReplayCounter]
-                    if len(firstframes) > 0:
-                        for f1_idx, f1 in firstframes:
-                            if f1.Nonce == f3.Nonce:
-                                # Frame2 is still only cornered by the
-                                # ReplayCounter. Technically, we don't benefit
-                                # from this combination any more than just
-                                # F2+F3 but this is the best we can get.
-                                cmbs.append((3, -abs(f3_idx - f2_idx), None, f2, f3))
-                            else:
-                                # ReplayCounters match but Nonces differ;
-                                # either Frame1 or Frame3 is in the wrong spot.
-                                # Both combinations are possible, yet we
-                                # favour F2+F3
-                                cmbs.append((2, -abs(f3_idx - f2_idx), None, f2, f3))
-                                cmbs.append((1, -abs(f1_idx - f2_idx), f1, f2, None))
-                    else:
-                        # There are no matching first-frames. That's OK.
-                        cmbs.append((2, -abs(f3_idx - f2_idx), None, f2, f3))
-            else:
-                # No third frames. Combinations with Frame1 are possible but
-                # can also be triggered by STAs that use an incorrect PMK.
-                for f1_idx, f1 in self.frames[0]:
-                    if f1.ReplayCounter == f2.ReplayCounter:
-                        cmbs.append((1, -abs(f1_idx - f2_idx), f1, f2, None))
-
-        # Step2: Construct unique instances of EAPOLAuthentications.
-        auths = []
-        for quality, spread, f1, f2, f3 in sorted(cmbs, reverse=True):
-            if EAPOL_WPAKey in f2:
-                f2_keypckt = f2[EAPOL_WPAKey]
-            elif EAPOL_RSNKey in f2:
-                f2_keypckt = f2[EAPOL_RSNKey]
-            else:
-                raise TypeError
-
-            # WPAKeys 'should' set HMAC_MD5_RC4, RSNKeys HMAC_SHA1_AES
-            # However we've seen cases where a WPAKey-packet sets
-            # HMAC_SHA1_AES in it's KeyInfo-field (see issue #111)
-            if f2_keypckt.isFlagSet('KeyInfo', EAPOL_WPAKey.keyscheme):
-                version = EAPOL_WPAKey.keyscheme
-            elif f2_keypckt.isFlagSet('KeyInfo', EAPOL_RSNKey.keyscheme):
-                version = EAPOL_RSNKey.keyscheme
-            else:
-                # Fallback to packet-types's own default, in case the
-                # KeyScheme is never set. Should not happen...
-                version = f2_keypckt.keyscheme
-
-            # We need a revirginized version of the EAPOL-frame which produced
-            # that MIC.
-            keymic_frame = f2[scapy.layers.dot11.EAPOL].copy()
-            keymic_frame.WPAKeyMIC = '\x00' * len(keymic_frame.WPAKeyMIC)
-            # Strip padding and cruft from frame
-            keymic_frame = str(keymic_frame)[:keymic_frame.len + 4]
-
-            anonce = f3.Nonce if f3 is not None else f1.Nonce
-            auth = EAPOLAuthentication(station=self, version=version, \
-                                       snonce=f2.Nonce, anonce=anonce, \
-                                       keymic=f2_keypckt.WPAKeyMIC, \
-                                       keymic_frame=keymic_frame, \
-                                       quality=quality, frames=(f1, f2, f3))
-            if auth not in auths:
+            for anonce, (f3_idx, f3) in f3_frames.iteritems():
+                if anonce in f1_frames:
+                    # We have F1+F2+F3. Frame2 is only cornered by the
+                    # ReplayCounter. Technically we don't benefit
+                    # from this combination any more than just
+                    # F2+F3 but this is the best we can get.
+                    f1_idx, f1 = f1_frames[anonce]
+                    spread = max(abs(f3_idx - f2_idx), \
+                                 abs(f1_idx - f2_idx))
+                    auth = EAPOLAuthentication(self, version, snonce, \
+                                        anonce, WPAKeyMIC, keymic_frame, \
+                                        0, spread, (f1, f2, f3))
+                else:
+                    # There are no matching first-frames. That's OK.
+                    spread = abs(f3_idx - f2_idx)
+                    auth = EAPOLAuthentication(self, version, snonce, \
+                                        anonce, WPAKeyMIC, keymic_frame, \
+                                        1, spread, (None, f2, f3))
                 auths.append(auth)
+            for anonce, (f1_idx, f1) in f1_frames.iteritems():
+                # No third frame. Combinations with Frame1 are possible but
+                # can also be triggered by STAs that use an incorrect PMK.
+                spread = abs(f1_idx - f2_idx)
+                if anonce not in f3_frames:
+                    auth = EAPOLAuthentication(self, version, snonce, \
+                                        anonce, WPAKeyMIC, keymic_frame, \
+                                        2, spread, (f1, f2, None))
+                    auths.append(auth)
         return auths
+
+    def getAuthentications(self):
+        """Reconstruct a  list of EAPOLAuthentications from captured
+           handshake-packets. Best matches come first.
+        """
+        auths = []
+        for frames in self.frames.itervalues():
+            auths.extend(self._buildAuthentications(*frames))
+        return sorted(auths) 
 
     def isCompleted(self):
         """Returns True if this instance includes at least one valid
@@ -295,7 +322,7 @@ class Station(object):
 class EAPOLAuthentication(object):
 
     def __init__(self, station, version, snonce, anonce, keymic, \
-                    keymic_frame, quality, frames=None):
+                    keymic_frame, quality, spread, frames=None):
         self.station = station
         self.version = version
         self.snonce = snonce
@@ -303,6 +330,7 @@ class EAPOLAuthentication(object):
         self.keymic = keymic
         self.keymic_frame = keymic_frame
         self.quality = quality
+        self.spread = spread
         self.frames = frames
 
     def getpke(self):
@@ -314,18 +342,18 @@ class EAPOLAuthentication(object):
         return pke
     pke = property(getpke)
 
-    def __hash__(self):
-        return hash(self.version) ^ hash(self.snonce) ^ hash(self.anonce) ^ \
-               hash(self.keymic) ^ hash(self.keymic_frame)
-   
-    def __eq__(self, other):
+    def __lt__(self, other):
         if isinstance(other, EAPOLAuthentication):
-            return self.version == other.version and self.snonce == \
-                   other.snonce and self.anonce == other.anonce and \
-                   self.keymic == other.keymic and self.keymic_frame == \
-                   other.keymic_frame
+            return (self.quality, self.spread) < (other.quality, other.spread)
         else:
-            False
+            return self < other
+            
+    def __gt__(self, other):
+        return not self < other
+
+    def __str__(self):
+        quality = ['good', 'workable', 'bad'][self.quality]
+        return "%s, %s, spread %s" % (self.version, quality, self.spread)
 
 
 class Dot11PacketWriter(object):
@@ -397,7 +425,7 @@ class PcapReader(_cpyrit_cpu.PcapReader):
         if r is not None:
             ts, pckt_string = r
             pckt = self.datalink_handler(pckt_string)
-            return (ts, pckt)
+            return pckt
         else:
             return None
 
@@ -405,9 +433,8 @@ class PcapReader(_cpyrit_cpu.PcapReader):
         return self
 
     def next(self):
-        r = self.read()
-        if r is not None:
-            ts, pckt = r
+        pckt = self.read()
+        if pckt is not None:
             return pckt
         else:
             raise StopIteration
@@ -427,13 +454,15 @@ class PacketParser(object):
     """
 
     def __init__(self, pcapfile=None, new_ap_callback=None,
-                new_station_callback=None, new_keypckt_callback=None):
+                new_station_callback=None, new_keypckt_callback=None,
+                new_auth_callback=None):
         self.air = {}
         self.pcktcount = 0
         self.dot11_pcktcount = 0
         self.new_ap_callback = new_ap_callback
         self.new_station_callback = new_station_callback
         self.new_keypckt_callback = new_keypckt_callback
+        self.new_auth_callback = new_auth_callback
         if pcapfile is not None:
             self.parse_file(pcapfile)
 
@@ -462,9 +491,12 @@ class PacketParser(object):
                 self.new_station_callback(sta)
 
     def _add_keypckt(self, station, idx, pckt):
-        station.frames[idx].append((self.pcktcount, pckt))
+        new_auths = station.addAuthenticationFrame(idx, self.pcktcount, pckt)
         if self.new_keypckt_callback is not None:
-            self.new_keypckt_callback((station, pckt))
+            self.new_keypckt_callback((station, idx, pckt))
+        if new_auths is not None and self.new_auth_callback is not None:
+            for auth in new_auths:
+                self.new_auth_callback((station, auth))    
 
     def parse_file(self, pcapfile):
         with PcapReader(pcapfile) as rdr:
@@ -497,9 +529,9 @@ class PacketParser(object):
             raise TypeError("Argument should be of type PcapReader")
         filtered_stations = set()
         old_callback = self.new_station_callback
-        self.new_station_callback = lambda sta: _update_filter(reader, \
-                                                        filtered_stations, \
-                                                        old_callback, sta)
+        self.new_station_callback = \
+            lambda sta: _update_filter(reader, filtered_stations, \
+                                       old_callback, sta)
         for pckt in reader:
             self.parse_packet(pckt)
         
@@ -528,13 +560,13 @@ class PacketParser(object):
         if scapy.layers.dot11.Dot11ProbeResp in dot11_pckt:
             self._add_ap(dot11_pckt.addr2, dot11_pckt)
 
-        # From now on we are only interested in targeted packets
+        # From now on we are only interested in unicast packets
         if dot11_pckt.isFlagSet('FCfield', 'to-DS') \
-         and dot11_pckt.addr2 != 'ff:ff:ff:ff:ff:ff':
+         and not int(dot11_pckt.addr2[1], 16) & 1:
             ap_mac = dot11_pckt.addr1
             sta_mac = dot11_pckt.addr2
         elif dot11_pckt.isFlagSet('FCfield', 'from-DS') \
-         and dot11_pckt.addr1 != 'ff:ff:ff:ff:ff:ff':
+         and not int(dot11_pckt.addr1[1], 16) & 1:
             ap_mac = dot11_pckt.addr2
             sta_mac = dot11_pckt.addr1
         else:

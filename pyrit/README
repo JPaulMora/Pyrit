@@ -99,3 +99,5 @@ Pyrit comes with a set of test-files:
    original owner (http://code.google.com/p/pyrit/issues/detail?id=111)
  * "wpapsk-virgin_broadband.dump.gz" from Aircrack-ng ticket #721 with
    permission from the original owner (http://trac.aircrack-ng.org/ticket/721).
+ * "wpa2psk-Red_Apple.dump.gz" from Aircrack-ng ticket #491 with permission
+   from the original owner (http://trac.aircrack-ng.org/ticket/491).
