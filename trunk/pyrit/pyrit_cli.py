@@ -370,10 +370,12 @@ class Pyrit_CLI(object):
                             self.tell("    #%i: %s" % (k + 1, auth))
                     else:
                         self.tell("")
+                    packets = []
                     for frames in sta.frames.itervalues():
                         for i in xrange(3):
-                            for pckt_idx, pckt in frames[i].itervalues():
-                                writer.write(pckt)
+                            packets.extend(frames[i].itervalues())
+                    for pckt_idx, pckt in sorted(packets):
+                        writer.write(pckt)
         self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
                     (outfile, writer.pcktcount, parser.pcktcount))
     stripCapture.cli_options = (('-r', '-o'), ('-e', '-b'))

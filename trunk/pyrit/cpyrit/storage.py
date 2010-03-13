@@ -47,8 +47,13 @@ except ImportError:
     pass
 else:
     from sqlalchemy import orm
+
+import config
 import util
 
+MAX_WORKUNIT_SIZE = int(config.cfg['workunit_size'])
+if MAX_WORKUNIT_SIZE < 1 or MAX_WORKUNIT_SIZE > 1000000:
+    raise ValueError("Invalid 'workunit_size' in configuration")
 
 def getStorage(url):
     if not '://' in url:
@@ -137,7 +142,11 @@ class BasePYR_Buffer(object):
 
     def __getitem__(self, idx):
         self._unpack()
-        return self.results[idx]
+        try:
+            return self.results[idx]
+        except IndexError:
+            raise IndexError("Instance has %i results, index %i invalid." % \
+                             (len(self.results), idx))
 
     def __len__(self):
         if not hasattr(self, '_numElems'):
@@ -275,7 +284,7 @@ class PasswordStore(object):
         else:
             pw_bucket = self.pwbuffer.setdefault(pw_h1, list())
             pw_bucket.append(passwd)
-        if len(pw_bucket) >= 20000:
+        if len(pw_bucket) >= MAX_WORKUNIT_SIZE:
             self._flush_bucket(pw_h1, pw_bucket)
             self.pwbuffer[pw_h1] = (set if self.unique_check else list)()
 
