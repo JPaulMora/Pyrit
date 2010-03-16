@@ -87,7 +87,6 @@ typedef struct
     pcap_t *p;
     int datalink;
     char status;
-    char filtered;
 } PcapReader;
 
 
@@ -1362,8 +1361,6 @@ CowpattyFile_unpackcowpentries(PyObject *self, PyObject *args)
 static int
 PcapReader_init(PcapReader *self, PyObject *args, PyObject *kwds)
 {
-    PyObject *bpf_filtered;
-
     self->device_name = Py_None;
     Py_INCREF(Py_None);
     
@@ -1376,11 +1373,6 @@ PcapReader_init(PcapReader *self, PyObject *args, PyObject *kwds)
     self->p = NULL;
     self->status = self->datalink = 0;
     
-    if (!PyArg_ParseTuple(args, "O", &bpf_filtered))
-        return -1;
-
-    self->filtered = (char)PyObject_IsTrue(bpf_filtered);
-
     return 0;
 }
 
@@ -1428,13 +1420,6 @@ PcapReader_setup(PcapReader *self, const char* type, const char* dev)
         }
     }
 
-    // Disable filtering on non-wlan linktypes
-    if (self->filtered && !(self->datalink == DLT_IEEE802_11
-                        || self->datalink == DLT_PRISM_HEADER
-                        || self->datalink == DLT_IEEE802_11_RADIO_AVS
-                        || self->datalink == DLT_IEEE802_11_RADIO))
-        self->filtered = 0;
-    
     Py_DECREF(self->type);
     self->type = PyString_FromString(type);
     if (!self->type)
@@ -1589,11 +1574,11 @@ PcapReader_read(PcapReader *self, PyObject *args)
 
 }
 
-PyDoc_STRVAR(PcapReader_filter__doc__,
-    "filter(mac, size) -> None\n\n"
+PyDoc_STRVAR(PcapReader_set_filter__doc__,
+    "set_filter(filter_string) -> None\n\n"
     "Set a BPF-filter");
 static PyObject*
-PcapReader_filter(PcapReader *self, PyObject *args)
+PcapReader_set_filter(PcapReader *self, PyObject *args)
 {
     struct bpf_program fp;
     char *filter_string;
@@ -1607,23 +1592,19 @@ PcapReader_filter(PcapReader *self, PyObject *args)
         return NULL;
     }
 
-    if (self->filtered)
+    if (pcap_compile(self->p, &fp, filter_string, 0, 0))
     {
-        if (pcap_compile(self->p, &fp, filter_string, 0, 0))
-        {
-            PyErr_WarnEx(PyExc_RuntimeWarning, "Failed to compile BPF-filter (old libpcap?). Falling back to unfiltered processing...", 0);
-            self->filtered = 0;
-        } else
-        {
-            if (pcap_setfilter(self->p, &fp))
-            {
-                PyErr_Format(PyExc_RuntimeError, "Failed to set BPF-filter (libpcap: %s)", pcap_geterr(self->p));
-                pcap_freecode(&fp);
-                return NULL;
-            }
-            pcap_freecode(&fp);
-        }
+        PyErr_Format(PyExc_ValueError, "Failed to compile BPF-filter (libpcap: %s).", pcap_geterr(self->p));
+        return NULL;
     }
+
+    if (pcap_setfilter(self->p, &fp))
+    {
+        PyErr_Format(PyExc_RuntimeError, "Failed to set BPF-filter (libpcap: %s)", pcap_geterr(self->p));
+        pcap_freecode(&fp);
+        return NULL;
+    }
+    pcap_freecode(&fp);
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -1919,7 +1900,6 @@ static PyMemberDef PcapReader_members[] =
     {"type", T_OBJECT, offsetof(PcapReader, type), READONLY},
     {"datalink", T_INT, offsetof(PcapReader, datalink), READONLY},
     {"datalink_name", T_OBJECT, offsetof(PcapReader, datalink_name), READONLY},
-    {"filtered", T_BYTE, offsetof(PcapReader, filtered), READONLY},
     {NULL}
 };
 
@@ -1929,7 +1909,7 @@ static PyMethodDef PcapReader_methods[] =
     {"open_offline", (PyCFunction)PcapReader_open_offline, METH_VARARGS, PcapReader_open_offline__doc__},
     {"close", (PyCFunction)PcapReader_close, METH_NOARGS, PcapReader_close__doc__},
     {"read", (PyCFunction)PcapReader_read, METH_NOARGS, PcapReader_read__doc__},
-    {"filter", (PyCFunction)PcapReader_filter, METH_VARARGS, PcapReader_filter__doc__},
+    {"set_filter", (PyCFunction)PcapReader_set_filter, METH_VARARGS, PcapReader_set_filter__doc__},
     {NULL, NULL}
 };
 
