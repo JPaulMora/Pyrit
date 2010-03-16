@@ -32,7 +32,7 @@ try:
                     int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     version_string = '0.3.1-dev'
-EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
+EXTRA_COMPILE_ARGS = ['-Wall', '-DVERSION="%s"' % version_string]
 
 
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',

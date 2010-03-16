@@ -33,6 +33,7 @@ from __future__ import with_statement
 import tempfile
 import threading
 import Queue
+import warnings
 
 import util
 import _cpyrit_cpu
@@ -383,8 +384,7 @@ class PcapReader(_cpyrit_cpu.PcapReader):
     """Read packets from a 'savefile' or a device using libpcap."""
 
     def __init__(self, fname=None):
-        # Underlying PcapReader is bpf-filtered by default (if possible)
-        _cpyrit_cpu.PcapReader.__init__(self, True)
+        _cpyrit_cpu.PcapReader.__init__(self)
         if fname:
             self.open_offline(fname)
             
@@ -455,7 +455,7 @@ class PacketParser(object):
 
     def __init__(self, pcapfile=None, new_ap_callback=None,
                 new_station_callback=None, new_keypckt_callback=None,
-                new_auth_callback=None):
+                new_auth_callback=None, use_bpf=True):
         self.air = {}
         self.pcktcount = 0
         self.dot11_pcktcount = 0
@@ -463,6 +463,7 @@ class PacketParser(object):
         self.new_station_callback = new_station_callback
         self.new_keypckt_callback = new_keypckt_callback
         self.new_auth_callback = new_auth_callback
+        self.use_bpf = use_bpf
         if pcapfile is not None:
             self.parse_file(pcapfile)
 
@@ -502,6 +503,26 @@ class PacketParser(object):
         with PcapReader(pcapfile) as rdr:
             self.parse_pcapreader(rdr)
 
+    def _update_bpf_filter(self, reader, stations, callback, sta):
+        if self.use_bpf:
+            stations.add(sta.mac)
+            macs = " or ".join(stations)
+            # Once a station is known, we exclude encrypted data-traffic
+            # and other unwanted packets
+            bpf_string = "not type ctl" \
+                         " and not (wlan addr1 %s or wlan addr2 %s)" \
+                         " or subtype beacon or subtype probe-resp or" \
+                         " subtype assoc-req or (type data and" \
+                         " wlan[1] & 0x40 = 0 and not subtype null)" % (macs, macs)
+            try:
+                reader.set_filter(bpf_string)
+            except ValueError:
+                self.use_bpf = False
+                warnings.warn("Failed to compile BPF-filter (old libpcap?). " \
+                              "Falling back to unfiltered processing...")
+        if callback is not None:
+            callback(sta)
+
     def parse_pcapreader(self, reader):
         """Parse all packets from a instance of PcapReader.
            
@@ -510,28 +531,13 @@ class PacketParser(object):
            their presence.
         """
 
-        def _update_filter(reader, stations, callback, sta):
-            if reader.filtered:
-                stations.add(sta.mac)
-                macs = " or ".join(stations)
-                # Once a station is known, we exclude encrypted data-traffic
-                # and other unwanted packets
-                bpf_string = "not type ctl" \
-                             " and not (wlan addr1 %s or wlan addr2 %s)" \
-                             " or subtype beacon or subtype probe-resp or" \
-                             " subtype assoc-req or (type data and" \
-                             " wlan[1] & 0x40 = 0 and not subtype null)" % (macs, macs)
-                reader.filter(bpf_string)
-            if callback is not None:
-                callback(sta)
-
         if not isinstance(reader, PcapReader):
-            raise TypeError("Argument should be of type PcapReader")
+            raise TypeError("Argument must be of type PcapReader")
         filtered_stations = set()
         old_callback = self.new_station_callback
         self.new_station_callback = \
-            lambda sta: _update_filter(reader, filtered_stations, \
-                                       old_callback, sta)
+            lambda sta: self._update_bpf_filter(reader, filtered_stations, \
+                                                old_callback, sta)
         for pckt in reader:
             self.parse_packet(pckt)
         
@@ -596,7 +602,7 @@ class PacketParser(object):
         # WPAKeyLength > 0. Results in MIC and keymic_frame
         elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'mic')) \
          and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'ack')) \
-         and wpakey_pckt.WPAKeyLength > 0:
+         and not all(c == '\x00' for c in wpakey_pckt.Nonce):
             self._add_keypckt(sta, 1, pckt)
 
         # Frame 3: pairwise set, install set, ack set, mic set

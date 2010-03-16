@@ -29,7 +29,7 @@ def default_config():
               'rpc_announce': 'true', \
               'rpc_announce_broadcast': 'false', \
               'rpc_knownclients': '', \
-              'workunit_size': '50000'}
+              'workunit_size': '75000'}
     return config
 
 
