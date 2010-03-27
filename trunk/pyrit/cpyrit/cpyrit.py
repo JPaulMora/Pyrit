@@ -45,6 +45,7 @@ import time
 import threading
 import uuid
 import util
+import warnings
 import xmlrpclib
 
 import config
@@ -56,9 +57,8 @@ import _cpyrit_cpu
 def version_check(mod):
     ver = getattr(mod, "VERSION", "unknown")
     if ver != _cpyrit_cpu.VERSION:
-        print >> sys.stderr, \
-                "WARNING: Version mismatch between %s ('%s') and %s ('%s')\n" \
-                % (_cpyrit_cpu, _cpyrit_cpu.VERSION, mod, ver)
+        warnings.warn("WARNING: Version mismatch between %s ('%s') and %s " \
+                     "('%s')\n" % (_cpyrit_cpu, _cpyrit_cpu.VERSION, mod, ver))
 
 
 class Core(threading.Thread):

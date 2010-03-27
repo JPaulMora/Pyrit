@@ -160,7 +160,8 @@ class Pyrit_CLI(object):
         for idx, capturefile in enumerate(filelist):
             self.tell("Parsing file '%s' (%i/%i)..." % (capturefile, idx + 1, \
                                                         len(filelist)))
-            parser.parse_pcapreader(cpyrit.pckttools.PcapReader(capturefile))
+            dev = cpyrit.pckttools.PcapDevice(capturefile, True)
+            parser.parse_pcapdevice(dev)
         self.tell("Parsed %i packets (%i 802.11-packets), got %i AP(s)\n" % \
                     (parser.pcktcount, parser.dot11_pcktcount, len(parser)))
         return parser
@@ -422,7 +423,7 @@ class Pyrit_CLI(object):
                                                         auth)
 
         self.tell("Parsing packets from '%s'..." % capturefile)
-        pckt_rdr = cpyrit.pckttools.PcapReader()
+        pckt_rdr = cpyrit.pckttools.PcapDevice(use_bpf=True)
         try:
             pckt_rdr.open_offline(capturefile)
         except IOError, offline_error:
@@ -431,10 +432,10 @@ class Pyrit_CLI(object):
             except IOError, live_error:
                 raise PyritRuntimeError("Failed to open '%s' either as a " \
                                         "file ('%s') or as a device " \
-                                        "('%s')" (capturefile, \
+                                        "('%s')" % (capturefile, \
                                         str(offline_error), str(live_error)))
         try:
-            parser.parse_pcapreader(pckt_rdr)
+            parser.parse_pcapdevice(pckt_rdr)
         except (KeyboardInterrupt, SystemExit):
             self.tell("\nInterrupted...\n")
         else:
