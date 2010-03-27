@@ -232,7 +232,7 @@ class Station(object):
         elif EAPOL_RSNKey in pckt:
             keypckt = pckt[EAPOL_RSNKey]
         else:
-            raise TypeError("No key-packet in frame")
+            raise TypeError("No key-frame in packet")
 
         # WPAKeys 'should' set HMAC_MD5_RC4, RSNKeys HMAC_SHA1_AES
         # However we've seen cases where a WPAKey-packet sets
@@ -380,25 +380,85 @@ class Dot11PacketWriter(object):
         self.close()
 
 
-class PcapReader(_cpyrit_cpu.PcapReader):
+class PcapDevice(_cpyrit_cpu.PcapDevice):
     """Read packets from a 'savefile' or a device using libpcap."""
 
-    def __init__(self, fname=None):
-        _cpyrit_cpu.PcapReader.__init__(self)
+    # Standard filter to always exclude type control, general undirected \
+    # and broadcast
+    BASE_BPF = "not type ctl " \
+               " and not (dir fromds and wlan[4] & 0x01 = 1)" \
+               " and not (dir nods and not " \
+               "  (subtype beacon or subtype probe-resp or subtype assoc-req))"
+
+    def __init__(self, fname=None, use_bpf=False):
+        _cpyrit_cpu.PcapDevice.__init__(self)
+        self.use_bpf = use_bpf
+        self.filtered_aps = set()
+        self.filtered_stations = set()
         if fname:
             self.open_offline(fname)
             
-    def _set_datalink_handler(self):
+    def _setup(self):
         try:
             self.datalink_handler = scapy.config.conf.l2types[self.datalink]
         except KeyError:
             raise ValueError("Datalink-type %i not supported by Scapy" % \
                             self.datalink)
+        if self.use_bpf:
+            self.set_filter(PcapDevice.BASE_BPF)
+
+    def set_filter(self, filter_string):
+        try:
+            _cpyrit_cpu.PcapDevice.set_filter(self, filter_string)
+        except ValueError:
+            self.use_bpf = False
+            warnings.warn("Failed to compile BPF-filter. This may be due to " \
+                          "a bug in Pyrit or because your version of " \
+                          "libpcap is too old. Falling back to unfiltered " \
+                          "processing...")
+    
+    def _update_bpf_filter(self):
+        """ Update the BPF-filter to exclude certain traffic from stations
+            and AccessPoints once they are known.
+        """
+        if self.use_bpf is False:
+            return
+        bpf = PcapDevice.BASE_BPF
+        if len(self.filtered_aps) > 0:
+            # Prune list randomly to prevent filter from getting too large
+            while len(self.filtered_aps) > 10:
+                self.filtered_aps.pop()
+            # Exclude beacons, prope-responses and association-requests
+            # once a AP's ESSID is known
+            bpf += " and not ((wlan host %s) " \
+                   "and (subtype beacon " \
+                        "or subtype probe-resp " \
+                        "or subtype assoc-req))" % \
+                   (" or ".join(self.filtered_aps), )
+        if len(self.filtered_stations) > 0:
+            while len(self.filtered_stations) > 10:
+                self.filtered_stations.pop()
+            # Exclude encrypted or null-typed data traffic once a station
+            # is known
+            bpf += " and not (wlan host %s) " \
+                   "or (wlan[1] & 0x40 = 0 " \
+                        "and type data " \
+                        "and not subtype null)" % \
+                   (" or ".join(self.filtered_stations), )
+        self.set_filter(bpf)
+
+    def filter_ap(self, ap):
+        self.filtered_aps.add(ap.mac)
+        self._update_bpf_filter()
+
+    def filter_station(self, station):
+        self.filtered_stations.add(station.mac)
+        self._update_bpf_filter()
 
     def open_live(self, device_name):
         """Open a device for capturing packets"""
-        _cpyrit_cpu.PcapReader.open_live(self, device_name)
-        self._set_datalink_handler()
+        _cpyrit_cpu.PcapDevice.open_live(self, device_name)
+        self._setup()
 
     def open_offline(self, fname):
         """Open a pcap-savefile"""
@@ -412,16 +472,16 @@ class PcapReader(_cpyrit_cpu.PcapReader):
                             break
                         tfile.write(buf)
                 tfile.flush()
-                _cpyrit_cpu.PcapReader.open_offline(self, tfile.name)
+                _cpyrit_cpu.PcapDevice.open_offline(self, tfile.name)
             finally:
                 tfile.close()
         else:
-            _cpyrit_cpu.PcapReader.open_offline(self, fname)
-        self._set_datalink_handler()
+            _cpyrit_cpu.PcapDevice.open_offline(self, fname)
+        self._setup()
 
     def read(self):
         """Read one packet from the capture-source."""
-        r = _cpyrit_cpu.PcapReader.read(self)
+        r = _cpyrit_cpu.PcapDevice.read(self)
         if r is not None:
             ts, pckt_string = r
             pckt = self.datalink_handler(pckt_string)
@@ -500,46 +560,43 @@ class PacketParser(object):
                 self.new_auth_callback((station, auth))    
 
     def parse_file(self, pcapfile):
-        with PcapReader(pcapfile) as rdr:
-            self.parse_pcapreader(rdr)
+        with PcapDevice(pcapfile, self.use_bpf) as rdr:
+            self.parse_pcapdevice(rdr)
 
-    def _update_bpf_filter(self, reader, stations, callback, sta):
-        if self.use_bpf:
-            stations.add(sta.mac)
-            macs = " or ".join(stations)
-            # Once a station is known, we exclude encrypted data-traffic
-            # and other unwanted packets
-            bpf_string = "not type ctl" \
-                         " and not (wlan addr1 %s or wlan addr2 %s)" \
-                         " or subtype beacon or subtype probe-resp or" \
-                         " subtype assoc-req or (type data and" \
-                         " wlan[1] & 0x40 = 0 and not subtype null)" % (macs, macs)
-            try:
-                reader.set_filter(bpf_string)
-            except ValueError:
-                self.use_bpf = False
-                warnings.warn("Failed to compile BPF-filter (old libpcap?). " \
-                              "Falling back to unfiltered processing...")
-        if callback is not None:
-            callback(sta)
+    def _filter_sta(self, reader, sta_callback, sta):
+        reader.filter_station(sta)
+        if sta_callback is not None:
+            sta_callback(sta)
 
-    def parse_pcapreader(self, reader):
-        """Parse all packets from a instance of PcapReader.
+    def _filter_ap(self, reader, ap_callback, ap):
+        reader.filter_ap(ap)
+        if ap_callback is not None:
+            ap_callback(ap)
+
+    def parse_pcapdevice(self, reader):
+        """Parse all packets from a instance of PcapDevice.
            
-           This method is very fast as it updates PcapReader's BPF-filter
+           This method can be very fast as it updates PcapDevice's BPF-filter
            to exclude unwanted packets from Stations once we are aware of
            their presence.
         """
 
-        if not isinstance(reader, PcapReader):
-            raise TypeError("Argument must be of type PcapReader")
-        filtered_stations = set()
-        old_callback = self.new_station_callback
-        self.new_station_callback = \
-            lambda sta: self._update_bpf_filter(reader, filtered_stations, \
-                                                old_callback, sta)
+        if not isinstance(reader, PcapDevice):
+            raise TypeError("Argument must be of type PcapDevice")
+        sta_callback = self.new_station_callback
+        ap_callback = self.new_ap_callback
+        # Update the filter only when parsing offline dumps. The kernel can't
+        # take complex filters and libpcap starts throwing unmanageable
+        # warnings....
+        if reader.type == 'offline':
+            self.new_station_callback = lambda sta: \
+                                    self._filter_sta(reader, sta_callback, sta)
+            self.new_ap_callback = lambda ap: \
+                                    self._filter_ap(reader, ap_callback, ap)
         for pckt in reader:
             self.parse_packet(pckt)
+        self.new_station_callback = sta_callback
+        self.new_ap_callback = ap_callback
         
     def parse_packet(self, pckt):
         """Parse one packet"""
@@ -599,7 +656,7 @@ class PacketParser(object):
             self._add_keypckt(sta, 0, pckt)
 
         # Frame 2: pairwise set, install unset, ack unset, mic set,
-        # WPAKeyLength > 0. Results in MIC and keymic_frame
+        # SNonce != 0. Results in SNonce, MIC and keymic_frame
         elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'mic')) \
          and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'ack')) \
          and not all(c == '\x00' for c in wpakey_pckt.Nonce):
@@ -607,8 +664,8 @@ class PacketParser(object):
 
         # Frame 3: pairwise set, install set, ack set, mic set
         # Results in ANonce
-        elif wpakey_pckt.areFlagsSet('KeyInfo', \
-                                     ('pairwise', 'install', 'ack', 'mic')):
+        elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'install', \
+                                                 'ack', 'mic')):
             self._add_keypckt(sta, 2, pckt)
 
     def __iter__(self):

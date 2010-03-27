@@ -87,7 +87,7 @@ typedef struct
     pcap_t *p;
     int datalink;
     char status;
-} PcapReader;
+} PcapDevice;
 
 
 static PyObject *PlatformString;
@@ -1353,13 +1353,13 @@ CowpattyFile_unpackcowpentries(PyObject *self, PyObject *args)
 /*
     ###########################################################################
     
-    PcapReader
+    PcapDevice
     
     ###########################################################################
 */
 
 static int
-PcapReader_init(PcapReader *self, PyObject *args, PyObject *kwds)
+PcapDevice_init(PcapDevice *self, PyObject *args, PyObject *kwds)
 {
     self->device_name = Py_None;
     Py_INCREF(Py_None);
@@ -1377,7 +1377,7 @@ PcapReader_init(PcapReader *self, PyObject *args, PyObject *kwds)
 }
 
 static void
-PcapReader_dealloc(PcapReader *self)
+PcapDevice_dealloc(PcapDevice *self)
 {
     Py_XDECREF(self->device_name);
     Py_XDECREF(self->type);
@@ -1387,11 +1387,11 @@ PcapReader_dealloc(PcapReader *self)
     self->ob_type->tp_free((PyObject*)self);
 }
 
-PyDoc_STRVAR(PcapReader_close__doc__,
+PyDoc_STRVAR(PcapDevice_close__doc__,
     "close() -> None\n\n"
     "Close the instance");
 static PyObject*
-PcapReader_close(PcapReader *self, PyObject *args)
+PcapDevice_close(PcapDevice *self, PyObject *args)
 {
     if (self->status == 1)
         pcap_close(self->p);
@@ -1402,7 +1402,7 @@ PcapReader_close(PcapReader *self, PyObject *args)
 }
 
 static int
-PcapReader_setup(PcapReader *self, const char* type, const char* dev)
+PcapDevice_setup(PcapDevice *self, const char* type, const char* dev)
 {
     const char *dlink_name;
 
@@ -1441,11 +1441,11 @@ PcapReader_setup(PcapReader *self, const char* type, const char* dev)
     return 1;
 }
 
-PyDoc_STRVAR(PcapReader_open_live__doc__,
+PyDoc_STRVAR(PcapDevice_open_live__doc__,
     "open_live(device_name) -> None\n\n"
     "Open a device for live-capture");
 static PyObject*
-PcapReader_open_live(PcapReader *self, PyObject *args)
+PcapDevice_open_live(PcapDevice *self, PyObject *args)
 {
     char errbuf[PCAP_ERRBUF_SIZE];
     char *device_name;
@@ -1459,25 +1459,25 @@ PcapReader_open_live(PcapReader *self, PyObject *args)
         return NULL;
     }
 
-    self->p = pcap_open_live(device_name, 65535, 1, 1000, errbuf);
+    self->p = pcap_open_live(device_name, 65535, 1, 200, errbuf);
     if (!self->p)
     {
         PyErr_Format(PyExc_IOError, "Failed to open device '%s' (libpcap: %s)", device_name, errbuf);
         return NULL;
     }
     
-    if (!PcapReader_setup(self, "live", device_name))
+    if (!PcapDevice_setup(self, "live", device_name))
         return NULL;
     
     Py_INCREF(Py_None);
     return Py_None;
 }
 
-PyDoc_STRVAR(PcapReader_open_offline__doc__,
+PyDoc_STRVAR(PcapDevice_open_offline__doc__,
     "open_offline(fname) ->None\n\n"
     "Open a file for reading");
 static PyObject*
-PcapReader_open_offline(PcapReader *self, PyObject *args)
+PcapDevice_open_offline(PcapDevice *self, PyObject *args)
 {
     char errbuf[PCAP_ERRBUF_SIZE];
     char *fname;
@@ -1498,18 +1498,18 @@ PcapReader_open_offline(PcapReader *self, PyObject *args)
         return NULL;
     }
     
-    if (!PcapReader_setup(self, "offline", fname))
+    if (!PcapDevice_setup(self, "offline", fname))
         return NULL;
 
     Py_INCREF(Py_None);
     return Py_None;
 }
 
-PyDoc_STRVAR(PcapReader_read__doc__,
+PyDoc_STRVAR(PcapDevice_read__doc__,
     "read() -> tuple\n\n"
     "Read the next packet");
 static PyObject*
-PcapReader_read(PcapReader *self, PyObject *args)
+PcapDevice_read(PcapDevice *self, PyObject *args)
 {
     PyObject *result, *ts, *pckt_content;
     int ret;
@@ -1574,11 +1574,56 @@ PcapReader_read(PcapReader *self, PyObject *args)
 
 }
 
-PyDoc_STRVAR(PcapReader_set_filter__doc__,
+PyDoc_STRVAR(PcapDevice_send__doc__,
+    "send(object) -> None\n\n"
+    "Send an object's string-representation as a raw packet via a live device.");
+static PyObject*
+PcapDevice_send(PcapDevice *self, PyObject *args)
+{
+    char *pckt_buffer;
+    int pckt_size;
+    PyObject *pckt, *pckt_string;
+    
+    if (self->status != 1)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Instance not ready for writing.");
+        return NULL;
+    }
+
+    if (!PyArg_ParseTuple(args, "O", &pckt))
+        return NULL;
+
+    pckt_string = PyObject_Str(pckt);
+    if (!pckt_string)
+    {
+        PyErr_SetString(PyExc_ValueError, "Failed to get string-representation from object.");
+        return NULL;
+    }
+
+    if (PyString_AsStringAndSize(pckt_string, &pckt_buffer, &pckt_size))
+    {
+        Py_DECREF(pckt_string);
+        return NULL;
+    }
+
+    if (pcap_sendpacket(self->p, pckt_buffer, pckt_size))
+    {
+        PyErr_Format(PyExc_IOError, "Failed to send packet (libpcap: %s).", pcap_geterr(self->p));
+        Py_DECREF(pckt_string);
+        return NULL;
+    }
+    
+    Py_DECREF(pckt_string);
+    
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+PyDoc_STRVAR(PcapDevice_set_filter__doc__,
     "set_filter(filter_string) -> None\n\n"
     "Set a BPF-filter");
 static PyObject*
-PcapReader_set_filter(PcapReader *self, PyObject *args)
+PcapDevice_set_filter(PcapDevice *self, PyObject *args)
 {
     struct bpf_program fp;
     char *filter_string;
@@ -1894,32 +1939,33 @@ static PyTypeObject CowpattyFile_type = {
     0,                          /*tp_is_gc*/
 };
 
-static PyMemberDef PcapReader_members[] =
+static PyMemberDef PcapDevice_members[] =
 {
-    {"deviceName", T_OBJECT, offsetof(PcapReader, device_name), READONLY},
-    {"type", T_OBJECT, offsetof(PcapReader, type), READONLY},
-    {"datalink", T_INT, offsetof(PcapReader, datalink), READONLY},
-    {"datalink_name", T_OBJECT, offsetof(PcapReader, datalink_name), READONLY},
+    {"deviceName", T_OBJECT, offsetof(PcapDevice, device_name), READONLY},
+    {"type", T_OBJECT, offsetof(PcapDevice, type), READONLY},
+    {"datalink", T_INT, offsetof(PcapDevice, datalink), READONLY},
+    {"datalink_name", T_OBJECT, offsetof(PcapDevice, datalink_name), READONLY},
     {NULL}
 };
 
-static PyMethodDef PcapReader_methods[] =
+static PyMethodDef PcapDevice_methods[] =
 {
-    {"open_live", (PyCFunction)PcapReader_open_live, METH_VARARGS, PcapReader_open_live__doc__},
-    {"open_offline", (PyCFunction)PcapReader_open_offline, METH_VARARGS, PcapReader_open_offline__doc__},
-    {"close", (PyCFunction)PcapReader_close, METH_NOARGS, PcapReader_close__doc__},
-    {"read", (PyCFunction)PcapReader_read, METH_NOARGS, PcapReader_read__doc__},
-    {"set_filter", (PyCFunction)PcapReader_set_filter, METH_VARARGS, PcapReader_set_filter__doc__},
+    {"open_live", (PyCFunction)PcapDevice_open_live, METH_VARARGS, PcapDevice_open_live__doc__},
+    {"open_offline", (PyCFunction)PcapDevice_open_offline, METH_VARARGS, PcapDevice_open_offline__doc__},
+    {"close", (PyCFunction)PcapDevice_close, METH_NOARGS, PcapDevice_close__doc__},
+    {"read", (PyCFunction)PcapDevice_read, METH_NOARGS, PcapDevice_read__doc__},
+    {"send", (PyCFunction)PcapDevice_send, METH_VARARGS, PcapDevice_send__doc__},
+    {"set_filter", (PyCFunction)PcapDevice_set_filter, METH_VARARGS, PcapDevice_set_filter__doc__},
     {NULL, NULL}
 };
 
-static PyTypeObject PcapReader_type = {
+static PyTypeObject PcapDevice_type = {
     PyObject_HEAD_INIT(NULL)
     0,                          /*ob_size*/
-    "_cpyrit_cpu.PcapReader",   /*tp_name*/
-    sizeof(PcapReader),         /*tp_basicsize*/
+    "_cpyrit_cpu.PcapDevice",   /*tp_name*/
+    sizeof(PcapDevice),         /*tp_basicsize*/
     0,                          /*tp_itemsize*/
-    (destructor)PcapReader_dealloc, /*tp_dealloc*/
+    (destructor)PcapDevice_dealloc, /*tp_dealloc*/
     0,                          /*tp_print*/
     0,                          /*tp_getattr*/
     0,                          /*tp_setattr*/
@@ -1943,15 +1989,15 @@ static PyTypeObject PcapReader_type = {
     0,                          /*tp_weaklistoffset*/
     0,                          /*tp_iter*/
     0,                          /*tp_iternext*/
-    PcapReader_methods,         /*tp_methods*/
-    PcapReader_members,         /*tp_members*/
+    PcapDevice_methods,         /*tp_methods*/
+    PcapDevice_members,         /*tp_members*/
     0,                          /*tp_getset*/
     0,                          /*tp_base*/
     0,                          /*tp_dict*/
     0,                          /*tp_descr_get*/
     0,                          /*tp_descr_set*/
     0,                          /*tp_dictoffset*/
-    (initproc)PcapReader_init,  /*tp_init*/
+    (initproc)PcapDevice_init,  /*tp_init*/
     0,                          /*tp_alloc*/
     0,                          /*tp_new*/
     0,                          /*tp_free*/
@@ -2093,12 +2139,12 @@ init_cpyrit_cpu(void)
     if (PyType_Ready(&CowpattyResult_type) < 0)
 	    return;
 
-    PcapReader_type.tp_getattro = PyObject_GenericGetAttr;
-    PcapReader_type.tp_setattro = PyObject_GenericSetAttr;
-    PcapReader_type.tp_alloc  = PyType_GenericAlloc;
-    PcapReader_type.tp_new = PyType_GenericNew;
-    PcapReader_type.tp_free = _PyObject_Del;
-    if (PyType_Ready(&PcapReader_type) < 0)
+    PcapDevice_type.tp_getattro = PyObject_GenericGetAttr;
+    PcapDevice_type.tp_setattro = PyObject_GenericSetAttr;
+    PcapDevice_type.tp_alloc  = PyType_GenericAlloc;
+    PcapDevice_type.tp_new = PyType_GenericNew;
+    PcapDevice_type.tp_free = _PyObject_Del;
+    if (PyType_Ready(&PcapDevice_type) < 0)
 	    return;
 
     m = Py_InitModule("_cpyrit_cpu", CPyritCPUMethods);
@@ -2115,8 +2161,8 @@ init_cpyrit_cpu(void)
     Py_INCREF(&CowpattyResult_type);
     PyModule_AddObject(m, "CowpattyResult", (PyObject*)&CowpattyResult_type);
 
-    Py_INCREF(&PcapReader_type);
-    PyModule_AddObject(m, "PcapReader", (PyObject*)&PcapReader_type);
+    Py_INCREF(&PcapDevice_type);
+    PyModule_AddObject(m, "PcapDevice", (PyObject*)&PcapDevice_type);
 
     PyModule_AddStringConstant(m, "VERSION", VERSION);
 }
