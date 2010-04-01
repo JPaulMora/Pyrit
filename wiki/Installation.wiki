@@ -93,7 +93,7 @@ Please see the drivers' installation instruction for how to get everything up an
 
 Switch to the directory holding CPyrit-OpenCL's source-code and compile and install it just like you did with Pyrit:
 {{{
-cd cpyrit-cuda-0.3.0
+cd cpyrit-opencl-0.3.0
 python setup.py build
 sudo python setup.py install
 }}}
