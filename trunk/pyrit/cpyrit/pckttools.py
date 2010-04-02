@@ -83,12 +83,15 @@ del areFlagsNotSet
 
 def iterSubPackets(self, cls):
     """Iterate over all layers of the given type in packet 'self'."""
-    if cls not in self:
+    try:
+        if cls not in self:
+            return
+        elt = self[cls]
+        while elt:
+            yield elt
+            elt = elt[cls:2]
+    except IndexError:
         return
-    elt = self[cls]
-    while elt:
-        yield elt
-        elt = elt[cls:2]
 scapy.packet.Packet.iterSubPackets = iterSubPackets
 del iterSubPackets
 
