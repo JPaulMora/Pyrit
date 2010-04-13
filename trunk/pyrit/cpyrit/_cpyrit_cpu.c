@@ -1581,7 +1581,7 @@ static PyObject*
 PcapDevice_send(PcapDevice *self, PyObject *args)
 {
     char *pckt_buffer;
-    int pckt_size;
+    Py_ssize_t pckt_size;
     PyObject *pckt, *pckt_string;
     
     if (self->status != 1)
@@ -1606,7 +1606,7 @@ PcapDevice_send(PcapDevice *self, PyObject *args)
         return NULL;
     }
 
-    if (pcap_sendpacket(self->p, pckt_buffer, pckt_size))
+    if (pcap_sendpacket(self->p, (unsigned char*)pckt_buffer, pckt_size))
     {
         PyErr_Format(PyExc_IOError, "Failed to send packet (libpcap: %s).", pcap_geterr(self->p));
         Py_DECREF(pckt_string);

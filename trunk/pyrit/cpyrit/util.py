@@ -443,7 +443,7 @@ class AsyncFileWriter(threading.Thread):
 
 class PerformanceCounter(object):
 
-    def __init__(self, window=30.0):
+    def __init__(self, window=60.0):
         self.window = window
         self.datapoints = [[time.time(), 0.0]]
         self.total = 0
