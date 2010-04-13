@@ -187,6 +187,30 @@ else:
 
 
 try:
+    import _cpyrit_calpp
+except ImportError:
+    pass
+except Exception, e:
+    print >> sys.stderr, "Failed to load Pyrit's CAL-driven core ('%s')." % e
+else:
+    version_check(_cpyrit_calpp)
+
+    class CALCore(Core, _cpyrit_calpp.CALDevice):
+        """Computes results on ATI CAL capable devices."""
+
+        def __init__(self, queue, dev_idx):
+            Core.__init__(self, queue)
+            _cpyrit_calpp.CALDevice.__init__(self, dev_idx)
+            self.name = "CAL++ Device #%i '%s'" % (dev_idx + 1, self.deviceName)
+            # This is a hard limit: CAL seem to produce incorrect results with
+            # buffers smaller than 4096 items...
+            self.minBufferSize = 4096
+            self.buffersize = 8192
+            self.maxBufferSize = 122880
+            self.start()
+
+
+try:
     import _cpyrit_null
 except ImportError:
     pass
@@ -378,6 +402,12 @@ class CPyrit(object):
                         core = OpenCLCore(self, platform_idx, dev_idx)
                         self.cores.append(core)
                         ncpus -= 1
+
+        # CAL++
+        if 'cpyrit._cpyrit_calpp' in sys.modules:
+            for dev_idx, device in enumerate(_cpyrit_calpp.listDevices()):
+                self.cores.append(CALCore(queue=self, dev_idx=dev_idx))
+                ncpus -= 1
 
         #CPUs
         for i in xrange(ncpus):
