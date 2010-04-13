@@ -206,7 +206,7 @@ else:
             # buffers smaller than 4096 items...
             self.minBufferSize = 4096
             self.buffersize = 8192
-            self.maxBufferSize = 122880
+            self.maxBufferSize = 180224
             self.start()
 
 
