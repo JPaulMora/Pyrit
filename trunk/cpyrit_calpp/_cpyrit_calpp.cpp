@@ -226,13 +226,13 @@ calc_pmklist(CALDevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer, 
     h = (size + w - 1) / w;
 
     // allocate gpu memory
-    g_inbuffer0 = cal::Image2D(calContext, w, h, CAL_FORMAT_UINT_4, 0);
-    g_inbuffer1 = cal::Image2D(calContext, w, h, CAL_FORMAT_UINT_4, 0);
-    g_inbuffer2 = cal::Image2D(calContext, w, h, CAL_FORMAT_UINT_4, 0);
-    g_inbuffer3 = cal::Image2D(calContext, w, h, CAL_FORMAT_UINT_4, 0);
-    g_inbuffer4 = cal::Image2D(calContext, w, h, CAL_FORMAT_UINT_4, 0);
-    g_outbuffer0 = cal::Image2D(calContext, w, h, CAL_FORMAT_UINT_4, 0);
-    g_outbuffer1 = cal::Image2D(calContext, w, h, CAL_FORMAT_UINT_4, 0);
+    g_inbuffer0 = cal::Image2D(*self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+    g_inbuffer1 = cal::Image2D(*self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+    g_inbuffer2 = cal::Image2D(*self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+    g_inbuffer3 = cal::Image2D(*self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+    g_inbuffer4 = cal::Image2D(*self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+    g_outbuffer0 = cal::Image2D(*self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+    g_outbuffer1 = cal::Image2D(*self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
 
     copy_gpu_inbuffer(self, inbuffer, g_inbuffer0, g_inbuffer1, g_inbuffer2, g_inbuffer3, g_inbuffer4, size);
 
