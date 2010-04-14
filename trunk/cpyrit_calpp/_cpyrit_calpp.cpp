@@ -19,12 +19,12 @@
 */
 
 #include <Python.h>
-#include <stdint.h>
 #include <structmember.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <cal/cal.hpp>
 #include <iostream>
+#include <boost/cstdint.hpp>
 #include "_cpyrit_calpp.h"
 
 std::string calpp_create_pmk_kernel( cal::Device& device );
@@ -44,10 +44,10 @@ extern "C" typedef struct
 static int calDevCount;
 static cal::Context calContext;
 
-const char* device_name[10] = {"ATI RV600", "ATI RV610", "ATI RV630",
-                               "ATI RV670", "ATI RV7XX", "ATI RV770",
-                               "ATI RV710", "ATI RV730", "ATI CYPRESS",
-                               "ATI JUNIPER"};
+static const char* device_name[10] = {"ATI RV600", "ATI RV610", "ATI RV630",
+                                      "ATI RV670", "ATI RV7XX", "ATI RV770",
+                                      "ATI RV710", "ATI RV730", "ATI CYPRESS",
+                                      "ATI JUNIPER"};
 
 static const char*
 getDeviceName( int target )
@@ -62,7 +62,7 @@ static int
 caldev_init( CALDevice *self, PyObject *args, PyObject *kwds )
 {
     int dev_idx;
-    
+
     self->dev_name = NULL;
     self->dev_context = NULL;
     self->dev_prog = NULL;

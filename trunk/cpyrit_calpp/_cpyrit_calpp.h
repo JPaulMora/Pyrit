@@ -21,6 +21,10 @@
 #ifndef CPYRIT_CALPP
 #define CPYRIT_CALPP
 
+#ifndef uint32_t
+#define uint32_t boost::uint32_t
+#endif
+
 #define CALPP_BLOCK_WIDTH 64
 
 #define GET_BE(n,b,i)                            \
