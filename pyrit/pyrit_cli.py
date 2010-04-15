@@ -214,14 +214,26 @@ class Pyrit_CLI(object):
         self.tell("connected.")
         return storage
 
-    def create_essid(self, storage, essid):
+    def create_essid(self, storage, essid=None, infile=None):
         """Create a new ESSID"""
-        if essid in storage.essids:
-            self.tell("ESSID already created")
-        else:
-            storage.essids.create_essid(essid)
-            self.tell("Created ESSID '%s'" % essid)
-    create_essid.cli_options = (('-e', '-u'), ())
+        if essid is None and infile is None:
+            raise PyritRuntimeError("Please specify the ESSID to create with " \
+                                    "'-e' or a file to read ESSIDs from with " \
+                                    "'-i'.")
+        if essid is not None:
+            if essid in storage.essids:
+                self.tell("ESSID already created")
+            else:
+                storage.essids.create_essid(essid)
+                self.tell("Created ESSID '%s'" % essid)
+        elif infile is not None:
+            with cpyrit.util.FileWrapper(infile) as reader:
+                for essid in reader:
+                    essid = essid.strip()
+                    if essid not in storage.essids:
+                        storage.essids.create_essid(essid)
+                        self.tell("Created ESSID '%s'" % essid)
+    create_essid.cli_options = (('-u', ), ('-e', '-i'))
 
     def delete_essid(self, storage, essid, confirm=True):
         """Delete a ESSID from the database"""
@@ -887,8 +899,8 @@ class Pyrit_CLI(object):
             # calibrate to optimal size
             self.tell("Calibrating...", end=None)
             t = time.time()
-            while time.time() - t < 3:
-                cp.enqueue('foo', ['barbarbar'] * 1500)
+            while time.time() - t < 10:
+                cp.enqueue('foo', ['barbarbar'] * 500)
                 cp.dequeue(block=False)
             for r in cp:
                 pass

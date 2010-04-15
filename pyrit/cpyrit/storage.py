@@ -454,7 +454,7 @@ class FSEssidStore(ESSIDStore):
            Re-creating a ESSID is a no-op.
         """
         if len(essid) < 1 or len(essid) > 32:
-            raise ValueError("ESSID invalid.")
+            raise ValueError("ESSID '%s' invalid." % (essid, ))
         root = os.path.join(self.basepath, hashlib.md5(essid).hexdigest()[:8])
         if not os.path.exists(root):
             os.makedirs(root)
@@ -770,7 +770,7 @@ if 'sqlalchemy' in sys.modules:
 
         def __init__(self, essid):
             if len(essid) < 1 or len(essid) > 32:
-                raise ValueError("ESSID invalid")
+                raise ValueError("ESSID '%s' invalid" % (essid, ))
             self.essid = essid
             self.uid = hashlib.md5(essid).hexdigest()
 
