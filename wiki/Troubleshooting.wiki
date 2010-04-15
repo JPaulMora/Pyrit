@@ -20,6 +20,10 @@ The error was fixed in version '0.2.4 r152'.
 
 This error was fixed in version '0.2.3'. You either have to update to '0.2.3' or downgrade to CUDA 2.1.
 
+=== Using CPyrit-CUDA with CUDA 3.0 causes the error message '_SystemError: CUDA_ERROR_INVALID_IMAGE_' ===
+
+Please use the GPU-drivers that come with CUDA 3.0 at [http://www.nvidia.com/object/cuda_get.html]
+
 === Pyrit no longer uses all CPUs after installing a GPU-driven extension-module ===
 
 This behaviour is intended. Pyrit keeps one CPU free for scheduling work with every GPU it uses.
