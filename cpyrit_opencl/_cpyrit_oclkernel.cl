@@ -38,21 +38,18 @@ void sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX *data)
   D = ctx.h3;
   E = ctx.h4;
 
-#undef S
-#define S(x,n) ((x << n) | (x >> (32 - n)))
-
 #undef R
-#define R(t)                                            \
-(                                                       \
-    temp = W[(t -  3) & 0x0F] ^ W[(t - 8) & 0x0F] ^     \
-           W[(t - 14) & 0x0F] ^ W[ t      & 0x0F],      \
-    ( W[t & 0x0F] = S(temp,1) )                         \
+#define R(t)                                              \
+(                                                         \
+    temp = W[(t -  3) & 0x0F] ^ W[(t - 8) & 0x0F] ^       \
+           W[(t - 14) & 0x0F] ^ W[ t      & 0x0F],        \
+    ( W[t & 0x0F] = rotate(temp,1) )                      \
 )
 
 #undef P
-#define P(a,b,c,d,e,x)                                  \
-{                                                       \
-    e += S(a,5) + F(b,c,d) + K + x; b = S(b,30);        \
+#define P(a,b,c,d,e,x)                                    \
+{                                                         \
+    e += rotate(a,5) + F(b,c,d) + K + x; b = rotate(b,30);\
 }
 
 #define F(x,y,z) (z ^ (x & (y ^ z)))
@@ -208,5 +205,4 @@ void opencl_pmk_kernel(__global gpu_inbuffer *inbuffer, __global gpu_outbuffer *
     }
     CPY_DEVCTX(pmk_ctx, outbuffer[idx].pmk2);
 }
-
 
