@@ -160,7 +160,7 @@ else:
             self.minBufferSize = 1024
             self.buffersize = 4096
             maxhwsize = reduce(lambda x, y: x * y, self.maxWorkSizes)
-            self.maxBufferSize = min(61440, maxhwsize)
+            self.maxBufferSize = min(180224, maxhwsize)
             self.start()
 
 
