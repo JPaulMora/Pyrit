@@ -52,7 +52,7 @@ Pyrit has successfuly parsed the capture file and found one AccessPoint with BSS
 
 == Attacking a handshake and revealing the password ==
 
-We now use the example wordlist _dict.gz_ and let Pyrit guess the password that was used in the key-negotiation between AccessPoint _00:0b:86:c2:a4:85_ and Station _00:13:ce:55:98:ef_. The correct password should should get detected, if it is part of the list. In our terms, this is known as a "passthrough-attack". Issue the following command:
+We now use the example wordlist _dict.gz_ and let Pyrit guess the password that was used in the key-negotiation between AccessPoint _00:0b:86:c2:a4:85_ and Station _00:13:ce:55:98:ef_. The correct password should get detected, if it is part of the list. In our terms, this is known as a "passthrough-attack". Issue the following command:
 
 {{{
 pyrit -r wpapsk-linksys.dump.gz -i dict.gz -b 00:0b:86:c2:a4:85 attack_passthrough
@@ -267,4 +267,3 @@ pyrit -u postgres://pyrit:@192.168.0.7/pyrit -e linksys create_essid
 }}}
 
 To make life a little easier, you can save the default connection-string in Pyrit's configuration-file at _'~/.pyrit/config'_. Change the value of the key _default_storage_ to a new connection-string and you won't have to supply it every single time.
-
