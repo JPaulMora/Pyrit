@@ -30,6 +30,18 @@ import sys
 import zlib
 
 OPENCL_INC_DIRS = []
+OPENCL_LIB_DIRS = []
+
+try:
+    if os.path.exists(os.environ['ATISTREAMSDKROOT']):
+        OPENCL_INC_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'],'include'))
+        for path in ('lib/x86_64','lib/x86'):
+            if os.path.exists(os.path.join(os.environ['ATISTREAMSDKROOT'],path)):
+                OPENCL_LIB_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'],path))
+                break
+except:
+    pass
+
 for path in ('/usr/local/opencl/OpenCL/common/inc', \
             '/opt/opencl/OpenCL/common/inc', \
             '/usr/local/opencl/include'):
@@ -91,6 +103,7 @@ opencl_extension = Extension('cpyrit._cpyrit_opencl',
                     libraries = ['ssl', 'OpenCL', 'z'],
                     sources = ['_cpyrit_opencl.c'],
                     include_dirs = OPENCL_INC_DIRS,
+                    library_dirs = OPENCL_LIB_DIRS,
                     extra_compile_args = EXTRA_COMPILE_ARGS)
 
 setup_args = dict(
