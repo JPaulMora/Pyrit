@@ -182,7 +182,7 @@ else:
             self.name = "CUDA-Device #%i '%s'" % (dev_idx + 1, self.deviceName)
             self.minBufferSize = 1024
             self.buffersize = 4096
-            self.maxBufferSize = 40960
+            self.maxBufferSize = 131072
             self.start()
 
 
