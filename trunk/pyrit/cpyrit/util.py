@@ -190,7 +190,7 @@ class PassthroughIterator(object):
     def next(self):
         pwbuffer = []
         for line in self.iterator:
-            pw = line.strip()[:63]
+            pw = line.strip('\r\n')[:63]
             if len(pw) >= 8:
                 pwbuffer.append(pw)
             if len(pwbuffer) > self.buffersize:

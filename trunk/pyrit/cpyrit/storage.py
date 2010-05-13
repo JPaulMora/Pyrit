@@ -274,7 +274,7 @@ class PasswordStore(object):
            performance and efficiency. It is the caller's responsibility to
            call .flush_buffer() (or use the context-manager) when he is done.
         """
-        passwd = passwd.strip()
+        passwd = passwd.strip('\r\n')
         if len(passwd) < 8 or len(passwd) > 63:
             return
         pw_h1 = PasswordStore.h1_list[hash(passwd) & 0xFF]
