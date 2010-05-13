@@ -618,6 +618,18 @@ an absolute waiver of all civil liability in connection with the
 Program, unless a warranty or assumption of liability accompanies a
 copy of the Program in return for a fee.
 
+                    OpenSSL Linking Exception
+
+In addition, as a special exception, you are given permission to link
+the code of Pyrit with the OpenSSL project's "OpenSSL" library (or
+with modified versions of it that use the same license as the "OpenSSL"
+library), and distribute the linked executables.  You must obey the GNU
+General Public License in all respects for all of the code used other
+than "OpenSSL".  If you modify this file, you may extend this exception
+to your version of the file, but you are not obligated to do so. If you
+do not wish to do so, delete this exception statement from your version.
+
+
                      END OF TERMS AND CONDITIONS
 
             How to Apply These Terms to Your New Programs
