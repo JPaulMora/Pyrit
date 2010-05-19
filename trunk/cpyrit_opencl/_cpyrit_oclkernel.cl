@@ -16,6 +16,16 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
+#
+#    Additional permission under GNU GPL version 3 section 7
+#
+#    If you modify this Program, or any covered work, by linking or
+#    combining it with any library or libraries implementing the
+#    Khronos Group OpenCL Standard v1.0 or later (or modified
+#    versions of those libraries), containing parts covered by the
+#    terms of the licenses of their respective copyright owners,
+#    the licensors of this Program grant you additional permission
+#    to convey the resulting work.
 */
 
 void sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX *data)
@@ -205,4 +215,3 @@ void opencl_pmk_kernel(__global gpu_inbuffer *inbuffer, __global gpu_outbuffer *
     }
     CPY_DEVCTX(pmk_ctx, outbuffer[idx].pmk2);
 }
-
