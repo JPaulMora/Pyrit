@@ -28,6 +28,7 @@
 """
 
 from __future__ import with_statement
+from collections import deque
 
 # prevent call to socket.getfqdn
 import BaseHTTPServer
@@ -139,6 +140,67 @@ class CPUCore(Core, _cpyrit_cpu.CPUDevice):
         self.buffersize = 512
         self.name = "CPU-Core (%s)" % _cpyrit_cpu.getPlatform()
         self.start()
+
+
+class LowLatencyCore(Core):
+    def __init__(self, queue):
+        Core.__init__(self, queue)
+        self.bufferSizeDiv = 0
+
+    def _getTestData(self, i):
+        return (Core.TV_ESSID, [Core.TV_PW] * i)
+
+    def _testData(self, res):
+        if any((pmk != Core.TV_PMK for pmk in res)):
+            raise ValueError("Test-vector does not result in correct PMK.")
+
+    def _processData(self, essid, pwlist, res, tm):
+        assert( len(res) == len(pwlist) )
+        t = time.time()
+        self.compTime  += t - tm
+        self.resCount  += len(res)
+        self.callCount += 1
+        avg = (2 * self.buffersize + (self.resCount / self.compTime * 3)) / 3
+        if self.bufferSizeDiv>0:
+            avg = self.bufferSizeDiv*int((avg + self.bufferSizeDiv - 1)/self.bufferSizeDiv)
+        self.buffersize = int(max(self.minBufferSize,
+                              min(self.maxBufferSize, avg)))
+        self.queue._scatter(essid, pwlist, res)
+        return t
+
+    def solve(self, essid, pwlist):
+        enq = self.send(essid,pwlist)
+        assert( enq )
+        return self.receive(True)
+
+    def run(self):
+        work_queue     = deque()
+        work_available = False
+        t              = time.time()
+        while not self.shallStop:
+            if not work_available:
+                if not self.isTested:
+                    essid, pwlist = self._getTestData(101)
+                else:
+                    essid, pwlist = self.queue._gather(self.buffersize, timeout=0.5)
+                if essid is not None:
+                    work_queue.append( (essid, pwlist, not self.isTested) )
+                    self.isTested = True
+                    work_available = True
+                    if len(work_queue)==1:
+                        t = time.time()
+            if len(work_queue)<=0:
+                continue
+            if work_available:
+                essid, pwlist, testing = work_queue[-1]
+                work_available = not self.send(essid,pwlist)
+            res = self.receive(work_available)
+            if res is not None:
+                essid, pwlist, testing = work_queue.popleft()
+                if not testing:
+                    t = self._processData(essid,pwlist,res,t)
+                else:
+                    self._testData(res)
 
 
 try:
