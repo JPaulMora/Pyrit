@@ -37,8 +37,6 @@
 #include <cal/cal.hpp>
 #include <iostream>
 #include <boost/array.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/format.hpp>
 #include "_cpyrit_calpp.h"
 
 #define _offsetof( type, field ) ( ((uint8_t*)(&((type*)&calDevCount)->field)) - (uint8_t*)&calDevCount )
