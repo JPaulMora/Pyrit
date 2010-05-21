@@ -30,13 +30,13 @@
 */
 
 #include <Python.h>
-#include <stdint.h>
 #include <structmember.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <cal/cal.hpp>
 #include <iostream>
 #include <boost/array.hpp>
+#include <boost/cstdint.hpp>
 #include "_cpyrit_calpp.h"
 
 #define _offsetof( type, field ) ( ((uint8_t*)(&((type*)&calDevCount)->field)) - (uint8_t*)&calDevCount )
