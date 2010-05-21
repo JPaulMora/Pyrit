@@ -257,18 +257,14 @@ except Exception, e:
 else:
     version_check(_cpyrit_calpp)
 
-    class CALCore(Core, _cpyrit_calpp.CALDevice):
+    class CALCore(LowLatencyCore, _cpyrit_calpp.CALDevice):
         """Computes results on ATI CAL capable devices."""
 
         def __init__(self, queue, dev_idx):
-            Core.__init__(self, queue)
+            LowLatencyCore.__init__(self, queue)
             _cpyrit_calpp.CALDevice.__init__(self, dev_idx)
             self.name = "CAL++ Device #%i '%s'" % (dev_idx + 1, self.deviceName)
-            # This is a hard limit: CAL seem to produce incorrect results with
-            # buffers smaller than 4096 items...
-            self.minBufferSize = 4096
-            self.buffersize = 8192
-            self.maxBufferSize = 180224
+            self.minBufferSize, self.buffersize, self.maxBufferSize, self.bufferSizeDiv = self.workSizes()
             self.start()
 
 
