@@ -892,14 +892,14 @@ class Pyrit_CLI(object):
     attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b', '-o', \
                                                   '--all-handshakes'))
 
-    def benchmark(self, timeout=60):
+    def benchmark(self, timeout=60, calibrate=10):
         """Determine performance of available cores"""
         with cpyrit.cpyrit.CPyrit() as cp:
             # 'Burn-in' so that all modules are forced to load and buffers can
             # calibrate to optimal size
             self.tell("Calibrating...", end=None)
             t = time.time()
-            while time.time() - t < 10:
+            while time.time() - t < calibrate:
                 cp.enqueue('foo', ['barbarbar'] * 500)
                 cp.dequeue(block=False)
             for r in cp:
@@ -909,7 +909,7 @@ class Pyrit_CLI(object):
             cp.resetStatistics()
             cycler = itertools.cycle(('\\|/-'))
             t = time.time()
-            perfcounter = cpyrit.util.PerformanceCounter()
+            perfcounter = cpyrit.util.PerformanceCounter(timeout+5)
             while time.time() - t < timeout:
                 pws = ["barbarbar%s" % random.random() for i in xrange(bsize)]
                 cp.enqueue('foo', pws)
@@ -919,8 +919,6 @@ class Pyrit_CLI(object):
                 self.tell("\rRunning benchmark (%.1f PMKs/s)... %s" % \
                         (perfcounter.avg, cycler.next()), end=None)
             self.tell('')
-            for r in cp:
-                pass
             self.tell("\nComputed %.2f PMKs/s total." % perfcounter.avg)
             for i, core in enumerate(cp.cores):
                 if core.compTime > 0:
@@ -933,7 +931,14 @@ class Pyrit_CLI(object):
                     rtt = 0
                 self.tell("#%i: '%s': %.1f PMKs/s (RTT %.1f)" % \
                             (i + 1, core.name, perf, rtt))
+            for r in cp:
+                pass
     benchmark.cli_options = ((), ())
+
+    def benchmark_long(self):
+        """Longer and more accurate version of benchmark (~10 minutes)"""
+        self.benchmark(570,30)
+    benchmark_long.cli_options = ((), ())
 
     def selftest(self, timeout=60):
         """Test hardware to ensure it computes correct results"""
@@ -1044,6 +1049,7 @@ class Pyrit_CLI(object):
                 'attack_passthrough': attack_passthrough,
                 'batch': batchprocess,
                 'benchmark': benchmark,
+                'benchmark_long': benchmark_long,
                 'create_essid': create_essid,
                 'delete_essid': delete_essid,
                 'eval': eval_results,
