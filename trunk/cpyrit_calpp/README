@@ -24,7 +24,7 @@ A couple of libraries and headers are required to build CPyrit-CAL++:
   * ATI drivers 
   * ATI Stream SDK
     http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx
-  * CAL++ library
+  * CAL++ library >=0.87
     http://sourceforge.net/projects/calpp/
 
 Linux users running a binary distribution may need to install the development
