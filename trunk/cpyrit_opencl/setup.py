@@ -100,7 +100,7 @@ class GPUCleaner(clean):
 
 
 opencl_extension = Extension('cpyrit._cpyrit_opencl',
-                    libraries = ['ssl', 'OpenCL', 'z'],
+                    libraries = ['crypto', 'OpenCL', 'z'],
                     sources = ['_cpyrit_opencl.c'],
                     include_dirs = OPENCL_INC_DIRS,
                     library_dirs = OPENCL_LIB_DIRS,
