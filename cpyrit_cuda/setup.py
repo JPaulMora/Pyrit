@@ -119,7 +119,7 @@ class GPUCleaner(clean):
 
 
 cuda_extension = Extension('cpyrit._cpyrit_cuda',
-                    libraries = ['ssl', 'cuda', 'z'],
+                    libraries = ['crypto', 'cuda', 'z'],
                     sources = ['_cpyrit_cuda.c'],
                     include_dirs = NVIDIA_INC_DIRS,
                     extra_compile_args = EXTRA_COMPILE_ARGS)

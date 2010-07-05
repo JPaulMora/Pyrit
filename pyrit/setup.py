@@ -38,7 +38,7 @@ EXTRA_COMPILE_ARGS = ['-Wall', '-DVERSION="%s"' % version_string]
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
                     sources = ['cpyrit/_cpyrit_cpu.c',
                                'cpyrit/_cpyrit_cpu_sse2.S'],
-                    libraries = ['ssl', 'pcap'],
+                    libraries = ['crypto', 'pcap'],
                     extra_compile_args=EXTRA_COMPILE_ARGS)
 
 setup_args = dict(

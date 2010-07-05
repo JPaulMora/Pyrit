@@ -73,7 +73,7 @@ class GPUCleaner(clean):
 
 
 calpp_extension = Extension('cpyrit._cpyrit_calpp',
-                    libraries = ['ssl', 'aticalrt', 'aticalcl'],
+                    libraries = ['crypto', 'aticalrt', 'aticalcl'],
                     sources = ['_cpyrit_calpp.cpp', '_cpyrit_calpp_kernel.cpp'],
                     include_dirs = CALPP_INC_DIRS,
                     extra_compile_args = EXTRA_COMPILE_ARGS)
