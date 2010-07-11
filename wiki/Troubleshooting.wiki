@@ -28,6 +28,10 @@ Please use the GPU-drivers that come with CUDA 3.0 at [http://www.nvidia.com/obj
 
 This behaviour is intended. Pyrit keeps one CPU free for scheduling work with every GPU it uses.
 
+=== GPU performance is reduced on system with Hyper Threading ===
+
+NVidia/ATI GPU driver requires at least one real core for efficient work. With HT enabled driver needs to fight for CPU cycles with CPU computing core. This leads to GPU starvation and reduced performances. The problem can be solved by reducing number of running CPU-Cores.
+
 === The GPU does not show up in '_list_cores_' ===
 
 Pyrit suppresses most errors that occur while loading the GPU-extensions as they are usually caused by simply not having compatible hardware installed. Open a terminal and try loading the offending module directly to get more information.
