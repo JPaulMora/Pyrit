@@ -30,7 +30,7 @@ This behaviour is intended. Pyrit keeps one CPU free for scheduling work with ev
 
 === GPU performance is reduced on system with Hyper Threading ===
 
-NVidia/ATI GPU driver requires at least one real core for efficient work. With HT enabled driver needs to fight for CPU cycles with CPU computing core. This leads to GPU starvation and reduced performances. The problem can be solved by reducing number of running CPU-Cores.
+NVidia/ATI GPU driver requires at least one real core per GPU for efficient work. With HT enabled driver needs to fight for CPU cycles with CPU computing core. This leads to GPU starvation and reduced performances. The problem can be solved by reducing number of running CPU-Cores.
 
 === The GPU does not show up in '_list_cores_' ===
 
