@@ -2,8 +2,10 @@
 #
 #    Copyright 2009-2010, Lukas Lueg, lukas.lueg@gmail.com
 #    
-#    SHA-1 SSE2 Copyright 2008, 2009, Alvaro Salmador, naplam33@msn.com
-#    ported from SHA-1 MMX by Simon Marechal, simon@banquise.net
+#    SHA-1 SSE2 Copyright 2008, 2009, Alvaro Salmador, naplam33@msn.com,
+#    included here with permission, under the licensing terms specified below.
+#    ported from SHA-1 MMX by Simon Marechal, simon@banquise.net,
+#    included here with permission, under the licensing terms specified below.
 #
 #    This file is part of Pyrit.
 #
@@ -19,6 +21,17 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
+#
+#    Additional permission under GNU GPL version 3 section 7
+#
+#    If you modify this Program, or any covered work, by linking or
+#    combining it with the OpenSSL project's "OpenSSL" library (or a
+#    modified version of that library), containing parts covered by
+#    the terms of OpenSSL/SSLeay license, the licensors of this
+#    Program grant you additional permission to convey the resulting
+#    work. Corresponding Source for a non-source form of such a
+#    combination shall include the source code for the parts of the
+#    OpenSSL library used as well as that of the covered work.
 */
 
 #include "_cpyrit_cpu.h"
