@@ -1034,7 +1034,7 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
         if (self->keyscheme == HMAC_MD5_RC4)
         {
             fourwise_md5hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&kck, 16, (unsigned char*)&md5mics);
-            for (j = 0; j < 4; j++)
+            for (j = 0; j < 4 && i + j < buffersize / 32; j++)
                 if (memcmp(&md5mics[j], self->keymic, 16) == 0)
                 {
                     solution_idx = i + j;
@@ -1043,7 +1043,7 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
         } else
         {
             fourwise_sha1hmac(self->eapolframe, self->eapolframe_size, (unsigned char*)&kck, 16, (unsigned char*)&sha1mics);
-            for (j = 0; j < 4; j++)
+            for (j = 0; j < 4 && i + j < buffersize / 32; j++)
                 if (memcmp(&sha1mics[j], self->keymic, 16) == 0)
                 {
                     solution_idx = i + j;
