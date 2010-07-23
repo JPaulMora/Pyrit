@@ -659,7 +659,7 @@ class Pyrit_CLI(object):
         self.tell("Server started...")
         try:
             rpcd.serve_forever()
-        except KeyboardInterrupt, SystemExit:
+        except (KeyboardInterrupt, SystemExit):
             pass
         self.tell("Server closed")
     relay.cli_options = (('-u', ), ())
@@ -680,7 +680,7 @@ class Pyrit_CLI(object):
                 else:
                     y = 0
                 self.tell("\rServing %i active clients; %i PMKs/s; %.1f TTS" % (len(server), perfcounter.avg, y), end=None)
-        except KeyboardInterrupt, SystemExit:
+        except (KeyboardInterrupt, SystemExit):
             self.tell("\nShutdown with %i active clients..." % len(server))
             listener.shutdown()
             server.shutdown()
