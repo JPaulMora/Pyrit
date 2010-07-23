@@ -498,7 +498,7 @@ do_cpuid:
 
     movl    $1, %eax
     cpuid
-    testl   $(0x00800000 | 0x04000000), %edx  // bits 23 and 26 (MMX/SSE2)
+    testl   $0x04000000, %edx  // bit 26 (SSE2)
     jz      no_sse2
     movl    $1, %eax
     jmp     cpuid_exit
