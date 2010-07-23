@@ -59,7 +59,7 @@ class Pyrit_CLI(object):
     def initFromArgv(self):
         options = {}
         args, commands = getopt.getopt(sys.argv[1:], \
-                                       'b:e:i:o:r:u:v', \
+                                       'b:e:i:o:r:u:h', \
                                        ['all-handshakes'])
         args = dict(args)
 
@@ -68,7 +68,11 @@ class Pyrit_CLI(object):
         else:
             command = 'help'
             args = {}
-        func = self.commands[command]
+        if '-h' in args:
+            func = Pyrit_CLI.print_command_help
+            args = {'-c': command}
+        else:
+            func = self.commands[command]
 
         req_params, opt_params = func.cli_options
         for param in req_params:
@@ -91,6 +95,8 @@ class Pyrit_CLI(object):
                         self.verbose = False
                 elif arg == '-r':
                     options['capturefile'] = value
+                elif arg == '-c':
+                    options['command'] = value
                 elif arg == '--all-handshakes':
                     options['all_handshakes'] = True
             else:
@@ -110,12 +116,16 @@ class Pyrit_CLI(object):
         func(self, **options)
 
     def print_help(self):
-        """Print this help"""
+        """Print general help
+        
+           You should have figured this one out by now.
+        """
         self.tell('Usage: pyrit [options] command'
             '\n'
             '\nRecognized options:'
             '\n  -b               : Filters AccessPoint by BSSID'
             '\n  -e               : Filters AccessPoint by ESSID'
+            '\n  -h               : Print help for a certain command'
             "\n  -i               : Filename for input ('-' is stdin)"
             "\n  -o               : Filename for output ('-' is stdout)"
             '\n  -r               : Packet capture source in pcap-format'
@@ -127,8 +137,14 @@ class Pyrit_CLI(object):
         for command, func in sorted(self.commands.items()):
             self.tell('  %s%s : %s' % (command, \
                                         ' ' * (m - len(command)), \
-                                        func.__doc__))
+                                        func.__doc__.split('\n')[0]))
     print_help.cli_options = ((), ())
+
+    def print_command_help(self, command):
+        """Print help about a certain command"""
+        doc = self.commands[command].__doc__
+        self.tell('\n'.join(l.strip() for l in doc.split('\n')))
+    print_command_help.cli_options = (('-c',), ())
 
     def requires_pckttools(*params):
         """Decorate a function to check for cpyrit.cpyrit_pckttools
@@ -215,7 +231,14 @@ class Pyrit_CLI(object):
         return storage
 
     def create_essid(self, storage, essid=None, infile=None):
-        """Create a new ESSID"""
+        """Create a new ESSID
+           
+           Add the ESSID given by -e to the database. Re-creating an existing
+           ESSID does not result in an error.
+           
+           For example:
+           pyrit -e NETGEAR create_essid 
+        """
         if essid is None and infile is None:
             raise PyritRuntimeError("Please specify the ESSID to create with " \
                                     "'-e' or a file to read ESSIDs from with " \
@@ -236,7 +259,14 @@ class Pyrit_CLI(object):
     create_essid.cli_options = (('-u', ), ('-e', '-i'))
 
     def delete_essid(self, storage, essid, confirm=True):
-        """Delete a ESSID from the database"""
+        """Delete a ESSID from the database
+           
+           Delete the ESSID given by -e from the database. This includes all
+           results that may have been stored for that particular ESSID.
+           
+           For example:
+           pyrit -e NETGEAR delete_essid 
+        """
         if essid not in storage.essids:
             raise PyritRuntimeError("ESSID not found...")
         else:
@@ -251,7 +281,13 @@ class Pyrit_CLI(object):
     delete_essid.cli_options = (('-e', '-u'), ())
 
     def list_cores(self):
-        """List available cores"""
+        """List available cores
+        
+           Show a list of all available hardware modules pyrit currently uses.
+           
+           For example:
+           pyrit list_cores 
+        """
         with cpyrit.cpyrit.CPyrit() as cp:
             self.tell("The following cores seem available...")
             for i, core in enumerate(cp.cores):
@@ -259,7 +295,15 @@ class Pyrit_CLI(object):
     list_cores.cli_options = ((), ())
 
     def list_essids(self, storage):
-        """List all ESSIDs but don't count matching results"""
+        """List all ESSIDs but don't count matching results
+        
+           Show a list of all ESSIDs currently stored in the database. This
+           function is faster than eval in case you don't need to know the
+           number of computed results.
+           
+           For example:
+           pyrit list_essids 
+        """
         self.tell("Listing ESSIDs...\n")
         for essid in sorted(storage.essids):
             self.tell("ESSID '%s'" % essid)
@@ -267,7 +311,14 @@ class Pyrit_CLI(object):
     list_essids.cli_options = (('-u', ), ())
 
     def eval_results(self, storage):
-        """Count the available passwords and matching results"""
+        """Count the available passwords and matching results
+        
+           Count all available passwords, all ESSIDs and their respective
+           results in the database.
+           
+           For example:
+           pyrit eval
+        """
         self.tell("Querying...", end=None, flush=True)
         pwcount, essid_results = storage.getStats()
         self.tell("\rPasswords available: %i\n" % pwcount)
@@ -283,7 +334,18 @@ class Pyrit_CLI(object):
     eval_results.cli_options = (('-u', ), ())
 
     def import_passwords(self, storage, infile, unique_check=True):
-        """Import passwords from a file-like source"""
+        """Import passwords from a file-like source
+        
+           Read the file given by -i and import one password per line to the
+           database. The passwords may contain all characters (including
+           NULL-bytes) apart from the terminating newline-character \\n.
+           Passwords that are not suitable for being used with WPA-/WPA2-PSK
+           are ignored. Pyrit's storage-implementation guarantees that all
+           passwords remain unique throughout the entire database.
+           
+           For example:
+           pyrit -i dirty_words.txt import_passwords 
+        """
         i = 0
         storage.passwords.unique_check = unique_check
         perfcounter = cpyrit.util.PerformanceCounter()
@@ -300,12 +362,35 @@ class Pyrit_CLI(object):
     import_passwords.cli_options = (('-i', '-u'), ())
 
     def import_unique_passwords(self, storage, infile):
-        """Import unique passwords from a file-like source"""
+        """Import unique passwords from a file-like source
+        
+           Read the file given by -i and import one password per line to the
+           database. The passwords may contain all characters (including
+           NULL-bytes) apart from the terminating newline-character \\n.
+           Passwords that are not suitable for being used with WPA-/WPA2-PSK
+           are ignored. This command does not check if there are duplicating
+           passwords within the file or between the file and the database; it
+           should be used with caution to prevent the database from getting
+           poisoned with duplicated passwords. This command however can be much
+           faster than import_passwords.
+           
+           For example:
+           pyrit -i dirty_words.txt import_unique_passwords 
+        """
         self.import_passwords(storage, infile, unique_check=False)
     import_unique_passwords.cli_options = (('-i', '-u'), ())
 
     def export_passwords(self, storage, outfile):
-        """Export passwords to a file"""
+        """Export passwords to a file
+           
+           Write all passwords that are currently stored in the database to a
+           new file given by -o. Passwords are terminated by a single
+           newline-character (\\n). Existing files are overwritten without
+           confirmation.
+           
+           For example:
+           pyrit -o myword.txt.gz export_passwords 
+        """
         perfcounter = cpyrit.util.PerformanceCounter()
         with cpyrit.util.AsyncFileWriter(outfile) as awriter:
             for idx, pwset in enumerate(storage.iterpasswords()):
@@ -320,7 +405,15 @@ class Pyrit_CLI(object):
     export_passwords.cli_options = (('-o', '-u'), ())
 
     def export_cowpatty(self, storage, essid, outfile):
-        """Export results to a new cowpatty file"""
+        """Export results to a new cowpatty file
+        
+           Write all results for the ESSID given by -e to the file given by -o
+           in cowpatty's binary format. Existing files are overwritten without
+           confirmation.
+           
+           For example:
+           pyrit -o NETGEAR.cow -e NETGEAR export_cowpatty 
+        """
         if essid not in storage.essids:
             raise PyritRuntimeError("The ESSID you specified can't be found.")
         perfcounter = cpyrit.util.PerformanceCounter()
@@ -342,7 +435,15 @@ class Pyrit_CLI(object):
 
     @requires_pckttools()
     def analyze(self, capturefile):
-        """Analyze a packet-capture file"""
+        """Analyze a packet-capture file
+           
+           Parse one or more packet-capture files (in pcap-format,
+           possibly gzip-compressed) and try to detect Access-Points,
+           Stations and EAPOL-handshakes.
+           
+           For example:
+           pyrit -r "test*.pcap" analyze 
+        """
         parser = self._getParser(capturefile)
         for i, ap in enumerate(parser):
             self.tell("#%i: AccessPoint %s ('%s'):" % (i + 1, ap, ap.essid))
@@ -362,7 +463,17 @@ class Pyrit_CLI(object):
 
     @requires_pckttools()
     def stripCapture(self, capturefile, outfile, bssid=None, essid=None):
-        """Strip packet-capture files to the relevant packets"""
+        """Strip packet-capture files to the relevant packets
+           
+           Parse one or more packet-capture files given by the option -r,
+           extract only packets that are necessary for EAPOL-handshake
+           detection and write a new dump to the filename given by the option
+           -o. The options -e and -b can be used to filter certain
+           Access-Points.
+           
+           For example:
+           pyrit -r "dumps_*.pcap" -e MyNetwork -o tiny.dump.gz strip 
+        """
         parser = self._getParser(capturefile)
         if essid is not None or bssid is not None:
             ap_iter = (self._fuzzyGetAP(parser, bssid, essid), )
@@ -415,7 +526,19 @@ class Pyrit_CLI(object):
 
     @requires_pckttools()
     def stripLive(self, capturefile, outfile):
-        """Capture relevant packets from a live capture-source"""
+        """Capture relevant packets from a live capture-source
+           
+           Parse a packet-capture file given by the option -r, extract only
+           packets that are necessary for EAPOL-handshake detection and write a
+           new dump to the file given by the option -o. This command differs
+           from strip as the capture-file can be any character device including
+           sockets and other pseudo-files that look like files in pcap-format.
+           stripLive writes relevant packets to the new file given by -o as
+           they arrive instead of trying to read the entire capture-file first.
+           
+           For example:
+           pyrit -r /temp/kismet_dump -o small_dump.pcap stripLive 
+        """
 
         writer = cpyrit.pckttools.Dot11PacketWriter(outfile)
         parser = cpyrit.pckttools.PacketParser()
@@ -468,7 +591,16 @@ class Pyrit_CLI(object):
     stripLive.cli_options = (('-r', '-o'), ())
 
     def export_hashdb(self, storage, outfile, essid=None):
-        """Export results to an airolib database"""
+        """Export results to an airolib database
+        
+           Write all results currently stored in the database to the airolib-ng
+           database given by -o. The database is created with a default table
+           layout if the file does not yet exist. The option -e can be used to
+           limit the export to a single ESSID.
+           
+           For example:
+           pyrit -o NETGEAR.db -e NETGEAR export_hashdb 
+        """
         import sqlite3
         if essid is None:
             essids = storage.essids
@@ -577,7 +709,21 @@ class Pyrit_CLI(object):
     export_hashdb.cli_options = (('-u', '-o', ), ('-e', ))
 
     def passthrough(self, essid, infile, outfile):
-        """Compute PMKs and write results to a file"""
+        """Compute PMKs and write results to a file
+        
+           Read passwords from the file given by -i and compute their PMKs for
+           the ESSID given by -e. The results are written to the file specified
+           by -o in cowpatty's binary format and are not stored in the database
+           for later use. This command therefor circumvents the entire database
+           and should only be used if storage-space is a problem (e.g. when
+           using pyrit on a LiveCD). The batch-command provides exactly the
+           same functionality as passthrough but can give much better
+           performance as results may be read from the database instead of
+           recomputing them.
+           
+           For example:
+           pyrit -i words.txt -e NETGEAR -o NETGEAR.cow.gz passthrough 
+        """
         perfcounter = cpyrit.util.PerformanceCounter()
         with cpyrit.util.FileWrapper(infile) as reader:
             try:
@@ -600,7 +746,30 @@ class Pyrit_CLI(object):
     passthrough.cli_options = (('-i', '-o', '-e'), ())
 
     def batchprocess(self, storage, essid=None, outfile=None):
-        """Batchprocess the database"""
+        """Batchprocess the database
+        
+           Start to translate all passwords in the database into their
+           respective PMKs and store the results in the database. The option -e
+           may be used to restrict this command to a single ESSID; if it is
+           ommitted, all ESSIDs are processed one after the other in undefined
+           order.
+           
+           For example:
+           pyrit -e NETGEAR batch 
+           
+           The option -o can be used to specify a filename the results should
+           additionally be written to in cowpatty's binary format. The option
+           -e becomes mandatory and the ESSID is automatically created in the
+           database if necessary. Pairwise Master Keys that previously have
+           been computed and stored in the database are exported from there
+           without further processing. Pyrit stops and exits if an IOError is
+           raised while writing to the specified file but signals success on
+           exit. This makes it very convenient to pipe results directly to
+           other programs but also keep them for later use.
+           
+           For example:
+           pyrit -e NETGEAR -o - batch | cowpatty -d - -r MyCap.cap -s NETGEAR
+        """
         if outfile is not None and essid is None:
             raise PyritRuntimeError("Results will be written to a file " \
                                     "while batchprocessing. This requires " \
@@ -654,7 +823,22 @@ class Pyrit_CLI(object):
     batchprocess.cli_options = (('-u', ), ('-e', '-o'))
 
     def relay(self, storage):
-        """Relay a storage-url via RPC"""
+        """Relay a storage-url via RPC
+        
+           Start a server to relay another storage device via XML-RPC; other
+           pyrit-clients can use the server as storage-device. This allows to
+           have network-based access to storage source that don’t provide
+           network-access on their own (like file:// and sqlite://) or hide a
+           SQL-database behind a firewall and let multiple clients access that
+           database only via Pyrit’s RPC-interface. The TCP-port 17934 must be
+           open for this function to work.
+           
+           For example, on the server (where the database is):
+           pyrit -u sqlite:////var/local/pyrit.db relay 
+           
+          ... and the client (where the big GPU is):
+          pyrit -u http://192.168.0.100:17934 batch 
+        """
         rpcd = cpyrit.storage.RPCServer(storage)
         self.tell("Server started...")
         try:
@@ -665,7 +849,22 @@ class Pyrit_CLI(object):
     relay.cli_options = (('-u', ), ())
 
     def serve(self):
-        """Serve local hardware to other Pyrit clients"""
+        """Serve local hardware to other Pyrit clients
+        
+           Start a server that provides access to the local computing hardware
+           to help other Pyrit-clients. The server's IP-address should be added
+           to the clients' configuration file (usually '~/.pyrit/config') as a
+           space-separated list under known_clients. These clients'
+           rpc_server-setting must also be set to 'true'. The TCP- and UDP-port
+           17935 must be accessible.
+           
+           For example, on the server (where the GPU is):
+           pyrit serve 
+           
+           ... and the clients (the server's IP-address has been added to
+           'known_clients' and rpc_server is set to 'true'):
+            pyrit -r tst.pcap -b 00:de:ad:be:ef:00 -i dic.txt attack_passthrough 
+        """
         server = cpyrit.network.NetworkServer()
         listener = cpyrit.network.NetworkAnnouncementListener()
         perfcounter = cpyrit.util.PerformanceCounter()
@@ -689,7 +888,22 @@ class Pyrit_CLI(object):
     @requires_pckttools()
     def attack_passthrough(self, infile, capturefile, essid=None, \
                            bssid=None, outfile=None, all_handshakes=False):
-        """Attack a handshake with passwords from a file"""
+        """Attack a handshake with passwords from a file
+        
+           Attack an EAPOL-handshake found in the packet-capture file given by
+           the option -r using the passwords read from the file given by the
+           option -i. The options -b  and -e can be used to specify the
+           Access-Point to attack; it is picked automatically if both options
+           are omitted. The password is written to the filename given by the
+           option -o  if specified.
+           
+           For example:
+           pyrit -r test.pcap -b 00:de:ad:be:ef:00 -i words.txt attack_passthrough 
+           
+           This command circumvents Pyrit's database and should only be used
+           if storage-space is a problem (e.g. on LiveCDs). You should consider
+           using attack_batch otherwise. 
+        """
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s " \
@@ -739,7 +953,24 @@ class Pyrit_CLI(object):
     @requires_pckttools()
     def attack_batch(self, storage, capturefile, essid=None, bssid=None, \
                     outfile=None, all_handshakes=False):
-        """Attack a handshake with PMKs/passwords from the db"""
+        """Attack a handshake with PMKs/passwords from the db
+        
+            Attack an EAPOL-handshake found in the packet-capture file(s) given
+            by the option -r using the Pairwise Master Keys and passwords
+            stored in the database. The options -b  and -e can be used to
+            specify the Access-Point to attack; it is picked automatically if
+            both options are omitted. The password is written to the filename
+            given by the option -o  if specified.
+            
+            For example:
+            pyrit -r test.pcap -b 00:de:ad:c0:de:00 -o passwd.txt attack_batch 
+            
+            Pairwise Master Keys that have been computed and stored in the
+            database previously are taken from there; all other passwords are
+            translated into their respective Pairwise Master Keys and added to
+            the database for later re-use. ESSIDs are created automatically in
+            the database if necessary. 
+        """
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint %s " \
@@ -786,7 +1017,21 @@ class Pyrit_CLI(object):
     @requires_pckttools()
     def attack_db(self, storage, capturefile, essid=None, bssid=None, \
                   outfile=None, all_handshakes=False):
-        """Attack a handshake with PMKs from the db"""
+        """Attack a handshake with PMKs from the db
+           
+           Attack an EAPOL-handshake found in the packet-capture file(s) given
+           by the option -r using the Pairwise Master Keys stored in the
+           database. The options -b and -e  can be used to specify the
+           Access-Point to attack; it is picked automatically if both options
+           are omitted. The password is written to the filename given by the
+           option -o if specified.
+           
+           For example:
+           pyrit -r test.pcap -e MyOtherNetwork attack_db 
+           
+           Only Pairwise Master Keys that have been computed previously and
+           are stored in the database are used by attack_db. 
+        """
         ap = self._fuzzyGetAP(self._getParser(capturefile), bssid, essid)
         if not ap.isCompleted():
             raise PyritRuntimeError("No valid handshakes for AccessPoint " \
@@ -837,7 +1082,22 @@ class Pyrit_CLI(object):
     @requires_pckttools()
     def attack_cowpatty(self, capturefile, infile, essid=None, bssid=None,\
                         outfile=None, all_handshakes=False):
-        """Attack a handshake with PMKs from a cowpatty-file"""
+        """Attack a handshake with PMKs from a cowpatty-file
+           
+           Attack an EAPOL-handshake found in the packet-capture file(s) given
+           by the option -r using Pairwise Master Keys from a cowpatty-like
+           file (e.g. generated by genpmk/export_cowpatty) given by the option
+           -i. The options -b and -e can be used to specify the Access-Point to
+           attack; it is picked automatically if both options are omitted.
+           The password is written to the filename given by the option -o if
+           specified. The cowpatty-file may be gzip-compressed and must match
+           the chosen ESSID.
+           
+           For example:
+           pyrit -r MyESSID.pcap -e MyESSID -i MyESSID.cow.gz attack_cowpatty 
+       
+           Pyrit's own database is not touched by attack_cowpatty
+        """
         with cpyrit.util.CowpattyFile(infile) as cowreader:
             if essid is None:
                 essid = cowreader.essid
@@ -893,7 +1153,14 @@ class Pyrit_CLI(object):
                                                   '--all-handshakes'))
 
     def benchmark(self, timeout=60, calibrate=10):
-        """Determine performance of available cores"""
+        """Determine performance of available cores
+        
+           Determine the peak-performance of the available hardware by
+           computing dummy-results.
+           
+           For example:
+           pyrit benchmark 
+        """
         with cpyrit.cpyrit.CPyrit() as cp:
             # 'Burn-in' so that all modules are forced to load and buffers can
             # calibrate to optimal size
@@ -941,7 +1208,16 @@ class Pyrit_CLI(object):
     benchmark_long.cli_options = ((), ())
 
     def selftest(self, timeout=60):
-        """Test hardware to ensure it computes correct results"""
+        """Test hardware to ensure it computes correct results
+        
+           Run an extensive selftest for about 60 seconds. This test includes
+           the entire scheduling-mechanism and all cores that are listed by
+           list_cores. You can use this function to detect broken
+           hardware-modules or malicious network-clients.
+           
+           For example:
+           pyrit selftest 
+        """
         with cpyrit.cpyrit.CPyrit() as cp:
             self.tell("Cores incorporated in the test:")
             for i, core in enumerate(cp.cores):
@@ -985,7 +1261,15 @@ class Pyrit_CLI(object):
     selftest.cli_options = ((), ())
 
     def verify(self, storage, essid=None):
-        """Verify 10% of the results by recomputation"""
+        """Verify 10% of the results by recomputation
+           
+           Randomly pick 10% of the results stored in the database and verify
+           their value by recomputation. You need this function if you suspect
+           broken hardware or malicious network-clients.
+           
+           For example:
+           pyrit -e NETGEAR verify 
+        """
         with cpyrit.cpyrit.CPyrit() as cp:
             if essid is not None:
                 if essid not in storage.essids:
