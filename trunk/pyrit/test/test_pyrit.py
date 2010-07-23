@@ -21,6 +21,7 @@
 from __future__ import with_statement
 
 import os
+import shutil
 import random
 import unittest
 import cStringIO
@@ -44,7 +45,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.verbose = False
 
     def tearDown(self):
-        pass
+        shutil.rmtree(self.storage_path)
 
     def _createPasswords(self, filename):
         test_passwds = ['test123%i' % i for i in xrange(5000-5)]
