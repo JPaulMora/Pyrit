@@ -29,7 +29,8 @@ def default_config():
               'rpc_announce': 'true', \
               'rpc_announce_broadcast': 'false', \
               'rpc_knownclients': '', \
-              'workunit_size': '75000'}
+              'workunit_size': '75000', \
+              'limit_ncpus': 0}
     return config
 
 

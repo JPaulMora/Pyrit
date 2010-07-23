@@ -898,7 +898,7 @@ class Pyrit_CLI(object):
            option -o  if specified.
            
            For example:
-           pyrit -r test.pcap -b 00:de:ad:be:ef:00 -i words.txt attack_passthrough 
+           pyrit -r test.pcap -b 00:de:ad:be:ef:00 -i wrd.txt attack_passthrough 
            
            This command circumvents Pyrit's database and should only be used
            if storage-space is a problem (e.g. on LiveCDs). You should consider
