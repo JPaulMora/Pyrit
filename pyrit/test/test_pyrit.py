@@ -28,14 +28,28 @@ import cStringIO
 import tempfile
 
 import cpyrit.config
-import cpyrit.util
+import cpyrit.pckttools
 import cpyrit.storage
+import cpyrit.util
 import pyrit_cli
 
 cpyrit.config.cfg["rpc_server"] = "false"
 
 
 class Pyrit_CLI_TestFunctions(unittest.TestCase):
+
+    handshakes = (('wpapsk-linksys.dump.gz', 'linksys',
+                   '00:0b:86:c2:a4:85', '00:13:ce:55:98:ef', 'dictionary'),
+                  ('wpa2psk-linksys.dump.gz', 'linksys',
+                   '00:0b:86:c2:a4:85', '00:13:ce:55:98:ef', 'dictionary'),
+                  ('wpa2psk-2WIRE972.dump.gz', '2WIRE972',
+                   '00:40:10:20:00:03', '00:18:41:9c:a4:a0', 'helium02'),
+                  ('wpa2psk-MOM1.dump.gz', 'MOM1',
+                   '00:21:29:72:a3:19', '00:21:00:ab:55:a9', 'MOM12345'),
+                  ('wpa2psk-Red_Apple.dump.gz', 'Red Apple',
+                   '00:1d:7e:2c:b1:af', '00:0e:35:72:1a:98', 'password'),
+                  ('wpapsk-virgin_broadband.dump.gz', 'virgin broadband',
+                   '00:22:3f:1b:2e:e6', '00:1f:e2:a0:a1:21', 'preinstall'))
 
     def setUp(self):
         self.storage_path = tempfile.mkdtemp()
@@ -68,6 +82,19 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
             for results in dbiter:
                 l += len(results)
         self.assertEqual(l, 5000)
+
+    def _testHandshake(self, filename, essid, ap, sta, passwd):
+        parser = cpyrit.pckttools.PacketParser(filename)
+        with cpyrit.util.PassthroughIterator(essid, (passwd,)) as cp:
+            solution = cp.next()
+        auths = parser[ap][sta].getAuthentications()
+        for auth in parser[ap][sta].getAuthentications():
+            with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
+                cracker.enqueue(solution)
+            if cracker.solution == passwd:
+                break
+        else:
+            self.fail('Did not detect passphrase in "%s"' % filename)
 
     def testListEssids(self):
         storage = self.getStorage()
@@ -124,15 +151,6 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self._createDatabase(storage)
         self._computeDatabase(storage, 'linksys')
         self.cli.attack_db(storage, 'wpapsk-linksys.dump.gz')
-        self.cli.attack_db(storage, 'wpa2psk-linksys.dump.gz')
-        self._computeDatabase(storage, 'MOM1')
-        self.cli.attack_db(storage, 'wpa2psk-MOM1.dump.gz')
-        self._computeDatabase(storage, '2WIRE972')
-        self.cli.attack_db(storage, 'wpa2psk-2WIRE972.dump.gz')
-        self._computeDatabase(storage, 'Red Apple')
-        self.cli.attack_db(storage, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
-        self._computeDatabase(storage, 'virgin broadband')
-        self.cli.attack_db(storage, 'wpapsk-virgin_broadband.dump.gz')
 
     def testAttackCowpatty(self):
         storage = self.getStorage()
@@ -140,30 +158,12 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self._computeDatabase(storage, 'linksys')
         self.cli.export_cowpatty(storage, 'linksys', self.tempfile1)
         self.cli.attack_cowpatty('wpapsk-linksys.dump.gz', self.tempfile1)
-        self.cli.attack_cowpatty('wpa2psk-linksys.dump.gz', self.tempfile1)
-        self._computeDatabase(storage, 'MOM1')
-        self.cli.export_cowpatty(storage, 'MOM1', self.tempfile1)
-        self.cli.attack_cowpatty('wpa2psk-MOM1.dump.gz', self.tempfile1)
-        self._computeDatabase(storage, '2WIRE972')
-        self.cli.export_cowpatty(storage, '2WIRE972', self.tempfile1)
-        self.cli.attack_cowpatty('wpa2psk-2WIRE972.dump.gz', self.tempfile1)
-        self._computeDatabase(storage, 'Red Apple')
-        self.cli.export_cowpatty(storage, 'Red Apple', self.tempfile1)
-        self.cli.attack_cowpatty('wpa2psk-Red_Apple.dump.gz', self.tempfile1, 'Red Apple', '00:1d:7e:2c:b1:af')
-        self._computeDatabase(storage, 'virgin broadband')
-        self.cli.export_cowpatty(storage, 'virgin broadband', self.tempfile1)
-        self.cli.attack_cowpatty('wpapsk-virgin_broadband.dump.gz', self.tempfile1)
 
     def testAttackBatch(self):
         storage = self.getStorage()
         self._createPasswords(self.tempfile1)
         self.cli.import_passwords(storage, self.tempfile1)
         self.cli.attack_batch(storage, 'wpapsk-linksys.dump.gz')
-        self.cli.attack_batch(storage, 'wpa2psk-linksys.dump.gz')
-        self.cli.attack_batch(storage, 'wpa2psk-2WIRE972.dump.gz')
-        self.cli.attack_batch(storage, 'wpa2psk-MOM1.dump.gz')
-        self.cli.attack_batch(storage, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
-        self.cli.attack_batch(storage, 'wpapsk-virgin_broadband.dump.gz')
 
     def testPassthrough(self):
         storage = self.getStorage()
@@ -291,6 +291,10 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
     def testBenchmark(self):
         self.cli.benchmark(timeout=3)
 
+    def testHandshakes(self):
+        for filename, essid, ap, sta, passwd in self.handshakes:
+            self._testHandshake(filename, essid, ap, sta, passwd)
+
     def testAnalyze(self):
         self.cli.analyze(capturefile='wpapsk-linksys.dump.gz')
         self.cli.analyze(capturefile='wpa2psk-linksys.dump.gz')
@@ -305,21 +309,10 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
         self.assertEqual(parser['00:0b:86:c2:a4:85'].essid, 'linksys')
         self.assertTrue('00:13:ce:55:98:ef' in parser['00:0b:86:c2:a4:85'])
         self.assertTrue(parser['00:0b:86:c2:a4:85'].isCompleted())
-        self._createPasswords(self.tempfile2)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripCapture('wpa2psk-linksys.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripCapture('wpa2psk-linksys.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripCapture('wpa2psk-MOM1.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripCapture('wpa2psk-2WIRE972.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripCapture('wpa2psk-Red_Apple.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1, "Red Apple", '00:1d:7e:2c:b1:af')
-        self.cli.stripCapture('wpapsk-virgin_broadband.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-
+        for filename, essid, ap, sta, passwd in self.handshakes:
+            self.cli.stripCapture(filename, self.tempfile1)
+            self._testHandshake(self.tempfile1, essid, ap, sta, passwd)
+            
     def testStripLive(self):
         self.cli.stripLive('wpa2psk-linksys.dump.gz', self.tempfile1)
         parser = self.cli._getParser(self.tempfile1)
@@ -327,29 +320,13 @@ class Pyrit_CLI_FS_TestFunctions(Pyrit_CLI_TestFunctions):
         self.assertEqual(parser['00:0b:86:c2:a4:85'].essid, 'linksys')
         self.assertTrue('00:13:ce:55:98:ef' in parser['00:0b:86:c2:a4:85'])
         self.assertTrue(parser['00:0b:86:c2:a4:85'].isCompleted())
-        self._createPasswords(self.tempfile2)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripLive('wpa2psk-linksys.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripLive('wpa2psk-linksys.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripCapture('wpa2psk-MOM1.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripLive('wpa2psk-2WIRE972.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
-        self.cli.stripLive('wpa2psk-Red_Apple.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1, 'Red Apple', '00:1d:7e:2c:b1:af')
-        self.cli.stripLive('wpapsk-virgin_broadband.dump.gz', self.tempfile1)
-        self.cli.attack_passthrough(self.tempfile2, self.tempfile1)
+        for filename, essid, ap, sta, passwd in self.handshakes:
+            self.cli.stripLive(filename, self.tempfile1)
+            self._testHandshake(self.tempfile1, essid, ap, sta, passwd)
 
     def testAttackPassthrough(self):
         self._createPasswords(self.tempfile1)
         self.cli.attack_passthrough(self.tempfile1, 'wpapsk-linksys.dump.gz')
-        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-linksys.dump.gz')
-        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-MOM1.dump.gz')
-        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-2WIRE972.dump.gz')
-        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-Red_Apple.dump.gz', 'Red Apple', '00:1d:7e:2c:b1:af')
-        self.cli.attack_passthrough(self.tempfile1, 'wpapsk-virgin_broadband.dump.gz')
 
 
 if __name__ == "__main__":
