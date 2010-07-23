@@ -49,6 +49,7 @@ import _cpyrit_cpu
 from _cpyrit_cpu import VERSION, grouper
 import cpyrit
 import storage
+import config
 
 
 def _detect_ncpus():
@@ -72,7 +73,21 @@ def _detect_ncpus():
     #return the default value
     return 1
 
-ncpus = _detect_ncpus()
+def _limit_ncpus():
+    """Limit the number of reported CPUs if so requested"""
+    detected_ncpus = _detect_ncpus()
+    try:
+        limited_ncpus = int(config.cfg['limit_ncpus'])
+    except ValueError:
+        raise ValueError("Invalid 'limit_ncpus' in configuration")
+    if limited_ncpus < 0:
+        raise ValueError("Invalid 'limit_ncpus' in configuration")
+    if limited_ncpus > 0 and limited_ncpus < detected_ncpus:
+        return limited_ncpus
+    return detected_ncpus
+
+
+ncpus = _limit_ncpus()
 """ Number of effective CPUs (in the moment the module was loaded)."""
 
 
