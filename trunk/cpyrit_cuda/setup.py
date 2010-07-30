@@ -22,6 +22,7 @@ from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -78,9 +79,23 @@ class GPUBuilder(build_ext):
                 raise SystemError("Nvidia's CUDA-compiler 'nvcc' can't be " \
                                   "found.")
             print "Compiling CUDA module using nvcc %s..." % nvcc_version
-            subprocess.check_call(NVCC + ' --host-compilation C -Xptxas "-v" '\
-                                    '-Xcompiler "-fPIC" --cubin ' \
-                                    './_cpyrit_cudakernel.cu', shell=True)
+            
+            # We need to hardcode arch at least for MacOS 10.6 / CUDA 3.1
+            bits, linkage = platform.architecture()
+            if bits == '32bit':
+                bit_flag = ' -m32'
+            elif bits == '64bit':
+                bit_flag = ' -m64'
+            else:
+                print >>sys.stderr, "Can't detect platform, using 32bit"
+                bit_flag = ' -m32'
+            
+            nvcc_cmd = NVCC + bit_flag + ' --host-compilation C -Xptxas "-v"'\
+                                         ' -Xcompiler "-fPIC" --cubin' \
+                                         ' ./_cpyrit_cudakernel.cu'
+            print "Executing '%s'" % nvcc_cmd
+            subprocess.check_call(nvcc_cmd, shell=True)
+            
             f = open("_cpyrit_cudakernel.cubin", "rb")
             cubin = f.read() + '\x00'
             f.close()
