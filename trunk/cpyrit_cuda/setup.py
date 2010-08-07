@@ -69,7 +69,7 @@ class GPUBuilder(build_ext):
             pass
 
     def run(self):
-        if '_cpyrit_cudakernel.cubin.h' in os.listdir('./'):
+        if '_cpyrit_cudakernel.ptx.h' in os.listdir('./'):
             print "Skipping rebuild of Nvidia CUDA kernel ..."
         else:
             nvcc_o = self._call(NVCC + ' -V')
@@ -90,20 +90,20 @@ class GPUBuilder(build_ext):
                 print >>sys.stderr, "Can't detect platform, using 32bit"
                 bit_flag = ' -m32'
             
-            nvcc_cmd = NVCC + bit_flag + ' --host-compilation C -Xptxas "-v"'\
-                                         ' -Xcompiler "-fPIC" --cubin' \
+            nvcc_cmd = NVCC + bit_flag + ' --host-compilation C'\
+                                         ' -Xcompiler "-fPIC" --ptx' \
                                          ' ./_cpyrit_cudakernel.cu'
             print "Executing '%s'" % nvcc_cmd
             subprocess.check_call(nvcc_cmd, shell=True)
             
-            f = open("_cpyrit_cudakernel.cubin", "rb")
-            cubin = f.read() + '\x00'
+            f = open("_cpyrit_cudakernel.ptx", "rb")
+            ptx = f.read() + '\x00'
             f.close()
-            cubin_inc = ["0x%02X" % ord(c) for c in zlib.compress(cubin)]
-            f = open("_cpyrit_cudakernel.cubin.h", "wb")
+            ptx_inc = ["0x%02X" % ord(c) for c in zlib.compress(ptx)]
+            f = open("_cpyrit_cudakernel.ptx.h", "wb")
             f.write("unsigned char __cudakernel_packedmodule[] = {")
-            f.write(','.join(cubin_inc))
-            f.write("};\nsize_t cudakernel_modulesize = %i;\n" % len(cubin))
+            f.write(','.join(ptx_inc))
+            f.write("};\nsize_t cudakernel_modulesize = %i;\n" % len(ptx))
             f.close()
         print "Building modules..."
         build_ext.run(self)
@@ -124,8 +124,8 @@ class GPUCleaner(clean):
         print "Removing temporary files and pre-built GPU-kernels..."
         try:
             for f in ('_cpyrit_cudakernel.linkinfo', \
-                      '_cpyrit_cudakernel.cubin', \
-                      '_cpyrit_cudakernel.cubin.h'):
+                      '_cpyrit_cudakernel.ptx', \
+                      '_cpyrit_cudakernel.ptx.h'):
                 self._unlink(f)
         except Exception, (errno, sterrno):
             print >>sys.stderr, "Exception while cleaning temporary " \
