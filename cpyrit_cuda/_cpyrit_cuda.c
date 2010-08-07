@@ -44,7 +44,10 @@
 #include "_cpyrit_cuda.h"
 
 // Created by NVCC and setup.py
-#include "_cpyrit_cudakernel.cubin.h"
+#include "_cpyrit_cudakernel.ptx.h"
+
+#define ALIGN_UP(offset, alignment) \
+    (offset) = ((offset) + (alignment) - 1) & ~((alignment) - 1)
 
 static PyTypeObject CUDADevice_type;
 
@@ -83,7 +86,7 @@ getCUresultMsg(CUresult error)
         case CUDA_ERROR_NO_BINARY_FOR_GPU : return "CUDA_ERROR_NO_BINARY_FOR_GPU";
         case CUDA_ERROR_ALREADY_ACQUIRED : return "CUDA_ERROR_ALREADY_ACQUIRED";
         case CUDA_ERROR_NOT_MAPPED : return "CUDA_ERROR_NOT_MAPPED";
-        case CUDA_ERROR_INVALID_SOURCE : return "CUDA_ERROR_INVALID SOURCE";
+        case CUDA_ERROR_INVALID_SOURCE : return "CUDA_ERROR_INVALID_SOURCE";
         case CUDA_ERROR_FILE_NOT_FOUND : return "CUDA_ERROR_FILE_NOT_FOUND";
         case CUDA_ERROR_INVALID_HANDLE : return "CASE_ERROR_INVALID_HANDLE";
         case CUDA_ERROR_NOT_FOUND : return "CUDA_ERROR_NOT_FOUND";
@@ -116,7 +119,7 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
     self->dev_name = NULL;
     self->mod = NULL;
     self->dev_ctx = NULL;
-    
+
     CUSAFECALL(cuDeviceGetName(dev_name, sizeof(dev_name), self->dev_idx));
     self->dev_name = PyString_FromString(dev_name);
     if (!self->dev_name)
@@ -124,23 +127,23 @@ cudadev_init(CUDADevice *self, PyObject *args, PyObject *kwds)
         PyErr_NoMemory();
         return -1;
     }
-    
+
     CUSAFECALL(cuCtxCreate(&self->dev_ctx, CU_CTX_SCHED_YIELD, self->dev_idx));
-    
-    CUSAFECALL(cuModuleLoadData(&self->mod, cudakernel_module));
+
+    CUSAFECALL(cuModuleLoadDataEx(&self->mod, cudakernel_module, 0, 0, 0));
 
     CUSAFECALL(cuModuleGetFunction(&self->kernel, self->mod, "cuda_pmk_kernel"));
-    
+
     CUSAFECALL(cuFuncSetBlockShape(self->kernel, THREADS_PER_BLOCK, 1, 1));
-    
+
     CUSAFECALL(cuCtxPopCurrent(NULL));
 
     return 0;
-    
+
 errout:
     PyErr_SetString(PyExc_SystemError, getCUresultMsg(ret));
     return -1;
-    
+
 }
 
 static void
@@ -160,9 +163,9 @@ cpyrit_listDevices(PyObject* self, PyObject* args)
     int i;
     PyObject* result;
     char dev_name[64];
-    
+
     if (!PyArg_ParseTuple(args, "")) return NULL;
-    
+
     result = PyTuple_New(cudaDevCount);
     for (i = 0; i < cudaDevCount; i++)
     {
@@ -178,31 +181,42 @@ calc_pmklist(CUDADevice *self, gpu_inbuffer *inbuffer, gpu_outbuffer* outbuffer,
 {
     CUdeviceptr g_inbuffer, g_outbuffer;
     CUresult ret;
-    int buffersize;
-    
+    int buffersize, offset;
+    void* ptr;
+
     // Align size of memory allocation and operations to full threadblocks. Threadblocks should be aligned to warp-size.
     buffersize = (size / THREADS_PER_BLOCK + (size % THREADS_PER_BLOCK == 0 ? 0 : 1)) * THREADS_PER_BLOCK;
     g_inbuffer = 0;
     g_outbuffer = 0;
-    
+
     CUSAFECALL(cuMemAlloc(&g_inbuffer, buffersize*sizeof(gpu_inbuffer)));
-    
+
     CUSAFECALL(cuMemAlloc(&g_outbuffer, buffersize*sizeof(gpu_outbuffer)));
-    
+
     CUSAFECALL(cuMemcpyHtoD(g_inbuffer, inbuffer, size*sizeof(gpu_inbuffer)));
-    
-    cuParamSeti(self->kernel, 0, g_inbuffer);
-    cuParamSeti(self->kernel, sizeof(void*), g_outbuffer);
-    cuParamSetSize(self->kernel, sizeof(void*)*2);
+
+    offset = 0;
+
+    ptr = (void*)(size_t)g_inbuffer;
+    ALIGN_UP(offset, __alignof(ptr));
+    cuParamSetv(self->kernel, offset, &ptr, sizeof(ptr));
+    offset += sizeof(ptr);
+
+    ptr = (void*)(size_t)g_outbuffer;
+    ALIGN_UP(offset, __alignof(ptr));
+    cuParamSetv(self->kernel, offset, &ptr, sizeof(ptr));
+    offset += sizeof(ptr);
+
+    cuParamSetSize(self->kernel, offset);
     CUSAFECALL(cuLaunchGrid(self->kernel, buffersize / THREADS_PER_BLOCK, 1));
 
     CUSAFECALL(cuMemcpyDtoH(outbuffer, g_outbuffer, size*sizeof(gpu_outbuffer)));
-    
+
     cuMemFree(g_inbuffer);
     cuMemFree(g_outbuffer);
 
     return CUDA_SUCCESS;
-    
+
 errout:
     if (g_inbuffer != 0)
         cuMemFree(g_inbuffer);
@@ -224,7 +238,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "OO", &essid_obj, &passwd_seq)) return NULL;
     passwd_seq = PyObject_GetIter(passwd_seq);
     if (!passwd_seq) return NULL;
-    
+
     essidlen = PyString_Size(essid_obj);
     if (essidlen < 1 || essidlen > 32)
     {
@@ -234,10 +248,10 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
     }
     memcpy(essid, PyString_AsString(essid_obj), essidlen);
     memset(essid + essidlen, 0, sizeof(essid) - essidlen);
-    
+
     arraysize = 0;
     c_inbuffer = NULL;
-    c_outbuffer = NULL;    
+    c_outbuffer = NULL;
     while ((passwd_obj = PyIter_Next(passwd_seq)))
     {
         if (arraysize % 1000 == 0)
@@ -252,7 +266,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
                 return NULL;
             }
             c_inbuffer = t;
-        }                
+        }
         passwd = (unsigned char*)PyString_AsString(passwd_obj);
         passwdlen = PyString_Size(passwd_obj);
         if (passwd == NULL || passwdlen < 8 || passwdlen > 63)
@@ -263,7 +277,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
             PyErr_SetString(PyExc_ValueError, "All passwords must be strings between 8 and 63 characters");
             return NULL;
         }
-        
+
         memcpy(pad, passwd, passwdlen);
         memset(pad + passwdlen, 0, sizeof(pad) - passwdlen);
         for (i = 0; i < 16; i++)
@@ -276,7 +290,7 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
         SHA1_Init(&ctx_pad);
         SHA1_Update(&ctx_pad, pad, sizeof(pad));
         CPY_DEVCTX(ctx_pad, c_inbuffer[arraysize].ctx_opad);
-        
+
         essid[essidlen + 4 - 1] = '\1';
         HMAC(EVP_sha1(), passwd, passwdlen, essid, essidlen + 4, temp, NULL);
         GET_BE(c_inbuffer[arraysize].e1.h0, temp, 0);
@@ -297,13 +311,13 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
         arraysize++;
     }
     Py_DECREF(passwd_seq);
-    
+
     if (arraysize == 0)
     {
         PyMem_Free(c_inbuffer);
         return PyTuple_New(0);
     }
-    
+
     c_outbuffer = PyMem_New(gpu_outbuffer, arraysize);
     if (c_outbuffer == NULL)
     {
@@ -337,12 +351,12 @@ cpyrit_solve(CUDADevice *self, PyObject *args)
     for (i = 0; i < arraysize; i++)
     {
         PUT_BE(c_outbuffer[i].pmk1.h0, temp, 0); PUT_BE(c_outbuffer[i].pmk1.h1, temp, 4);
-        PUT_BE(c_outbuffer[i].pmk1.h2, temp, 8); PUT_BE(c_outbuffer[i].pmk1.h3, temp, 12); 
-        PUT_BE(c_outbuffer[i].pmk1.h4, temp, 16);PUT_BE(c_outbuffer[i].pmk2.h0, temp, 20); 
-        PUT_BE(c_outbuffer[i].pmk2.h1, temp, 24);PUT_BE(c_outbuffer[i].pmk2.h2, temp, 28); 
+        PUT_BE(c_outbuffer[i].pmk1.h2, temp, 8); PUT_BE(c_outbuffer[i].pmk1.h3, temp, 12);
+        PUT_BE(c_outbuffer[i].pmk1.h4, temp, 16);PUT_BE(c_outbuffer[i].pmk2.h0, temp, 20);
+        PUT_BE(c_outbuffer[i].pmk2.h1, temp, 24);PUT_BE(c_outbuffer[i].pmk2.h2, temp, 28);
         PyTuple_SetItem(result, i, PyString_FromStringAndSize((char*)temp, 32));
     }
-    
+
     PyMem_Free(c_outbuffer);
 
     return result;
@@ -441,26 +455,26 @@ init_cpyrit_cuda(void)
         return;
     }
     zst.avail_out = cudakernel_modulesize;
-    zst.next_out = cudakernel_module;   
+    zst.next_out = cudakernel_module;
     if (inflate(&zst, Z_FINISH) != Z_STREAM_END)
     {
         inflateEnd(&zst);
-        PyMem_Free(cudakernel_module);    
+        PyMem_Free(cudakernel_module);
         PyErr_SetString(PyExc_IOError, "Failed to decompress CUDA-kernel.");
         return;
     }
     inflateEnd(&zst);
-    
+
     CUDADevice_type.tp_getattro = PyObject_GenericGetAttr;
     CUDADevice_type.tp_setattro = PyObject_GenericSetAttr;
     CUDADevice_type.tp_alloc  = PyType_GenericAlloc;
     CUDADevice_type.tp_new = PyType_GenericNew;
-    CUDADevice_type.tp_free = _PyObject_Del;  
+    CUDADevice_type.tp_free = _PyObject_Del;
     if (PyType_Ready(&CUDADevice_type) < 0)
 	    return;
 
     m = Py_InitModule("_cpyrit_cuda", CPyritCUDA_methods);
-    
+
     Py_INCREF(&CUDADevice_type);
     PyModule_AddObject(m, "CUDADevice", (PyObject*)&CUDADevice_type);
     PyModule_AddStringConstant(m, "VERSION", VERSION);

@@ -27,19 +27,19 @@
 #define THREADS_PER_BLOCK 64
 
 #define GET_BE(n,b,i)                            \
-{                                                       \
-    (n) = ( (uint32_t) (b)[(i)    ] << 24 )        \
-        | ( (uint32_t) (b)[(i) + 1] << 16 )        \
-        | ( (uint32_t) (b)[(i) + 2] <<  8 )        \
-        | ( (uint32_t) (b)[(i) + 3]       );       \
+{                                                \
+    (n) = ( (uint32_t) (b)[(i)    ] << 24 )      \
+        | ( (uint32_t) (b)[(i) + 1] << 16 )      \
+        | ( (uint32_t) (b)[(i) + 2] <<  8 )      \
+        | ( (uint32_t) (b)[(i) + 3]       );     \
 }
 
-#define PUT_BE(n,b,i)                            \
-{                                                       \
-    (b)[(i)    ] = (unsigned char) ( (n) >> 24 );       \
-    (b)[(i) + 1] = (unsigned char) ( (n) >> 16 );       \
-    (b)[(i) + 2] = (unsigned char) ( (n) >>  8 );       \
-    (b)[(i) + 3] = (unsigned char) ( (n)       );       \
+#define PUT_BE(n,b,i)                             \
+{                                                 \
+    (b)[(i)    ] = (unsigned char) ( (n) >> 24 ); \
+    (b)[(i) + 1] = (unsigned char) ( (n) >> 16 ); \
+    (b)[(i) + 2] = (unsigned char) ( (n) >>  8 ); \
+    (b)[(i) + 3] = (unsigned char) ( (n)       ); \
 }
 
 typedef struct {
@@ -59,6 +59,9 @@ typedef struct {
     if (ret != CUDA_SUCCESS) \
         goto errout; \
 }
+
+#define ALIGN_UP(offset, alignment) \
+    (offset) = ((offset) + (alignment) - 1) & ~((alignment) - 1)
 
 typedef struct {
     SHA_DEV_CTX ctx_ipad;
