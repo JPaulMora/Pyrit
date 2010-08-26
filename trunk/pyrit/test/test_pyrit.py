@@ -25,6 +25,7 @@ import shutil
 import random
 import unittest
 import cStringIO
+import sys
 import tempfile
 
 import cpyrit.config
@@ -333,7 +334,9 @@ if __name__ == "__main__":
     print "Testing with filesystem-storage..."
     loader = unittest.TestLoader()
     suite = loader.loadTestsFromTestCase(Pyrit_CLI_FS_TestFunctions)
-    unittest.TextTestRunner(verbosity=2).run(suite)
+    result = unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
+    if result is False:
+        sys.exit(1)
 
     try:
         storage = cpyrit.storage.getStorage('sqlite:///:memory:')
@@ -343,4 +346,6 @@ if __name__ == "__main__":
         print "Testing with database-storage..."
         loader = unittest.TestLoader()
         suite = loader.loadTestsFromTestCase(Pyrit_CLI_DB_TestFunctions)
-        unittest.TextTestRunner(verbosity=2).run(suite)
+        result = unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
+        if result is False:
+            sys.exit(1)
