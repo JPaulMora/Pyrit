@@ -29,6 +29,8 @@
 #    OpenSSL library used as well as that of the covered work.
 */
 
+//#define __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+
 #include <Python.h>
 #include <structmember.h>
 #include <openssl/hmac.h>
@@ -37,6 +39,12 @@
 #include <iostream>
 #include <boost/array.hpp>
 #include <boost/cstdint.hpp>
+
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+  #include <boost/date_time/posix_time/posix_time.hpp>
+  #include <boost/format.hpp>
+#endif
+
 #include "_cpyrit_calpp.h"
 
 #define _offsetof( type, field ) ( ((uint8_t*)(&((type*)&calDevCount)->field)) - (uint8_t*)&calDevCount )
@@ -57,6 +65,10 @@ struct WorkItem
 
     int                          size;
 
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+    boost::posix_time::ptime     start_time;
+#endif
+
     WorkItem() : g_in(), g_out(), event(), in(NULL), out(NULL), size(0)
     {
     }
@@ -70,6 +82,10 @@ struct WorkItem
         g_out  = v.g_out;
         event  = v.event;
         size   = v.size;
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+        start_time = v.start_time;
+#endif
+
         return *this;
     }
 };
@@ -98,6 +114,12 @@ extern "C" typedef struct
 
     boost::array<WorkItem,BUFFER_SIZE> buffer;
     int                                work_count;
+
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+    boost::uint64_t                    exec_time;
+    boost::uint64_t                    item_count;
+    boost::posix_time::ptime           last_time;
+#endif
 } CALDevice;
 
 static int calDevCount;
@@ -130,6 +152,11 @@ caldev_init( CALDevice *self, PyObject *args, PyObject *kwds )
     new(&self->dev_queue) cal::CommandQueue();
     new(&self->buffer) boost::array<WorkItem,BUFFER_SIZE>();
     self->work_count = 0;
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+    self->exec_time = 0;
+    self->item_count = 0;
+    new(&self->last_time) boost::posix_time::ptime();
+#endif
 
     if (!PyArg_ParseTuple(args, "i:CALDevice", &dev_idx))
         return -1;
@@ -284,6 +311,14 @@ start_kernel( CALDevice* self, int idx )
 
     copy_gpu_inbuffer( self, self->buffer[idx].in, self->buffer[idx].g_in, size );
 
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+    boost::posix_time::ptime t2 = boost::posix_time::microsec_clock::local_time();
+    boost::uint64_t          tm = boost::posix_time::time_period(self->last_time,t2).length().total_microseconds();
+    if( tm>1000 ) 
+        std::cout << boost::format("Not fast enough data preparation for GPU: lost time %i ms\n") % (tm/1000);
+    self->buffer[idx].start_time = boost::posix_time::microsec_clock::local_time();
+#endif
+
     for(int i=0;i<5;i++) 
         self->dev_kernel.setArg(0+i, self->buffer[idx].g_in[i]);
     for(int i=0;i<2;i++) 
@@ -428,11 +463,40 @@ cpyrit_receive(CALDevice *self, PyObject *args)
 
     try {
         ThreadUnlocker unlock;
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+        boost::posix_time::ptime t1 = boost::posix_time::microsec_clock::local_time();
+#endif
         if( wait_for_data ) 
             self->dev_queue.waitForEvent(self->buffer[0].event);
         event_done = self->dev_queue.isEventDone(self->buffer[0].event);
+
         if( event_done ) 
         {
+#ifdef __DEBUG_PYRIT_PREPROCESS_PERFORMANCE
+            boost::posix_time::ptime t2 = boost::posix_time::microsec_clock::local_time();
+            if( boost::posix_time::time_period(t1,t2).length().total_microseconds()>=200000 ) 
+            {
+                // cpu was waiting >=0.2s for gpu 
+                // data were prepared fast enough and cpu had spare time
+                self->item_count += self->buffer[0].size;
+                self->exec_time  += boost::posix_time::time_period(self->buffer[0].start_time,t2).length().total_microseconds();
+            } 
+            else 
+            {
+                // cpu was waiting <0.2s for gpu 
+                // or most probable case gpu was waiting for cpu
+                if( self->item_count>0 ) 
+                {
+                    boost::int64_t  perf = (1000*self->exec_time)/self->item_count;
+                    boost::int64_t  lost_time = boost::posix_time::time_period(self->buffer[0].start_time,t2).length().total_microseconds() -
+                                                perf*self->buffer[0].size/1000;
+                    std::cout << boost::format("Not fast enough data preparation for GPU: estimated lost time %i ms\n") % (lost_time/1000);
+                } 
+                else 
+                    std::cout << "Not fast enough data preparation for GPU: unknown lost time\n";
+            } 
+            self->last_time = t2;
+#endif
             copy_gpu_outbuffer( self, self->buffer[0].out, self->buffer[0].g_out, self->buffer[0].size );
             if( self->work_count>1 ) start_kernel(self,1);
         }
