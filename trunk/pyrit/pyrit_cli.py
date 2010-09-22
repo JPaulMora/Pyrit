@@ -225,7 +225,8 @@ class Pyrit_CLI(object):
         return ap
 
     def _getStorage(self, url):
-        self.tell("Connecting to storage at '%s'... " % url, end=None)
+        safe_url = cpyrit.storage.pruneURL(url)
+        self.tell("Connecting to storage at '%s'... " % (safe_url,), end=None)
         storage = cpyrit.storage.getStorage(url)
         self.tell("connected.")
         return storage
