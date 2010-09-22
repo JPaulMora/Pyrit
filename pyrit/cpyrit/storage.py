@@ -35,6 +35,7 @@ del fast_address_string
 import hashlib
 import os
 import random
+import re
 import SimpleXMLRPCServer
 import struct
 import sys
@@ -54,6 +55,23 @@ import util
 MAX_WORKUNIT_SIZE = int(config.cfg['workunit_size'])
 if MAX_WORKUNIT_SIZE < 1 or MAX_WORKUNIT_SIZE > 1000000:
     raise ValueError("Invalid 'workunit_size' in configuration")
+
+URL_GROUPER = re.compile('(?P<protocol>\w+)://(((?P<user>\w+):?(?P<passwd>\w+)?@)?(?P<tail>.+))?')
+
+def pruneURL(url):
+    """Remove user/passwd from a storage-url"""
+    match = URL_GROUPER.match(url)
+    if match is None:
+        return url
+    else:
+        url_parts = match.groupdict()
+        protocol = url_parts['protocol']
+        if protocol is None:
+            protocol = ''
+        tail = url_parts['tail']
+        if tail is None:
+            tail = ''
+        return "%s://%s" % (protocol, tail)
 
 def getStorage(url):
     if not '://' in url:
