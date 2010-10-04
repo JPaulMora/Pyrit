@@ -31,27 +31,36 @@ import zlib
 
 OPENCL_INC_DIRS = []
 OPENCL_LIB_DIRS = []
+EXTRA_COMPILE_ARGS = []
+EXTRA_LINK_ARGS = []
+LIBRARIES = ['crypto', 'z']
 
-try:
-    if os.path.exists(os.environ['ATISTREAMSDKROOT']):
-        OPENCL_INC_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'],'include'))
-        for path in ('lib/x86_64','lib/x86'):
-            if os.path.exists(os.path.join(os.environ['ATISTREAMSDKROOT'],path)):
-                OPENCL_LIB_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'],path))
-                break
-except:
-    pass
-
-for path in ('/usr/local/opencl/OpenCL/common/inc', \
-            '/opt/opencl/OpenCL/common/inc', \
-            '/usr/local/opencl/include'):
-    if os.path.exists(path):
-        OPENCL_INC_DIRS.append(path)
-        break
+if sys.platform == 'darwin':
+    # Use the built-in framework on MacOS
+    EXTRA_LINK_ARGS.extend(('-framework', 'OpenCL'))
+    OPENCL_INC_DIRS.append('/System/Library/Frameworks/OpenCL.framework/Headers')
 else:
-    print >>sys.stderr, "The headers required to build the OpenCL-kernel " \
-                        "were not found. Trying to continue anyway..."
+    LIBRARIES.append('OpenCL')
+    try:
+        if os.path.exists(os.environ['ATISTREAMSDKROOT']):
+            OPENCL_INC_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'], 'include'))
+            for path in ('lib/x86_64','lib/x86'):
+                if os.path.exists(os.path.join(os.environ['ATISTREAMSDKROOT'], path)):
+                    OPENCL_LIB_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'], path))
+                    break
+    except:
+        pass
+    for path in ('/usr/local/opencl/OpenCL/common/inc', \
+                '/opt/opencl/OpenCL/common/inc', \
+                '/usr/local/opencl/include'):
+        if os.path.exists(path):
+            OPENCL_INC_DIRS.append(path)
+            break
+    else:
+        print >>sys.stderr, "The headers required to build the OpenCL-kernel " \
+                            "were not found. Trying to continue anyway..."
 
+# Get exact version-string from svn
 try:
     svn_info = subprocess.Popen(('svn', 'info'), \
                                 stdout=subprocess.PIPE).stdout.read()
@@ -59,7 +68,7 @@ try:
                     int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     version_string = '0.3.1-dev'
-EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
+EXTRA_COMPILE_ARGS.append('-DVERSION="%s"' % version_string)
 
 
 class GPUBuilder(build_ext):
@@ -100,11 +109,12 @@ class GPUCleaner(clean):
 
 
 opencl_extension = Extension('cpyrit._cpyrit_opencl',
-                    libraries = ['crypto', 'OpenCL', 'z'],
+                    libraries = LIBRARIES,
                     sources = ['_cpyrit_opencl.c'],
                     include_dirs = OPENCL_INC_DIRS,
                     library_dirs = OPENCL_LIB_DIRS,
-                    extra_compile_args = EXTRA_COMPILE_ARGS)
+                    extra_compile_args = EXTRA_COMPILE_ARGS,
+                    extra_link_args = EXTRA_LINK_ARGS)
 
 setup_args = dict(
         name = 'cpyrit-opencl',

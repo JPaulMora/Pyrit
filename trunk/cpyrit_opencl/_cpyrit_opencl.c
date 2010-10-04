@@ -39,7 +39,11 @@
 
 #include <Python.h>
 #include <structmember.h>
-#include <CL/cl.h>
+#ifdef __APPLE__
+    #include <cl.h>
+#else
+    #include <CL/cl.h>
+#endif /* __APPLE__ */
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <zlib.h>

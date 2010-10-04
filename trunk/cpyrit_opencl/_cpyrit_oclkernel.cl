@@ -53,13 +53,13 @@ void sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX *data)
 (                                                         \
     temp = W[(t -  3) & 0x0F] ^ W[(t - 8) & 0x0F] ^       \
            W[(t - 14) & 0x0F] ^ W[ t      & 0x0F],        \
-    ( W[t & 0x0F] = rotate(temp,1) )                      \
+    ( W[t & 0x0F] = rotate((int)temp,1) )                 \
 )
 
 #undef P
 #define P(a,b,c,d,e,x)                                    \
 {                                                         \
-    e += rotate(a,5) + F(b,c,d) + K + x; b = rotate(b,30);\
+    e += rotate((int)a,5) + F(b,c,d) + K + x; b = rotate((int)b,30);\
 }
 
 #define F(x,y,z) (z ^ (x & (y ^ z)))
@@ -85,7 +85,7 @@ void sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX *data)
   P( D, E, A, B, C, R(17) );
   P( C, D, E, A, B, R(18) );
   P( B, C, D, E, A, R(19) );
-  
+
 #undef K
 #undef F
 
@@ -166,7 +166,7 @@ void sha1_process(__private const SHA_DEV_CTX ctx, __private SHA_DEV_CTX *data)
   P( D, E, A, B, C, R(77) );
   P( C, D, E, A, B, R(78) );
   P( B, C, D, E, A, R(79) );
-  
+
 #undef K
 #undef F
 
