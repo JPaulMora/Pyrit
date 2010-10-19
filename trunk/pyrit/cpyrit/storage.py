@@ -92,6 +92,14 @@ def getStorage(url):
         raise RuntimeError("The protocol '%s' is unsupported." % protocol)
 
 
+class StorageError(IOError):
+    pass
+
+
+class DigestError(StorageError):
+    pass
+
+
 class PasswordCollection(object):
     """An abstract collection of passwords."""
 
@@ -117,24 +125,28 @@ class BasePYR_Buffer(object):
         self._unpackLock = threading.Lock()
 
     def unpack(self, buf):
-            self._magic, essidlen = struct.unpack(self.pyr_head, buf[:self.pyr_len])
-            if self._magic == 'PYR2':
-                self._delimiter = '\n'
-            elif self._magic == 'PYRT':
-                self._delimiter = '\00'
-            else:
-                raise ValueError("Not a PYRT- or PYR2-buffer.")
-            headfmt = "<%ssi16s" % (essidlen, )
-            headsize = struct.calcsize(headfmt)
-            header = struct.unpack(headfmt, \
-                                   buf[self.pyr_len:self.pyr_len + headsize])
-            self.essid, self._numElems, self._digest = header
-            pmkoffset = self.pyr_len + headsize
-            pwoffset = pmkoffset + self._numElems * 32
-            self._pwbuffer = buf[pwoffset:]
-            self._pmkbuffer = buf[pmkoffset:pwoffset]
-            if len(self._pmkbuffer) % 32 != 0:
-                raise RuntimeError("pmkbuffer seems truncated")
+        if len(buf) < self.pyr_len:
+            raise StorageError("Buffer too short")
+        self._magic, essidlen = struct.unpack(self.pyr_head, buf[:self.pyr_len])
+        if self._magic == 'PYR2':
+            self._delimiter = '\n'
+        elif self._magic == 'PYRT':
+            self._delimiter = '\00'
+        else:
+            raise StorageError("Not a PYRT- or PYR2-buffer.")
+        headfmt = "<%ssi16s" % (essidlen, )
+        headsize = struct.calcsize(headfmt)
+        header = buf[self.pyr_len:self.pyr_len + headsize]
+        if len(header) != headsize:
+            raise StorageError("Invalid header size")
+        header = struct.unpack(headfmt, header)
+        self.essid, self._numElems, self._digest = header
+        pmkoffset = self.pyr_len + headsize
+        pwoffset = pmkoffset + self._numElems * 32
+        self._pwbuffer = buf[pwoffset:]
+        self._pmkbuffer = buf[pmkoffset:pwoffset]
+        if len(self._pmkbuffer) % 32 != 0:
+            raise StorageError("pmkbuffer seems truncated")
 
     def _unpack(self):
         with self._unpackLock:
@@ -150,7 +162,7 @@ class BasePYR_Buffer(object):
                     md.update(self._pmkbuffer)
                     md.update(''.join(pwbuffer))
                 if md.digest() != self._digest:
-                    raise IOError("Digest check failed")
+                    raise DigestError("Digest check failed")
                 self.results = zip(pwbuffer, util.grouper(self._pmkbuffer, 32))
                 assert len(self.results) == self._numElems
                 del self._pwbuffer
@@ -203,12 +215,12 @@ class PAWD_Buffer(PasswordCollection):
 
     def unpack(self, buf):
         if buf[:4] != "PAWD":
-            raise ValueError("Not a PAWD-buffer.")
+            raise StorageError("Not a PAWD-buffer.")
         md = hashlib.md5()
         inp = tuple(buf[4 + md.digest_size:].split('\00'))
         md.update(''.join(inp))
         if buf[4:4 + md.digest_size] != md.digest():
-            raise IOError("Digest check failed.")
+            raise DigestError("Digest check failed.")
         self.collection = inp
         self.key = md.hexdigest()
 
@@ -223,11 +235,11 @@ class PAW2_Buffer(PasswordCollection):
 
     def unpack(self, buf):
         if buf[:4] != "PAW2":
-            raise ValueError("Not a PAW2-buffer.")
+            raise StorageError("Not a PAW2-buffer.")
         md = hashlib.md5()
         md.update(buf[4 + md.digest_size:])
         if md.digest() != buf[4:4 + md.digest_size]:
-            raise IOError("Digest check failed.")
+            raise DigestError("Digest check failed")
         inp = tuple(zlib.decompress(buf[4 + md.digest_size:]).split('\n'))
         self.collection = inp
         self.key = md.hexdigest()
@@ -323,6 +335,12 @@ class PasswordStore(object):
 
 class Storage(object):
 
+    def __delitem__(self, key):
+        for essid in self.essids:
+            if self.essids.containskey(essid, key):
+                del self.essids[essid, key]
+        del self.passwords[key]
+
     def iterresults(self, essid):
         return self.essids.iterresults(essid)
 
@@ -406,10 +424,10 @@ class FSEssidStore(ESSIDStore):
             elif buf.startswith('PYRT'):
                 results = PYRT_Buffer()
             else:
-                raise IOError("File-format for '%s' unknown." % (fname,))
+                raise StorageError("Header for '%s' unknown." % (fname,))
             results.unpack(buf)
             if results.essid != essid:
-                raise ValueError("Invalid ESSID in result-collection")
+                raise StorageError("Invalid ESSID in result-collection")
             return results
 
     def __setitem__(self, (essid, key), results):
@@ -435,16 +453,22 @@ class FSEssidStore(ESSIDStore):
         """Return True if the given ESSID is currently stored."""
         return essid in self.essids
 
-    def __delitem__(self, essid):
+    def __delitem__(self, item):
         """Delete the given ESSID and all results from the storage."""
-        if essid not in self:
-            raise KeyError("ESSID not in store.")
-        essid_root, pyrfiles = self.essids[essid]
-        del self.essids[essid]
-        for fname in pyrfiles.itervalues():
+        if type(item) is tuple:
+            essid, key = item
+            essid_root, pyrfiles = self.essids[essid]
+            fname = pyrfiles.pop(key)
             os.unlink(fname)
-        os.unlink(os.path.join(essid_root, 'essid'))
-        os.rmdir(essid_root)
+        elif type(item) is str:
+            if item not in self:
+                raise KeyError("ESSID not in storage")
+            essid_root, pyrfiles = self.essids[item]
+            del self.essids[item]
+            for fname in pyrfiles.itervalues():
+                os.unlink(fname)
+            os.unlink(os.path.join(essid_root, 'essid'))
+            os.rmdir(essid_root)
 
     def containskey(self, essid, key):
         """Return True if the given (ESSID,key) combination is stored."""
@@ -522,11 +546,17 @@ class FSPasswordStore(PasswordStore):
         elif buf[:4] == "PAWD":
             inp = PAWD_Buffer()
         else:
-            raise IOError("'%s' is not a PasswordFile." % filename)
+            raise StorageError("'%s' is not a PasswordFile." % filename)
         inp.unpack(buf)
         if inp.key != key:
-            raise IOError("File doesn't match the key '%s'." % inp.key)
+            raise StorageError("File doesn't match the key '%s'." % inp.key)
         return inp
+
+    def __delitem__(self, key):
+        """Delete workunit from storage"""
+        path = self.pwfiles.pop(key)
+        filename = os.path.join(path, key) + '.pw'
+        os.unlink(filename)
 
     def size(self, key):
         """Return the number of passwords indexed by the given key."""
@@ -578,7 +608,7 @@ class RPCESSIDStore(ESSIDStore):
             results = PYR2_Buffer()
             results.unpack(buf.data)
             if results.essid != essid:
-                raise ValueError("Invalid ESSID in result-collection")
+                raise StorageError("Invalid ESSID in result-collection")
             return results
         else:
             raise KeyError
@@ -652,7 +682,7 @@ class RPCPasswordStore(PasswordStore):
         bucket = PAW2_Buffer()
         bucket.unpack(self.cli.passwords.getitem(key).data)
         if bucket.key != key:
-            raise IOError("File doesn't match the key '%s'." % bucket.key)
+            raise StorageError("File doesn't match the key '%s'." % bucket.key)
         return bucket
 
     def size(self, key):
@@ -757,32 +787,32 @@ if 'sqlalchemy' in sys.modules:
     metadata = sql.MetaData()
 
     essids_table = sql.Table('essids', metadata, \
-                        sql.Column('essid_id', sql.Integer, primary_key=True),
-                        sql.Column('essid', sql.Binary(32), nullable=False),
-                        sql.Column('uid', sql.String(32), unique=True, \
-                                    nullable=False), \
-                        mysql_engine='InnoDB')
+                    sql.Column('essid_id', sql.Integer, primary_key=True),
+                    sql.Column('essid', sql.LargeBinary(32), nullable=False),
+                    sql.Column('uid', sql.String(32), unique=True, \
+                                nullable=False), \
+                    mysql_engine='InnoDB')
 
     passwords_table = sql.Table('passwords', metadata, \
-                        sql.Column('_key', sql.String(32), primary_key=True),
-                        sql.Column('h1', sql.String(2), nullable=False, \
-                                                        index=True),
-                        sql.Column('numElems', sql.Integer, nullable=False),
-                        sql.Column('collection_buffer', sql.Binary(2**24-1), \
-                                   nullable=False), \
-                        mysql_engine='InnoDB')
+                    sql.Column('_key', sql.String(32), primary_key=True),
+                    sql.Column('h1', sql.String(2), nullable=False, \
+                               index=True),
+                    sql.Column('numElems', sql.Integer, nullable=False),
+                    sql.Column('collection_buffer', sql.LargeBinary(2**24-1), \
+                               nullable=False), \
+                    mysql_engine='InnoDB')
 
     results_table = sql.Table('results', metadata, \
-                        sql.Column('essid_id', sql.Integer, \
-                                   sql.ForeignKey('essids.essid_id'), \
-                                   primary_key=True),
-                        sql.Column('_key', sql.String(32), \
-                                   sql.ForeignKey('passwords._key'), \
-                                   primary_key=True, index=True),
-                        sql.Column('numElems', sql.Integer, nullable=False),
-                        sql.Column('results_buffer', sql.Binary(2**24 - 1), \
-                                   nullable=False), \
-                        mysql_engine='InnoDB')
+                    sql.Column('essid_id', sql.Integer, \
+                               sql.ForeignKey('essids.essid_id'), \
+                               primary_key=True),
+                    sql.Column('_key', sql.String(32), \
+                               sql.ForeignKey('passwords._key'), \
+                               primary_key=True, index=True),
+                    sql.Column('numElems', sql.Integer, nullable=False),
+                    sql.Column('results_buffer', sql.LargeBinary(2**24 - 1), \
+                               nullable=False), \
+                    mysql_engine='InnoDB')
 
     class ESSID_DBObject(object):
 
@@ -880,9 +910,9 @@ if 'sqlalchemy' in sys.modules:
     class SQLStorage(Storage):
 
         def __init__(self, url):
-            engine = sql.create_engine(url, echo=False)
-            metadata.create_all(engine)
-            self.SessionClass = orm.sessionmaker(bind=engine)
+            self.engine = sql.create_engine(url, echo=False)
+            metadata.create_all(self.engine)
+            self.SessionClass = orm.sessionmaker(bind=self.engine)
             self.essids = SQLEssidStore(self.SessionClass)
             self.passwords = SQLPasswordStore(self.SessionClass)
 
@@ -965,21 +995,28 @@ if 'sqlalchemy' in sys.modules:
                     result_obj.pack(results)
                     session.commit()
 
-        def __delitem__(self, essid):
-            """Delete the given ESSID and all results from the storage."""
+        def __delitem__(self, item):
+            """Delete the given (ESSID:key)-resultset or the entire ESSID
+               and all results from the storage.
+            """
+            if type(item) is tuple:
+                essid, key = item
+            else:
+                essid = item
+                key = None
             with SessionContext(self.SessionClass) as session:
                 essid_query = session.query(ESSID_DBObject)
                 essid_query = essid_query.filter(ESSID_DBObject.essid == essid)
                 essid_obj = essid_query.one()
                 res_query = session.query(PYR2_DBObject)
                 res_query = res_query.filter(PYR2_DBObject.essid == essid_obj)
-                res_query.delete(synchronize_session=False)
-                cnt = essid_query.delete(synchronize_session=False)
-                if cnt > 1:
-                    raise ValueError("Query should not have affected more " \
-                                     "than one row.")
+                if key is not None:
+                    res_query = res_query.filter(PYR2_DBObject.key == key)
+                    assert res_query.delete(synchronize_session=False) == 1
                 else:
-                    session.commit()
+                    res_query.delete(synchronize_session=False)
+                    assert essid_query.delete(synchronize_session=False) == 1
+                session.commit()
 
         def containskey(self, essid, key):
             """Return True if the given (ESSID,key) combination is stored."""
@@ -1056,6 +1093,14 @@ if 'sqlalchemy' in sys.modules:
             with SessionContext(self.SessionClass) as session:
                 q = session.query(PAW2_DBObject)
                 return q.filter(PAW2_DBObject.key == key).one()
+        
+        def __delitem__(self, key):
+            """Delete the collection of passwords indexed by the given key."""
+            with SessionContext(self.SessionClass) as session:
+                q = session.query(PAW2_DBObject)
+                q = q.filter(PAW2_DBObject.key == key)
+                assert q.delete(synchronize_session=False) == 1
+                session.commit()
 
         def size(self, key):
             """Return the number of passwords indexed by the given key."""
