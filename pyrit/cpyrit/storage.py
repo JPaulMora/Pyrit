@@ -48,6 +48,10 @@ except ImportError:
     pass
 else:
     from sqlalchemy import orm
+    if hasattr(sql, 'LargeBinary'):
+        UniversalBinary = sql.LargeBinary
+    else:
+        UniversalBinary = sql.Binary
 
 import config
 import util
@@ -788,7 +792,7 @@ if 'sqlalchemy' in sys.modules:
 
     essids_table = sql.Table('essids', metadata, \
                     sql.Column('essid_id', sql.Integer, primary_key=True),
-                    sql.Column('essid', sql.LargeBinary(32), nullable=False),
+                    sql.Column('essid', UniversalBinary(32), nullable=False),
                     sql.Column('uid', sql.String(32), unique=True, \
                                 nullable=False), \
                     mysql_engine='InnoDB')
@@ -798,7 +802,7 @@ if 'sqlalchemy' in sys.modules:
                     sql.Column('h1', sql.String(2), nullable=False, \
                                index=True),
                     sql.Column('numElems', sql.Integer, nullable=False),
-                    sql.Column('collection_buffer', sql.LargeBinary(2**24-1), \
+                    sql.Column('collection_buffer', UniversalBinary(2**24-1), \
                                nullable=False), \
                     mysql_engine='InnoDB')
 
@@ -810,7 +814,7 @@ if 'sqlalchemy' in sys.modules:
                                sql.ForeignKey('passwords._key'), \
                                primary_key=True, index=True),
                     sql.Column('numElems', sql.Integer, nullable=False),
-                    sql.Column('results_buffer', sql.LargeBinary(2**24 - 1), \
+                    sql.Column('results_buffer', UniversalBinary(2**24 - 1), \
                                nullable=False), \
                     mysql_engine='InnoDB')
 
