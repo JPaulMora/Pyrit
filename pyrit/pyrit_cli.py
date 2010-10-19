@@ -1275,7 +1275,7 @@ class Pyrit_CLI(object):
             if essid is not None:
                 if essid not in storage.essids:
                     raise PyritRuntimeError("The ESSID '%s' is not found in the " \
-                                            "repository" % essid)
+                                            "repository" % (essid,))
                 else:
                     essids = [essid]
             else:
@@ -1327,6 +1327,92 @@ class Pyrit_CLI(object):
             self.tell("Everything seems OK.")
     verify.cli_options = (('-u', ), ('-e', ))
 
+    def checkdb(self, storage, confirm=True):
+        """Check the database for errors
+           
+           Unpack the entire database and check for errors. This function
+           does not check the value of computed results (see verify).
+           
+           For example:
+           pyrit checkdb
+        """
+        
+        # Check passwords
+        self.tell("Checking workunits...")
+        wu_errors = []
+        for key in storage.passwords.iterkeys():
+            try:
+                # Some errors are catched here
+                wu = storage.passwords[key]
+                # Now check what we can...
+                for pw in wu:
+                    if len(pw) < 8 or len(pw) > 64:
+                        raise cpyrit.storage.StorageError("Invalid password")
+            except cpyrit.storage.StorageError, e:
+                self.tell("Error in workunit %s: %s" % (key, e), \
+                          stream=sys.stderr)
+                wu_errors.append(key)
+
+        # Check results
+        res_errors = []
+        for essid in storage.essids:
+            self.tell("Checking results for ESSID '%s'..." % (essid,))
+            for key in storage.essids.iterkeys(essid):
+                try:
+                    if key not in storage.passwords:
+                        # A resultset exists that is not referenced by workunit
+                        raise cpyrit.storage.StorageError("Reference error")
+                    # Some errors are catched here
+                    res = storage.essids[essid, key]
+                    # Check entries
+                    for pw, pmk in res:
+                        if len(pw) < 8 or len(pw) > 64:
+                            raise cpyrit.storage.StorageError("Invalid password")
+                        if len(pmk) != 32:
+                            raise cpyrit.storage.StorageError("Invalid PMK")
+                    if key not in wu_errors:
+                        # Check that workunit and results match
+                        wu = storage.passwords[key]
+                        if any(pw not in wu for pw, pmk in res):
+                            raise cpyrit.storage.StorageError("Password not" \
+                                                              " in workunit")
+                        res_passwords = set(pw for pw, pmk in res)
+                        if any(pw not in res_passwords for pw in wu):
+                            raise cpyrit.storage.StorageError("Password not" \
+                                                              " in resultset")
+                except cpyrit.storage.StorageError, e:
+                    self.tell("Error in results %s for ESSID %s:" \
+                              " %s" % (key, essid, e), stream=sys.stderr)
+                    if key not in wu_errors:
+                        res_errors.append((essid, key))
+
+        if len(wu_errors) + len(res_errors) > 0:
+            self.tell("\nThere have been %i errors in workunits and %i errors" \
+                      " in resultsets. Your option now is to delete these" \
+                      " entries from the database. Workunits are lost" \
+                      " forever, resultsets can be recomputed." % \
+                      (len(wu_errors), len(res_errors)), end=None)
+            if confirm:
+                self.tell(" Continue? [y/N]", end=None)
+                if sys.stdin.readline().strip() != 'y':
+                    raise PyritRuntimeError("aborted.")
+            
+            self.tell("deleting...")
+            # Delete workunits including results
+            for key in wu_errors:
+                del storage[key]
+            # Delete results
+            for essid, key in res_errors:
+                del storage.essids[essid, key]
+            
+            raise PyritRuntimeError("Errors were reported and fixed. You may" \
+                                    " run 'checkdb' again to make sure" \
+                                    " that everything is working now.")
+        else:
+            self.tell("Everything seems OK.")
+
+    checkdb.cli_options = (('-u',), ())
+
     commands = {'analyze': analyze,
                 'attack_batch': attack_batch,
                 'attack_cowpatty': attack_cowpatty,
@@ -1335,6 +1421,7 @@ class Pyrit_CLI(object):
                 'batch': batchprocess,
                 'benchmark': benchmark,
                 'benchmark_long': benchmark_long,
+                'check_db': checkdb,
                 'create_essid': create_essid,
                 'delete_essid': delete_essid,
                 'eval': eval_results,

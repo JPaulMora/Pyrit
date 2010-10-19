@@ -51,6 +51,7 @@ import cpyrit
 import storage
 import config
 
+__version__ = VERSION
 
 def _detect_ncpus():
     """Detect the number of effective CPUs in the system"""
