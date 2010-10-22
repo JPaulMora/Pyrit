@@ -18,13 +18,23 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
+
+"""A test-suite for Pyrit.
+
+   Tests are done by creating a sandbox and executing the cli-functions
+   normally executed by the user.
+   
+   Please notice that the tests backed by the storage-relay open a TCP
+   socket bound to localhost.
+"""
+   
+
 from __future__ import with_statement
 
 import os
 import shutil
 import random
 import unittest
-import cStringIO
 import sys
 import tempfile
 
@@ -55,7 +65,50 @@ def requires_pckttools(*params):
         return new_f
     return check_pkttools
 
-class Pyrit_CLI_TestFunctions(unittest.TestCase):
+
+class FilesystemFunctions(object):
+
+    def getStorage(self):
+        return cpyrit.storage.getStorage('file://' + self.storage_path)
+
+    def corrupt(self, storage):
+        # Destroy some passwords
+        keys = list(storage.passwords.iterkeys())
+        for i in xrange(13):
+            key = random.choice(keys)
+            # This is specific to storage.FSPasswordStore
+            filename = os.path.join(storage.passwords.pwfiles[key], key)
+            filename += '.pw'
+            if i % 3 == 0:
+                # Delete the workunit without deleting the results.
+                # Should cause a reference error
+                del storage.passwords[key]
+            else:
+                with open(filename, 'r+b') as f:
+                    # Overwrite either part of the header or part of the file
+                    if i % 2 == 0:
+                        f.seek(4)
+                    f.write('x')
+            keys.remove(key)
+            if len(keys) == 0:
+                break
+        # Destroy some results
+        keys = list(storage.essids.iterkeys('test'))
+        for i in xrange(13):
+            key = random.choice(keys)
+            # This is specific to storage.FSEssidStore
+            filename = os.path.join(storage.essids.essids['test'][0], key)
+            filename += '.pyr'
+            with open(filename, 'r+b') as f:
+                if i % 2 == 0:
+                    f.seek(4)
+                f.write('x')
+            keys.remove(key)
+            if len(keys) == 0:
+                break
+
+
+class BaseTestCase(unittest.TestCase):
 
     handshakes = (('wpapsk-linksys.dump.gz', 'linksys',
                    '00:0b:86:c2:a4:85', '00:13:ce:55:98:ef', 'dictionary'),
@@ -93,18 +146,23 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
         self.cli.create_essid(storage, 'linksys')
         self._createPasswords(self.tempfile1)
         self.cli.import_passwords(storage, self.tempfile1)
+
+    def _computeFakeDatabase(self, storage, essid):
+        self.cli.create_essid(storage, essid)
+        for key, passwords in storage.passwords.iteritems():
+            storage.essids[essid, key] = [(pw, 'x'*32) for pw in passwords]
         
     def _computeDatabase(self, storage, essid):
         self.cli.create_essid(storage, essid)
         l = 0
-        with cpyrit.util.StorageIterator(storage, essid) as dbiter:
+        with cpyrit.cpyrit.StorageIterator(storage, essid) as dbiter:
             for results in dbiter:
                 l += len(results)
         self.assertEqual(l, 5000)
 
     def _testHandshake(self, filename, essid, ap, sta, passwd):
         parser = cpyrit.pckttools.PacketParser(filename)
-        with cpyrit.util.PassthroughIterator(essid, (passwd,)) as cp:
+        with cpyrit.cpyrit.PassthroughIterator(essid, (passwd,)) as cp:
             solution = cp.next()
         auths = parser[ap][sta].getAuthentications()
         for auth in parser[ap][sta].getAuthentications():
@@ -116,7 +174,7 @@ class Pyrit_CLI_TestFunctions(unittest.TestCase):
             self.fail('Did not detect passphrase in "%s"' % filename)
 
 
-class Pyrit_CLI_DefaultTestFunctions(Pyrit_CLI_TestFunctions):
+class TestCase(BaseTestCase):
 
     def testListEssids(self):
         storage = self.getStorage()
@@ -198,7 +256,7 @@ class Pyrit_CLI_DefaultTestFunctions(Pyrit_CLI_TestFunctions):
         for results in cpyrit.util.CowpattyFile(self.tempfile2):
             fileresults.extend(results)
         dbresults = []
-        with cpyrit.util.StorageIterator(storage, 'linksys', \
+        with cpyrit.cpyrit.StorageIterator(storage, 'linksys', \
                                             yieldNewResults=True) as dbiter:
             for results in dbiter:
                 dbresults.extend(results)
@@ -233,7 +291,7 @@ class Pyrit_CLI_DefaultTestFunctions(Pyrit_CLI_TestFunctions):
         for results in cpyrit.util.CowpattyFile(self.tempfile1):
             fileresults.extend(results)
         dbresults = []
-        with cpyrit.util.StorageIterator(storage, 'test1234', \
+        with cpyrit.cpyrit.StorageIterator(storage, 'test1234', \
                                             yieldNewResults=False) as dbiter:
             for results in dbiter:
                 dbresults.extend(results)
@@ -242,8 +300,8 @@ class Pyrit_CLI_DefaultTestFunctions(Pyrit_CLI_TestFunctions):
     def testEval(self):
         storage = self.getStorage()
         self._createDatabase(storage)
-        self._computeDatabase(storage, 'test1')
-        self._computeDatabase(storage, 'test2')
+        self._computeFakeDatabase(storage, 'test1')
+        self._computeFakeDatabase(storage, 'test2')
         self.cli.eval_results(storage)
         
     def testVerify(self):
@@ -260,6 +318,17 @@ class Pyrit_CLI_DefaultTestFunctions(Pyrit_CLI_TestFunctions):
             storage.essids['test', key] = corrupted
         # Should fail
         self.assertRaises(pyrit_cli.PyritRuntimeError, self.cli.verify, storage)
+
+    def testCheckDB(self):
+        storage = self.getStorage()
+        self._createDatabase(storage)
+        self._computeFakeDatabase(storage, 'test')
+        self.corrupt(storage)
+        # Should fail but repair
+        self.assertRaises(pyrit_cli.PyritRuntimeError, \
+                          self.cli.checkdb, storage, False)
+        # Should now be OK
+        self.cli.checkdb(storage, False)
 
     def testExportPasswords(self):
         storage = self.getStorage()
@@ -279,7 +348,7 @@ class Pyrit_CLI_DefaultTestFunctions(Pyrit_CLI_TestFunctions):
         for results in cpyrit.util.CowpattyFile(self.tempfile1):
             fileresults.extend(results)
         dbresults = []
-        with cpyrit.util.StorageIterator(storage, 'test', \
+        with cpyrit.cpyrit.StorageIterator(storage, 'test', \
                                          yieldNewResults=False) as dbiter:
             for results in dbiter:
                 dbresults.extend(results)
@@ -288,24 +357,36 @@ class Pyrit_CLI_DefaultTestFunctions(Pyrit_CLI_TestFunctions):
     def testExportHashdb(self):
         storage = self.getStorage()
         self._createDatabase(storage)
-        self._computeDatabase(storage, 'test')
+        self._computeFakeDatabase(storage, 'test')
         os.unlink(self.tempfile1)
         self.cli.export_hashdb(storage, self.tempfile1)
 
 
-class Pyrit_CLI_RPC_DefaultTestFunctions(Pyrit_CLI_DefaultTestFunctions):
-    pass
+class RPCTestCase(TestCase, FilesystemFunctions):
+    
+    def getStorage(self):
+        return cpyrit.storage.getStorage('http://127.0.0.1:17934')
+
+    def setUp(self):
+        TestCase.setUp(self)
+        self.backend = FilesystemFunctions.getStorage(self)
+        self.server = cpyrit.storage.StorageRelay(self.backend, iface='127.0.0.1')
+
+    def tearDown(self):
+        self.server.shutdown()
+        TestCase.tearDown(self)
+
+    def corrupt(self, storage):
+        # Corrupt backing storage instead...
+        FilesystemFunctions.corrupt(self, self.backend)
 
 
-class Pyrit_CLI_DB_DefaultTestFunctions(Pyrit_CLI_DefaultTestFunctions):
+class DatabaseTestCase(TestCase):
 
     def getStorage(self):
         return cpyrit.storage.getStorage('sqlite:///:memory:')
 
-    def testCheckDB(self):
-        storage = self.getStorage()
-        self._createDatabase(storage)
-        self._computeDatabase(storage, 'test')
+    def corrupt(self, storage):
         conn = storage.engine.connect()
         # Destroy some passwords
         keys = list(storage.passwords.iterkeys())
@@ -343,16 +424,9 @@ class Pyrit_CLI_DB_DefaultTestFunctions(Pyrit_CLI_DefaultTestFunctions):
             keys.remove(key)
             if len(keys) == 0:
                 break
-        # Should fail but repair
-        self.assertRaises(pyrit_cli.PyritRuntimeError, \
-                          self.cli.checkdb, storage, False)
-        # Should now be OK
-        self.cli.checkdb(storage, False)
 
-class Pyrit_CLI_FS_DefaultTestFunctions(Pyrit_CLI_DefaultTestFunctions):
 
-    def getStorage(self):
-        return cpyrit.storage.getStorage('file://' + self.storage_path)
+class FilesystemTestCase(TestCase, FilesystemFunctions):
 
     def testListCores(self):
         self.cli.list_cores()
@@ -365,50 +439,6 @@ class Pyrit_CLI_FS_DefaultTestFunctions(Pyrit_CLI_DefaultTestFunctions):
 
     def testBenchmark(self):
         self.cli.benchmark(timeout=3)
-
-    def testCheckDB(self):
-        storage = self.getStorage()
-        self._createDatabase(storage)
-        self._computeDatabase(storage, 'test')
-        # Destroy some passwords
-        keys = list(storage.passwords.iterkeys())
-        for i in xrange(13):
-            key = random.choice(keys)
-            # This is specific to storage.FSPasswordStore
-            filename = os.path.join(storage.passwords.pwfiles[key], key)
-            filename += '.pw'
-            if i % 3 == 0:
-                # Delete the workunit without deleting the results.
-                # Should cause a reference error
-                del storage.passwords[key]
-            else:
-                with open(filename, 'r+b') as f:
-                    # Overwrite either part of the header or part of the file
-                    if i % 2 == 0:
-                        f.seek(4)
-                    f.write('x')
-            keys.remove(key)
-            if len(keys) == 0:
-                break
-        # Destroy some results
-        keys = list(storage.essids.iterkeys('test'))
-        for i in xrange(13):
-            key = random.choice(keys)
-            # This is specific to storage.FSEssidStore
-            filename = os.path.join(storage.essids.essids['test'][0], key)
-            filename += '.pyr'
-            with open(filename, 'r+b') as f:
-                if i % 2 == 0:
-                    f.seek(4)
-                f.write('x')
-            keys.remove(key)
-            if len(keys) == 0:
-                break
-        # Should fail but repair
-        self.assertRaises(pyrit_cli.PyritRuntimeError, \
-                          self.cli.checkdb, storage, False)
-        # Should now be OK
-        self.cli.checkdb(storage, False)
 
     @requires_pckttools()
     def testHandshakes(self):
@@ -460,18 +490,17 @@ def _runTests(case):
 
 if __name__ == "__main__":
     print "Testing with filesystem-storage..."
-    if not _runTests(Pyrit_CLI_FS_DefaultTestFunctions):
-        sys.exit(1)
+    if not _runTests(FilesystemTestCase):
+       sys.exit(1)
     
-    try:
-        storage = cpyrit.storage.getStorage('sqlite:///:memory:')
-    except cpyrit.util.SqlalchemyImportError:
-        print "SQLAlchemy seems to be unavailable; skipping tests..."
+    # should have been imported by cpyrit.storage
+    if 'sqlalchemy' not in sys.modules:
+        print "SQLAlchemy seems to be unavailable; skipping all tests..."
     else:
         print "Testing with database-storage..."
-        if not _runTests(Pyrit_CLI_DB_DefaultTestFunctions):
+        if not _runTests(DatabaseTestCase):
             sys.exit(1)
 
-    #print "Testing with RPC-storage..."
-    #if not _runTests(Pyrit_CLI_RPC_DefaultTestFunctions):
-    #    sys.exit(1)
+    print "Testing with RPC-storage..."
+    if not _runTests(RPCTestCase):
+        sys.exit(1)

@@ -28,6 +28,12 @@
    CowpattyFile eases reading/writing files in cowpatty's binary format.
 
    ncpus equals the number of available CPUs in the system.
+   
+   Thread is a subclass of threading.Thread that adds a context-manager to
+   make it 'stoppable'.
+   
+   AsyncXMLRPCServer is a stoppable (incl. 'serve_forever') subclass of
+   SimpleXMLRPCServer.
 
    PMK_TESTVECTORS has two ESSIDs and ten password:PMK pairs each to verify
    local installations.
@@ -40,6 +46,8 @@ import gzip
 import os
 import Queue
 import random
+import socket
+import SimpleXMLRPCServer
 import sys
 import struct
 import time
@@ -47,8 +55,6 @@ import threading
 
 import _cpyrit_cpu
 from _cpyrit_cpu import VERSION, grouper
-import cpyrit
-import storage
 import config
 
 __version__ = VERSION
@@ -108,120 +114,6 @@ class ScapyImportError(ImportError):
 class SqlalchemyImportError(ImportError):
     """" Indicates that sqlalchemy is not available """
     pass
-
-
-class StorageIterator(object):
-    """Iterates over the database, computes new Pairwise Master Keys if
-       necessary and requested and yields tuples of (password,PMK)-tuples.
-    """
-
-    def __init__(self, storage, essid, \
-                 yieldOldResults=True, yieldNewResults=True):
-        self.cp = cpyrit.CPyrit() if yieldNewResults else None
-        self.workunits = []
-        self.essid = essid
-        self.storage = storage
-        keys = list(self.storage.passwords)
-        random.shuffle(keys)
-        self.iterkeys = iter(keys)
-        self.yieldOldResults = yieldOldResults
-        self.yieldNewResults = yieldNewResults
-
-    def keycount(self):
-        return self.storage.essids.keycount(self.essid)
-
-    def __len__(self):
-        return len(self.storage.passwords)
-
-    def __iter__(self):
-        return self
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.cp is not None:
-            self.cp.shutdown()
-
-    def next(self):
-        while True:
-            try:
-                key = self.iterkeys.next()
-            except StopIteration:
-                if self.yieldNewResults:
-                    solvedPMKs = self.cp.dequeue(block=True)
-                    if solvedPMKs is not None:
-                        solvedEssid, solvedKey, solvedPasswords = \
-                          self.workunits.pop(0)
-                        solvedResults = zip(solvedPasswords, solvedPMKs)
-                        self.storage.essids[solvedEssid, solvedKey] = \
-                          solvedResults
-                        return solvedResults
-                assert len(self.workunits) == 0
-                raise StopIteration
-            else:
-                if self.yieldOldResults:
-                    try:
-                        results = self.storage.essids[self.essid, key]
-                    except KeyError:
-                        pass
-                    else:
-                        return results
-                if self.yieldNewResults:
-                    passwords = self.storage.passwords[key]
-                    self.workunits.append((self.essid, key, passwords))
-                    self.cp.enqueue(self.essid, passwords)
-                    solvedPMKs = self.cp.dequeue(block=False)
-                    if solvedPMKs is not None:
-                        solvedEssid, solvedKey, solvedPasswords = \
-                          self.workunits.pop(0)
-                        solvedResults = zip(solvedPasswords, solvedPMKs)
-                        self.storage.essids[solvedEssid, solvedKey] = \
-                          solvedResults
-                        return solvedResults
-
-
-class PassthroughIterator(object):
-    """A iterator that takes an ESSID and an iterable of passwords, computes
-       the corresponding Pairwise Master Keys and and yields tuples of
-       (password,PMK)-tuples.
-    """
-
-    def __init__(self, essid, iterable, buffersize=20000):
-        self.cp = cpyrit.CPyrit()
-        self.essid = essid
-        self.iterator = iter(iterable)
-        self.workunits = []
-        self.buffersize = buffersize
-
-    def __iter__(self):
-        return self
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.cp.shutdown()
-
-    def next(self):
-        pwbuffer = []
-        for line in self.iterator:
-            pw = line.strip('\r\n')[:63]
-            if len(pw) >= 8:
-                pwbuffer.append(pw)
-            if len(pwbuffer) > self.buffersize:
-                self.workunits.append(pwbuffer)
-                self.cp.enqueue(self.essid, self.workunits[-1])
-                pwbuffer = []
-                solvedPMKs = self.cp.dequeue(block=False)
-                if solvedPMKs is not None:
-                    return zip(self.workunits.pop(0), solvedPMKs)
-        if len(pwbuffer) > 0:
-            self.workunits.append(pwbuffer)
-            self.cp.enqueue(self.essid, self.workunits[-1])
-        for solvedPMKs in self.cp:
-            return zip(self.workunits.pop(0), solvedPMKs)
-        raise StopIteration
 
 
 class FileWrapper(object):
@@ -501,6 +393,67 @@ class PerformanceCounter(object):
         return str(self.value())
 
     avg = property(fget=getAvg)
+
+
+class Thread(threading.Thread):
+    """A stoppable subclass of threading.Thread"""
+    
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.shallStop = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.shutdown()
+
+    def shutdown(self):
+        self.shallStop = True
+        self.join()
+
+
+class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
+
+    def __init__(self, storage, iface='', port=17934):
+        SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, (iface, port), \
+                                                        logRequests=False)
+        Thread.__init__(self)
+        self.setDaemon(True)
+        # Make the main socket non-blocking (for accept())
+        self.socket.settimeout(0.1)
+        self.storage = storage
+        self.methods = {}
+        self.register_instance(self)
+
+    def run(self):
+        while not self.shallStop:
+            self.handle_request()
+    
+    def get_request(self):
+        while not self.shallStop:
+            try:
+                sock, addr = self.socket.accept()
+            except socket.timeout:
+                pass
+            else:
+                # Accepted connections are made blocking again
+                sock.settimeout(None)
+                return sock, addr
+    
+    def serve_forever(self):
+        while not self.shallStop:
+            self.get_request()
+    
+    def shutdown(self):
+        Thread.shutdown(self)
+        self.socket.close()
+
+    def _dispatch(self, method, params):
+        if method not in self.methods:
+            raise AttributeError
+        else:
+            return self.methods[method](*params)
 
 
 PMK_TESTVECTORS = {

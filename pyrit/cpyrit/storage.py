@@ -36,7 +36,6 @@ import hashlib
 import os
 import random
 import re
-import SimpleXMLRPCServer
 import struct
 import sys
 import threading
@@ -60,7 +59,41 @@ MAX_WORKUNIT_SIZE = int(config.cfg['workunit_size'])
 if MAX_WORKUNIT_SIZE < 1 or MAX_WORKUNIT_SIZE > 1000000:
     raise ValueError("Invalid 'workunit_size' in configuration")
 
-URL_GROUPER = re.compile('(?P<protocol>\w+)://(((?P<user>\w+):?(?P<passwd>\w+)?@)?(?P<tail>.+))?')
+URL_GROUPER = re.compile("(?P<protocol>\w+)://(((?P<user>\w+):?(?P<passwd>\w+)?@)?(?P<tail>.+))?")
+XMLFAULT = re.compile("\<class '(?P<class>[\w\.]+)'\>:(?P<fault>.+)")
+
+def handle_xmlfault(*params):
+    """Decorate a function to check for and rebuild storage exceptions from
+       xmlrpclib.Fault
+    """
+
+    def check_xmlfault(f):
+
+        def protected_f(*args, **kwds):
+            try:
+                ret = f(*args, **kwds)
+            except xmlrpclib.Fault, e:
+                # rpc does not know Exceptions so they always come as pure
+                # strings. One way would be to hack into the de-marshalling.
+                # These seems easier and lets intrusive.
+                match = XMLFAULT.match(e.faultString)
+                if match is None:
+                    raise
+                else:
+                    groups = match.groupdict()
+                    cls = groups['class']
+                    fault = groups['fault']
+                    if cls == 'cpyrit.storage.DigestError':
+                        raise DigestError(fault)
+                    elif cls == 'cpyrit.storage.StorageError':
+                        raise StorageError(fault)
+                    else:
+                        raise
+            return ret
+        protected_f.func_name = f.func_name
+        protected_f.__doc__ = f.__doc__
+        return protected_f
+    return check_xmlfault
 
 def pruneURL(url):
     """Remove user/passwd from a storage-url"""
@@ -407,7 +440,7 @@ class FSEssidStore(ESSIDStore):
                         self.essids[essid][1][pyrfile[:len(pyrfile)-4]] = \
                                             os.path.join(essidpath, pyrfile)
             else:
-                print >> sys.stderr, "ESSID %s is corrupted." % essid_hash
+                print >>sys.stderr, "ESSID %s is corrupted." % essid_hash
 
     def __getitem__(self, (essid, key)):
         """Receive a iterable of (password,PMK)-tuples stored under
@@ -457,18 +490,21 @@ class FSEssidStore(ESSIDStore):
         """Return True if the given ESSID is currently stored."""
         return essid in self.essids
 
-    def __delitem__(self, item):
-        """Delete the given ESSID and all results from the storage."""
-        if type(item) is tuple:
-            essid, key = item
+    def __delitem__(self, (essid, key)):
+        """Delete the given ESSID:key resultset or the entire ESSID
+           and all results from the storage.
+        """
+        if essid not in self:
+            raise KeyError("ESSID not in storage")
+        if key is not None:
+            if key not in self.essids[essid][1]:
+                raise KeyError("Key not in storage")
             essid_root, pyrfiles = self.essids[essid]
             fname = pyrfiles.pop(key)
             os.unlink(fname)
-        elif type(item) is str:
-            if item not in self:
-                raise KeyError("ESSID not in storage")
-            essid_root, pyrfiles = self.essids[item]
-            del self.essids[item]
+        else:
+            essid_root, pyrfiles = self.essids[essid]
+            del self.essids[essid]
             for fname in pyrfiles.itervalues():
                 os.unlink(fname)
             os.unlink(os.path.join(essid_root, 'essid'))
@@ -591,6 +627,7 @@ class RPCStorage(Storage):
         self.essids = RPCESSIDStore(self.cli)
         self.passwords = RPCPasswordStore(self.cli)
 
+    @handle_xmlfault()
     def getStats(self):
         return self.cli.getStats()
 
@@ -600,6 +637,7 @@ class RPCESSIDStore(ESSIDStore):
     def __init__(self, cli):
         self.cli = cli
 
+    @handle_xmlfault()
     def __getitem__(self, (essid, key)):
         """Receive a iterable of (password,PMK)-tuples stored under
            the given ESSID and key.
@@ -617,6 +655,7 @@ class RPCESSIDStore(ESSIDStore):
         else:
             raise KeyError
 
+    @handle_xmlfault()
     def __setitem__(self, (essid, key), results):
         """Store a iterable of (password,PMK)-tuples under the given
            ESSID and key.
@@ -624,36 +663,49 @@ class RPCESSIDStore(ESSIDStore):
         b = xmlrpclib.Binary(PYR2_Buffer(essid, results).pack())
         self.cli.essids.setitem(essid, key, b)
 
+    @handle_xmlfault()
     def __len__(self):
         """Return the number of ESSIDs currently stored."""
         return self.cli.essids.len()
 
+    @handle_xmlfault()
     def __iter__(self):
         """Iterate over all essids currently stored."""
         return self.cli.essids.essids().__iter__()
 
+    @handle_xmlfault()
     def __contains__(self, essid):
         """Return True if the given ESSID is currently stored."""
         return self.cli.essids.contains(essid)
 
-    def __delitem__(self, essid):
-        """Delete the given ESSID and all results from the storage."""
-        self.cli.essids.delitem(essid)
+    @handle_xmlfault()
+    def __delitem__(self, (essid, key)):
+        """Delete the ESSID:key resultset or the entire ESSID
+           and all results from the storage.
+        """
+        if key is None:
+            key = ''
+        self.cli.essids.delitem(essid, key)
+        return True
 
+    @handle_xmlfault()
     def containskey(self, essid, key):
         """Return True if the given (ESSID,key) combination is stored."""
         return self.cli.essids.containskey(essid, key)
 
+    @handle_xmlfault()
     def keycount(self, essid):
         """Returns the number of keys that can currently be used to receive
            results for the given ESSID.
         """
         return self.cli.essids.keycount(essid)
 
+    @handle_xmlfault()
     def iterkeys(self, essid):
         """Iterate over all keys that can be used to receive results."""
         return self.cli.essids.keys(essid).__iter__()
 
+    @handle_xmlfault()
     def create_essid(self, essid):
         """Create the given ESSID in the storage.
 
@@ -665,22 +717,27 @@ class RPCESSIDStore(ESSIDStore):
 class RPCPasswordStore(PasswordStore):
 
     def __init__(self, cli):
+        PasswordStore.__init__(self)
         self.cli = cli
 
+    @handle_xmlfault()
     def __iter__(self):
         """Iterate over all keys that can be used to receive password-sets."""
         return self.cli.passwords.keys().__iter__()
 
+    @handle_xmlfault()
     def __len__(self):
         """Return the number of keys that can be used to receive
            password-sets.
         """
         return self.cli.passwords.len()
 
+    @handle_xmlfault()
     def __contains__(self, key):
         """Return True if the given key is currently in the storage."""
         return self.cli.passwords.contains(key)
 
+    @handle_xmlfault()
     def __getitem__(self, key):
         """Return the collection of passwords indexed by the given key."""
         bucket = PAW2_Buffer()
@@ -689,40 +746,46 @@ class RPCPasswordStore(PasswordStore):
             raise StorageError("File doesn't match the key '%s'." % bucket.key)
         return bucket
 
+    @handle_xmlfault()
+    def __delitem__(self, key):
+        return self.cli.passwords.delitem(key)
+
+    @handle_xmlfault()
     def size(self, key):
         """Return the number of passwords indexed by the given key."""
         return self.cli.passwords.size(key)
 
+    @handle_xmlfault()
+    def _flush_bucket(self, pw_h1, bucket):
+        return self.cli.passwords._flush_bucket(pw_h1, tuple(bucket))
 
-class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
 
-    def __init__(self, storage):
-        SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, ('', 17934), \
-                                                        logRequests=False)
+class StorageRelay(util.AsyncXMLRPCServer):
+
+    def __init__(self, storage, iface='', port=17934):
+        util.AsyncXMLRPCServer.__init__(self, (iface, port))
+        # Make the main socket non-blocking (for accept())
+        self.socket.settimeout(0.1)
+        self.methods['getStats'] = self.getStats
+        self.methods['passwords.keys'] = self.passwords_keys
+        self.methods['passwords.len'] = self.passwords_len
+        self.methods['passwords.contains'] = self.passwords_contains
+        self.methods['passwords.getitem'] = self.passwords_getitem
+        self.methods['passwords.delitem'] = self.passwords_delitem
+        self.methods['passwords.size'] = self.passwords_size
+        self.methods['passwords._flush_bucket'] = self.passwords_flush
+        self.methods['essids.essids'] = self.essids_essids
+        self.methods['essids.keys'] = self.essids_keys
+        self.methods['essids.len'] = self.essids_len
+        self.methods['essids.contains'] = self.essids_contains
+        self.methods['essids.getitem'] = self.essids_getitem
+        self.methods['essids.setitem'] = self.essids_setitem
+        self.methods['essids.delitem'] = self.essids_delitem
+        self.methods['essids.keycount'] = self.essids_keycount
+        self.methods['essids.containskey'] = self.essids_containskey
+        self.methods['essids.createessid'] = self.essids_create_essid
         self.storage = storage
-        self.methods = {'getStats': self.getStats, \
-                        'passwords.keys': self.passwords_keys, \
-                        'passwords.len': self.passwords_len, \
-                        'passwords.contains': self.passwords_contains, \
-                        'passwords.getitem': self.passwords_getitem, \
-                        'passwords.size': self.passwords_size, \
-                        'essids.essids': self.essids_essids, \
-                        'essids.keys': self.essids_keys, \
-                        'essids.len': self.essids_len, \
-                        'essids.contains': self.essids_contains, \
-                        'essids.getitem': self.essids_getitem, \
-                        'essids.setitem': self.essids_setitem, \
-                        'essids.delitem': self.essids_delitem, \
-                        'essids.keycount': self.essids_keycount, \
-                        'essids.containskey': self.essids_containskey, \
-                        'essids.createessid': self.essids_create_essid}
-        self.register_instance(self)
-
-    def _dispatch(self, method, params):
-        if method not in self.methods:
-            raise AttributeError
-        else:
-            return self.methods[method](*params)
+        self.start()
 
     def getStats(self):
         return self.storage.getStats()
@@ -740,8 +803,16 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
         newkey, buf = PAW2_Buffer(self.storage.passwords[key]).pack()
         return xmlrpclib.Binary(buf)
 
+    def passwords_delitem(self, key):
+        del self.storage.passwords[key]
+        return True
+
     def passwords_size(self, key):
         return self.storage.passwords.size(key)
+    
+    def passwords_flush(self, pw_h1, bucket):
+        self.storage.passwords._flush_bucket(pw_h1, set(bucket))
+        return True
 
     def essids_essids(self):
         return list(self.storage.essids)
@@ -772,8 +843,10 @@ class RPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer):
         self.storage.essids[essid, key] = results
         return True
 
-    def essids_delitem(self, essid):
-        del self.storage.essids[essid]
+    def essids_delitem(self, essid, key=None):
+        if key == '':
+            key = None
+        del self.storage.essids[essid, key]
         return True
 
     def essids_keycount(self, essid):
@@ -999,15 +1072,10 @@ if 'sqlalchemy' in sys.modules:
                     result_obj.pack(results)
                     session.commit()
 
-        def __delitem__(self, item):
-            """Delete the given (ESSID:key)-resultset or the entire ESSID
+        def __delitem__(self, (essid, key)):
+            """Delete the given ESSID:key resultset or the entire ESSID
                and all results from the storage.
             """
-            if type(item) is tuple:
-                essid, key = item
-            else:
-                essid = item
-                key = None
             with SessionContext(self.SessionClass) as session:
                 essid_query = session.query(ESSID_DBObject)
                 essid_query = essid_query.filter(ESSID_DBObject.essid == essid)
