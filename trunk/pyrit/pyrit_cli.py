@@ -27,7 +27,6 @@ import itertools
 import os
 import random
 import sys
-import threading
 import time
 
 import cpyrit.cpyrit
@@ -277,7 +276,7 @@ class Pyrit_CLI(object):
                 if sys.stdin.readline().strip() != 'y':
                     raise PyritRuntimeError("aborted.")
             self.tell("deleting...")
-            del storage.essids[essid]
+            del storage.essids[essid, None]
             self.tell("Deleted ESSID '%s'." % essid)
     delete_essid.cli_options = (('-e', '-u'), ())
 
@@ -730,7 +729,7 @@ class Pyrit_CLI(object):
             try:
                 with cpyrit.util.AsyncFileWriter(outfile) as writer:
                     with cpyrit.util.CowpattyFile(writer, 'w', essid) as cowpwriter:
-                        with cpyrit.util.PassthroughIterator(essid, reader) as rstiter:
+                        with cpyrit.cpyrit.PassthroughIterator(essid, reader) as rstiter:
                             for results in rstiter:
                                 cowpwriter.write(results)
                                 perfcounter += len(results)
@@ -796,7 +795,7 @@ class Pyrit_CLI(object):
         for cur_essid in essids:
             perfcounter = cpyrit.util.PerformanceCounter()
             self.tell("Working on ESSID '%s'" % cur_essid)
-            with cpyrit.util.StorageIterator(storage, cur_essid, \
+            with cpyrit.cpyrit.StorageIterator(storage, cur_essid, \
                         yieldOldResults=cowpwriter is not None) as dbiterator:
                 totalKeys = len(dbiterator)
                 for results in dbiterator:
@@ -840,12 +839,12 @@ class Pyrit_CLI(object):
           ... and the client (where the big GPU is):
           pyrit -u http://192.168.0.100:17934 batch 
         """
-        rpcd = cpyrit.storage.RPCServer(storage)
-        self.tell("Server started...")
-        try:
-            rpcd.serve_forever()
-        except (KeyboardInterrupt, SystemExit):
-            pass
+        with cpyrit.storage.StorageRelay(storage) as rpcd:
+            self.tell("Server started...")
+            try:
+                rpcd.serve_forever()
+            except (KeyboardInterrupt, SystemExit):
+                pass
         self.tell("Server closed")
     relay.cli_options = (('-u', ), ())
 
@@ -882,7 +881,9 @@ class Pyrit_CLI(object):
                 self.tell("\rServing %i active clients; %i PMKs/s; %.1f TTS" % (len(server), perfcounter.avg, y), end=None)
         except (KeyboardInterrupt, SystemExit):
             self.tell("\nShutdown with %i active clients..." % len(server))
+            print "linstener"
             listener.shutdown()
+            print "server"
             server.shutdown()
     serve.cli_options = ((), ())
 
@@ -921,7 +922,7 @@ class Pyrit_CLI(object):
             for auth in auths:
                 crackers.append(cpyrit.pckttools.EAPOLCracker(auth))
         with cpyrit.util.FileWrapper(infile) as reader:
-            with cpyrit.util.PassthroughIterator(essid, reader) as rstiter:
+            with cpyrit.cpyrit.PassthroughIterator(essid, reader) as rstiter:
                 for results in rstiter:
                     for cracker in crackers:
                         cracker.enqueue(results)
@@ -986,7 +987,7 @@ class Pyrit_CLI(object):
             self.tell("Attacking %i handshake(s)." % (len(auths),))        
         for auth in auths if all_handshakes else auths[:1]:
             with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
-                with cpyrit.util.StorageIterator(storage, essid) as dbiter:
+                with cpyrit.cpyrit.StorageIterator(storage, essid) as dbiter:
                     self.tell("Attacking handshake with Station %s" % auth.station)
                     for idx, results in enumerate(dbiter):
                         cracker.enqueue(results)
@@ -1051,7 +1052,7 @@ class Pyrit_CLI(object):
             with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
                 self.tell("Attacking handshake with " \
                           "Station %s..." % auth.station)
-                for idx, results in enumerate(cpyrit.util.StorageIterator(
+                for idx, results in enumerate(cpyrit.cpyrit.StorageIterator(
                                                 storage, essid,
                                                 yieldNewResults=False)):
                     cracker.enqueue(results)
@@ -1334,7 +1335,7 @@ class Pyrit_CLI(object):
            does not check the value of computed results (see verify).
            
            For example:
-           pyrit checkdb
+           pyrit check_db
         """
         
         # Check passwords
@@ -1381,7 +1382,7 @@ class Pyrit_CLI(object):
                             raise cpyrit.storage.StorageError("Password not" \
                                                               " in resultset")
                 except cpyrit.storage.StorageError, e:
-                    self.tell("Error in results %s for ESSID %s:" \
+                    self.tell("Error in results %s for ESSID '%s':" \
                               " %s" % (key, essid, e), stream=sys.stderr)
                     if key not in wu_errors:
                         res_errors.append((essid, key))

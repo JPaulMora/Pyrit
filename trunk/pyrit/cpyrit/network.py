@@ -26,9 +26,9 @@ import threading
 import xmlrpclib
 
 import storage
+import util
 
-
-class NetworkClient(threading.Thread):
+class NetworkClient(util.Thread):
 
     class NetworkGatherer(threading.Thread):
 
@@ -60,7 +60,7 @@ class NetworkClient(threading.Thread):
             self.join()
 
     def __init__(self, srv_addr, enqueue_callback, known_uuids):
-        threading.Thread.__init__(self)
+        util.Thread.__init__(self)
         self.server = xmlrpclib.ServerProxy("http://%s:%s" % srv_addr)
         self.srv_uuid, self.uuid = self.server.register(";".join(known_uuids))
         if not self.uuid:
@@ -72,7 +72,6 @@ class NetworkClient(threading.Thread):
         self.stat_scattered = self.stat_sent = 0
         self.results = []
         self.lastseen = time.time()
-        self.shallStop = False
         self.setDaemon(True)
 
     def run(self):
@@ -107,18 +106,14 @@ class NetworkClient(threading.Thread):
             self.cv.notifyAll()
             self.stat_scattered += len(results)
 
-    def shutdown(self):
-        self.shallStop = True
-        self.join()
-
     def ping(self):
         self.lastseen = time.time()
 
 
-class NetworkServer(threading.Thread):
+class NetworkServer(util.Thread):
 
     def __init__(self):
-        threading.Thread.__init__(self)
+        util.Thread.__init__(self)
         import cpyrit
         self.cp = cpyrit.CPyrit()
         self.clients_lock = threading.Lock()
@@ -126,7 +121,6 @@ class NetworkServer(threading.Thread):
         self.pending_clients = []
         self.stat_gathered = self.stat_enqueued = 0
         self.stat_scattered = 0
-        self.shallStop = False
         self.enqueue_lock = threading.Lock()
         self.setDaemon(True)
         self.start()
@@ -196,11 +190,11 @@ class NetworkServer(threading.Thread):
         self.join()
 
 
-class NetworkAnnouncer(threading.Thread):
+class NetworkAnnouncer(util.Thread):
     """Announce the existence of a server via UDP-unicast and -broadcast"""
 
     def __init__(self, port=17935, clients=[], broadcast=True):
-        threading.Thread.__init__(self)
+        util.Thread.__init__(self)
         self.port = port
         self.clients = clients
         msg = '\x00'.join(["PyritServerAnnouncement",
@@ -217,7 +211,6 @@ class NetworkAnnouncer(threading.Thread):
                                        socket.SO_BROADCAST, 1)
         else:
             self.bcast_sckt = None
-        self.shallStop = False
         self.setDaemon(True)
         self.start()
 
@@ -229,22 +222,17 @@ class NetworkAnnouncer(threading.Thread):
                 self.bcast_sckt.sendto(self.msg, ('<broadcast>', 17935))
             time.sleep(1)
 
-    def shutdown(self):
-        self.shallStop = True
-        self.join()
 
-
-class NetworkAnnouncementListener(threading.Thread):
+class NetworkAnnouncementListener(util.Thread):
 
     def __init__(self):
-        threading.Thread.__init__(self)
+        util.Thread.__init__(self)
         self.cv = threading.Condition()
         self.servers = []
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.bind(('', 17935))
-        self.shallStop = False
         self.setDaemon(True)
         self.start()
 
@@ -296,5 +284,4 @@ class NetworkAnnouncementListener(threading.Thread):
             self.sock.shutdown(socket.SHUT_RDWR)
         except socket.error:
             pass
-        self.shallStop = True
-        self.join()
+        util.Thread.shutdown(self)

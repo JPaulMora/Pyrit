@@ -38,12 +38,11 @@ BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
 del fast_address_string
 
 import hashlib
-import select
-import SimpleXMLRPCServer
+import random
 import socket
 import sys
-import time
 import threading
+import time
 import uuid
 import util
 import warnings
@@ -52,6 +51,7 @@ import xmlrpclib
 import config
 import network
 import storage
+import util
 import _cpyrit_cpu
 
 
@@ -62,7 +62,7 @@ def version_check(mod):
                      "('%s')\n" % (_cpyrit_cpu, _cpyrit_cpu.VERSION, mod, ver))
 
 
-class Core(threading.Thread):
+class Core(util.Thread):
     """The class Core provides basic scheduling and testing. It should not be
        used directly but through sub-classes.
 
@@ -80,7 +80,7 @@ class Core(threading.Thread):
 
     def __init__(self, queue):
         """Create a new Core that pulls work from the given CPyrit instance."""
-        threading.Thread.__init__(self)
+        util.Thread.__init__(self)
         self.queue = queue
         self.compTime = self.resCount = self.callCount = 0
         self.isTested = False
@@ -124,10 +124,6 @@ class Core(threading.Thread):
 
     def __str__(self):
         return self.name
-
-    def shutdown(self):
-        self.shallStop = True
-        self.join()
 
 
 class CPUCore(Core, _cpyrit_cpu.CPUDevice):
@@ -287,12 +283,12 @@ else:
             self.start()
 
 
-class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
+class NetworkCore(Core, util.AsyncXMLRPCServer):
 
-    class NetworkObserver(threading.Thread):
+    class NetworkObserver(util.Thread):
 
         def __init__(self, core):
-            threading.Thread.__init__(self)
+            util.Thread.__init__(self)
             self.core = core
             self.setDaemon(True)
             self.start()
@@ -316,17 +312,15 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
             self.lastseen = time.time()
 
     def __init__(self, queue, host='', port=17935):
-        SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, (host, port), \
-                                                        logRequests=False)
+        util.AsyncXMLRPCServer.__init__(self, (host, port))
         Core.__init__(self, queue)
         self.name = "Network-Clients"
         self.uuid = str(uuid.uuid4())
-        self.methods = {'register': self.rpc_register, \
-                        'unregister': self.rpc_unregister, \
-                        'gather': self.rpc_gather, \
-                        'scatter': self.rpc_scatter, \
-                        'revoke': self.rpc_revoke}
-        self.register_instance(self)
+        self.methods['register'] = self.rpc_register
+        self.methods['unregister'] = self.rpc_unregister
+        self.methods['gather'] = self.rpc_gather
+        self.methods['scatter'] = self.rpc_scatter
+        self.methods['revoke'] = self.rpc_revoke
         self.client_lock = threading.Lock()
         self.clients = {}
         self.host = host
@@ -334,18 +328,6 @@ class NetworkCore(Core, SimpleXMLRPCServer.SimpleXMLRPCServer):
         self.observer = self.NetworkObserver(self)
         self.startTime = time.time()
         self.start()
-
-    def _dispatch(self, method, params):
-        if method not in self.methods:
-            raise AttributeError
-        else:
-            return self.methods[method](*params)
-
-    def run(self):
-        while not self.shallStop:
-            r, w, e = select.select([self], [], [], 0.5)
-            if r:
-                self.handle_request()
 
     def _get_client(self, uuid):
         with self.client_lock:
@@ -722,3 +704,117 @@ class CPyrit(object):
                 d[idx] = passwordlist[ptr:ptr + length]
                 ptr += length
             self.cv.notifyAll()
+
+
+class StorageIterator(object):
+    """Iterates over the database, computes new Pairwise Master Keys if
+       necessary and requested and yields tuples of (password,PMK)-tuples.
+    """
+
+    def __init__(self, storage, essid, \
+                 yieldOldResults=True, yieldNewResults=True):
+        self.cp = CPyrit() if yieldNewResults else None
+        self.workunits = []
+        self.essid = essid
+        self.storage = storage
+        keys = list(self.storage.passwords)
+        random.shuffle(keys)
+        self.iterkeys = iter(keys)
+        self.yieldOldResults = yieldOldResults
+        self.yieldNewResults = yieldNewResults
+
+    def keycount(self):
+        return self.storage.essids.keycount(self.essid)
+
+    def __len__(self):
+        return len(self.storage.passwords)
+
+    def __iter__(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.cp is not None:
+            self.cp.shutdown()
+
+    def next(self):
+        while True:
+            try:
+                key = self.iterkeys.next()
+            except StopIteration:
+                if self.yieldNewResults:
+                    solvedPMKs = self.cp.dequeue(block=True)
+                    if solvedPMKs is not None:
+                        solvedEssid, solvedKey, solvedPasswords = \
+                          self.workunits.pop(0)
+                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        self.storage.essids[solvedEssid, solvedKey] = \
+                          solvedResults
+                        return solvedResults
+                assert len(self.workunits) == 0
+                raise StopIteration
+            else:
+                if self.yieldOldResults:
+                    try:
+                        results = self.storage.essids[self.essid, key]
+                    except KeyError:
+                        pass
+                    else:
+                        return results
+                if self.yieldNewResults:
+                    passwords = self.storage.passwords[key]
+                    self.workunits.append((self.essid, key, passwords))
+                    self.cp.enqueue(self.essid, passwords)
+                    solvedPMKs = self.cp.dequeue(block=False)
+                    if solvedPMKs is not None:
+                        solvedEssid, solvedKey, solvedPasswords = \
+                          self.workunits.pop(0)
+                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        self.storage.essids[solvedEssid, solvedKey] = \
+                          solvedResults
+                        return solvedResults
+
+
+class PassthroughIterator(object):
+    """A iterator that takes an ESSID and an iterable of passwords, computes
+       the corresponding Pairwise Master Keys and and yields tuples of
+       (password,PMK)-tuples.
+    """
+
+    def __init__(self, essid, iterable, buffersize=20000):
+        self.cp = CPyrit()
+        self.essid = essid
+        self.iterator = iter(iterable)
+        self.workunits = []
+        self.buffersize = buffersize
+
+    def __iter__(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cp.shutdown()
+
+    def next(self):
+        pwbuffer = []
+        for line in self.iterator:
+            pw = line.strip('\r\n')[:63]
+            if len(pw) >= 8:
+                pwbuffer.append(pw)
+            if len(pwbuffer) > self.buffersize:
+                self.workunits.append(pwbuffer)
+                self.cp.enqueue(self.essid, self.workunits[-1])
+                pwbuffer = []
+                solvedPMKs = self.cp.dequeue(block=False)
+                if solvedPMKs is not None:
+                    return zip(self.workunits.pop(0), solvedPMKs)
+        if len(pwbuffer) > 0:
+            self.workunits.append(pwbuffer)
+            self.cp.enqueue(self.essid, self.workunits[-1])
+        for solvedPMKs in self.cp:
+            return zip(self.workunits.pop(0), solvedPMKs)
+        raise StopIteration
