@@ -75,7 +75,7 @@ def handle_xmlfault(*params):
             except xmlrpclib.Fault, e:
                 # rpc does not know Exceptions so they always come as pure
                 # strings. One way would be to hack into the de-marshalling.
-                # These seems easier and lets intrusive.
+                # These seems easier and less intrusive.
                 match = XMLFAULT.match(e.faultString)
                 if match is None:
                     raise
@@ -764,8 +764,6 @@ class StorageRelay(util.AsyncXMLRPCServer):
 
     def __init__(self, storage, iface='', port=17934):
         util.AsyncXMLRPCServer.__init__(self, (iface, port))
-        # Make the main socket non-blocking (for accept())
-        self.socket.settimeout(0.1)
         self.methods['getStats'] = self.getStats
         self.methods['passwords.keys'] = self.passwords_keys
         self.methods['passwords.len'] = self.passwords_len

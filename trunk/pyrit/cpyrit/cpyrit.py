@@ -117,9 +117,12 @@ class Core(util.Thread):
                 self.compTime += time.time() - t
                 self.resCount += len(res)
                 self.callCount += 1
-                avg = (2 * self.buffersize + (self.resCount / self.compTime * 3)) / 3
-                self.buffersize = int(max(self.minBufferSize,
-                                  min(self.maxBufferSize, avg)))
+                if self.compTime > 0:
+                    # carefully move towards three seconds of execution-time
+                    avg = (2 * self.buffersize + \
+                           (self.resCount / self.compTime * 3)) / 3
+                    self.buffersize = int(max(self.minBufferSize,
+                                              min(self.maxBufferSize, avg)))
                 self.queue._scatter(essid, pwlist, res)
 
     def __str__(self):

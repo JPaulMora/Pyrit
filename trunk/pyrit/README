@@ -27,15 +27,15 @@ A couple of libraries and headers are required to build Pyrit:
     http://www.openssl.org
   * The Pcap library and it's headers
     http://www.tcpdump.org
-  * Scapy 2.x (optional/runtime)
+  * Scapy >=2.x (optional/runtime)
     http://www.secdev.org/projects/scapy/
-  * SQLAlchemy (optional/runtime)
+  * SQLAlchemy >=0.5 (optional/runtime)
     http://www.sqlalchemy.org
 
 Linux users running a binary distribution may need to install the development
 packages for Python (e.g. python-devel), OpenSSL (e.g. openssl-devel or
-libssl-dev). You also need a C-compiler like gcc. Users of MacOS probably
-only need to have Xcode installed.
+libssl-dev) and libpcap (e.g. libpcap-devel). You also need a C-compiler
+like gcc. Users of MacOS probably only need to have Xcode installed.
 
 
 
@@ -44,13 +44,13 @@ Installing
 
 Unpack the source-code into a new directory like this:
 
-    tar xvzf pyrit-0.3.0.tar.gz
+    tar xvzf pyrit-0.4.0.tar.gz
 
 
 Switch to the main module's directory. We use Python's distutils to compile and
 install the code:
 
-    cd pyrit-0.3.0
+    cd pyrit-0.4.0
     python setup.py build
 
 

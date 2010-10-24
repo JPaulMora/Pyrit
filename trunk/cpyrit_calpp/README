@@ -12,9 +12,7 @@ Requirements
 ++++++++++++
 
 CPyrit-CAL++ compiles and runs on Linux and MacOS. Windows is not (and
-probably never will be) supported; there are however some reports of successful
-installations on Windows with the help of MinGW.
-
+probably never will be) supported.
 A couple of libraries and headers are required to build CPyrit-CAL++:
 
   * Python >=2.5 and it's headers
@@ -32,7 +30,7 @@ packages for Python (e.g. python-devel), OpenSSL (e.g. openssl-devel or
 libssl-dev). You also need a C++ compiler like gcc.
 Users of MacOS probably only need to have XCode installed.
 
-By default, setup.py looks into directory pointed by enviroment variable
+By default, setup.py looks into directory pointed by environment variable
 ATISTREAMSDKROOT to find the ATI CAL headers. Modify setup.py if you have
 installed these elsewhere.
 
@@ -43,13 +41,13 @@ Installing
 
 Unpack the source-code into a new directory like this:
 
-    tar xvzf cpyrit-calpp-0.3.0.tar.gz
+    tar xvzf cpyrit-calpp-0.4.0.tar.gz
 
 
 Switch to the module's directory. We use Python's distutils to compile and
 install the code:
 
-    cd cpyrit-calpp-0.3.0
+    cd cpyrit-calpp-0.4.0
     python setup.py build
 
 

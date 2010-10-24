@@ -27,14 +27,16 @@ import re
 import subprocess
 import sys
 
+VERSION = '0.4.0-dev' 
+
 try:
     svn_info = subprocess.Popen(('svn', 'info'), \
                                 stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.2.5-dev (svn r%i)' % \
-                    int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+    VERSION += ' (svn r%i)' % \
+                int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = '0.2.5-dev'
-EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
+    pass
+EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % (VERSION,)]
 
 null_extension = Extension('cpyrit._cpyrit_null',
                     sources = ['_cpyrit_null.c'],
@@ -42,7 +44,7 @@ null_extension = Extension('cpyrit._cpyrit_null',
 
 setup_args = dict(
         name = 'cpyrit-null',
-        version = '0.2.5',
+        version = VERSION,
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
@@ -50,7 +52,7 @@ setup_args = dict(
         url = 'http://pyrit.googlecode.com',
         ext_modules = [null_extension],
         options = {'install': {'optimize':1}, \
-                   'bdist_rpm': {'requires': 'pyrit = 0.2.5-1'}})
+                   'bdist_rpm': {'requires': 'pyrit = 0.4.0-1'}})
 
 if __name__ == "__main__":
     setup(**setup_args)

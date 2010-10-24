@@ -42,13 +42,13 @@ Installing
 
 Unpack the source-code into a new directory like this:
 
-    tar xvzf cpyrit-opencl-0.3.0.tar.gz
+    tar xvzf cpyrit-opencl-0.4.0.tar.gz
 
 
 Switch to the module's directory. We use Python's distutils to compile and
 install the code:
 
-    cd cpyrit-opencl-0.3.0
+    cd cpyrit-opencl-0.4.0
     python setup.py build
 
 

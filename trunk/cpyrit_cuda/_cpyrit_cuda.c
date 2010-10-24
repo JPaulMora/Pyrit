@@ -1,6 +1,6 @@
 /*
 #
-#    Copyright 2008, 2009, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -45,9 +45,6 @@
 
 // Created by NVCC and setup.py
 #include "_cpyrit_cudakernel.ptx.h"
-
-#define ALIGN_UP(offset, alignment) \
-    (offset) = ((offset) + (alignment) - 1) & ~((alignment) - 1)
 
 static PyTypeObject CUDADevice_type;
 

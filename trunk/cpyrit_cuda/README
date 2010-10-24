@@ -11,7 +11,7 @@ http://code.google.com/p/pyrit/
 Requirements
 ++++++++++++
 
-CPyrit-CUDA compiles and runs on Linuxe and MacOS. Windows is not (and
+CPyrit-CUDA compiles and runs on Linux and MacOS. Windows is not (and
 probably never will be) supported; there are however some reports of successful
 installations on Windows with the help of MinGW.
 
@@ -41,13 +41,13 @@ Installing
 
 Unpack the source-code into a new directory like this:
 
-    tar xvzf cpyrit-cuda-0.3.0.tar.gz
+    tar xvzf cpyrit-cuda-0.4.0.tar.gz
 
 
 Switch to the module's directory. We use Python's distutils to compile and
 install the code:
 
-    cd cpyrit-cuda-0.3.0
+    cd cpyrit-cuda-0.4.0
     python setup.py build
 
 
