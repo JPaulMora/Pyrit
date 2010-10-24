@@ -25,13 +25,7 @@
 
 from __future__ import with_statement
 
-# prevent call to socket.getfqdn
 import BaseHTTPServer
-def fast_address_string(self):
-    return '%s' % self.client_address[0]
-BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
-del fast_address_string
-
 import hashlib
 import os
 import random
@@ -55,12 +49,21 @@ else:
 import config
 import util
 
+
+# prevent call to socket.getfqdn
+def fast_address_string(self):
+    return '%s' % self.client_address[0]
+BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
+del fast_address_string
+
+
 MAX_WORKUNIT_SIZE = int(config.cfg['workunit_size'])
 if MAX_WORKUNIT_SIZE < 1 or MAX_WORKUNIT_SIZE > 1000000:
     raise ValueError("Invalid 'workunit_size' in configuration")
 
 URL_GROUPER = re.compile("(?P<protocol>\w+)://(((?P<user>\w+):?(?P<passwd>\w+)?@)?(?P<tail>.+))?")
 XMLFAULT = re.compile("\<class '(?P<class>[\w\.]+)'\>:(?P<fault>.+)")
+
 
 def handle_xmlfault(*params):
     """Decorate a function to check for and rebuild storage exceptions from
@@ -95,6 +98,7 @@ def handle_xmlfault(*params):
         return protected_f
     return check_xmlfault
 
+
 def pruneURL(url):
     """Remove user/passwd from a storage-url"""
     match = URL_GROUPER.match(url)
@@ -109,6 +113,7 @@ def pruneURL(url):
         if tail is None:
             tail = ''
         return "%s://%s" % (protocol, tail)
+
 
 def getStorage(url):
     if not '://' in url:
@@ -164,7 +169,8 @@ class BasePYR_Buffer(object):
     def unpack(self, buf):
         if len(buf) < self.pyr_len:
             raise StorageError("Buffer too short")
-        self._magic, essidlen = struct.unpack(self.pyr_head, buf[:self.pyr_len])
+        self._magic, essidlen = struct.unpack(self.pyr_head, \
+                                              buf[:self.pyr_len])
         if self._magic == 'PYR2':
             self._delimiter = '\n'
         elif self._magic == 'PYRT':
@@ -188,7 +194,8 @@ class BasePYR_Buffer(object):
     def _unpack(self):
         with self._unpackLock:
             if hasattr(self, '_pwbuffer'):
-                pwbuffer = zlib.decompress(self._pwbuffer).split(self._delimiter)
+                pwbuffer = zlib.decompress(self._pwbuffer)
+                pwbuffer = pwbuffer.split(self._delimiter)
                 assert len(pwbuffer) == self._numElems
                 md = hashlib.md5()
                 md.update(self.essid)
@@ -231,6 +238,7 @@ class BasePYR_Buffer(object):
 
 class PYRT_Buffer(BasePYR_Buffer):
     pass
+
 
 class PYR2_Buffer(BasePYR_Buffer):
 
@@ -437,7 +445,7 @@ class FSEssidStore(ESSIDStore):
                 self.essids[essid] = (essidpath, {})
                 for pyrfile in os.listdir(essidpath):
                     if pyrfile.endswith('.pyr'):
-                        self.essids[essid][1][pyrfile[:len(pyrfile)-4]] = \
+                        self.essids[essid][1][pyrfile[:len(pyrfile) - 4]] = \
                                             os.path.join(essidpath, pyrfile)
             else:
                 print >>sys.stderr, "ESSID %s is corrupted." % essid_hash
@@ -560,7 +568,7 @@ class FSPasswordStore(PasswordStore):
             for pwfile in os.listdir(pwpath):
                 if pwfile[-3:] != '.pw':
                     continue
-                self.pwfiles[pwfile[:len(pwfile)-3]] = pwpath
+                self.pwfiles[pwfile[:len(pwfile) - 3]] = pwpath
 
     def __contains__(self, key):
         """Return True if the given key is currently in the storage."""
@@ -807,7 +815,7 @@ class StorageRelay(util.AsyncXMLRPCServer):
 
     def passwords_size(self, key):
         return self.storage.passwords.size(key)
-    
+
     def passwords_flush(self, pw_h1, bucket):
         self.storage.passwords._flush_bucket(pw_h1, set(bucket))
         return True
@@ -1163,7 +1171,7 @@ if 'sqlalchemy' in sys.modules:
             with SessionContext(self.SessionClass) as session:
                 q = session.query(PAW2_DBObject)
                 return q.filter(PAW2_DBObject.key == key).one()
-        
+
         def __delitem__(self, key):
             """Delete the collection of passwords indexed by the given key."""
             with SessionContext(self.SessionClass) as session:

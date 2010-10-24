@@ -23,11 +23,11 @@
 
    Tests are done by creating a sandbox and executing the cli-functions
    normally executed by the user.
-   
+
    Please notice that the tests backed by the storage-relay open a TCP
    socket bound to localhost.
 """
-   
+
 
 from __future__ import with_statement
 
@@ -44,6 +44,7 @@ import cpyrit.util
 import pyrit_cli
 
 cpyrit.config.cfg["rpc_server"] = "false"
+
 
 def requires_pckttools(*params):
     """Decorate a function to check for cpyrit.cpyrit_pckttools
@@ -134,7 +135,7 @@ class BaseTestCase(unittest.TestCase):
         shutil.rmtree(self.storage_path)
 
     def _createPasswords(self, filename):
-        test_passwds = ['test123%i' % i for i in xrange(5000-5)]
+        test_passwds = ['test123%i' % i for i in xrange(5000 - 5)]
         test_passwds += ['dictionary', 'helium02', 'MOM12345', \
                          'preinstall', 'password']
         random.shuffle(test_passwds)
@@ -150,8 +151,8 @@ class BaseTestCase(unittest.TestCase):
     def _computeFakeDatabase(self, storage, essid):
         self.cli.create_essid(storage, essid)
         for key, passwords in storage.passwords.iteritems():
-            storage.essids[essid, key] = [(pw, 'x'*32) for pw in passwords]
-        
+            storage.essids[essid, key] = [(pw, 'x' * 32) for pw in passwords]
+
     def _computeDatabase(self, storage, essid):
         self.cli.create_essid(storage, essid)
         l = 0
@@ -303,21 +304,22 @@ class TestCase(BaseTestCase):
         self._computeFakeDatabase(storage, 'test1')
         self._computeFakeDatabase(storage, 'test2')
         self.cli.eval_results(storage)
-        
+
     def testVerify(self):
         storage = self.getStorage()
         self._createDatabase(storage)
         self._computeDatabase(storage, 'test')
         # Should be OK
         self.cli.verify(storage)
-        keys = list(storage.essids.iterkeys('test')) 
+        keys = list(storage.essids.iterkeys('test'))
         for i in xrange(25):
             key = random.choice(keys)
             results = storage.essids['test', key]
-            corrupted = tuple((pw, 'x'*32) for pw, pmk in results)
+            corrupted = tuple((pw, 'x' * 32) for pw, pmk in results)
             storage.essids['test', key] = corrupted
         # Should fail
-        self.assertRaises(pyrit_cli.PyritRuntimeError, self.cli.verify, storage)
+        self.assertRaises(pyrit_cli.PyritRuntimeError, \
+                          self.cli.verify, storage)
 
     def testCheckDB(self):
         storage = self.getStorage()
@@ -363,14 +365,15 @@ class TestCase(BaseTestCase):
 
 
 class RPCTestCase(TestCase, FilesystemFunctions):
-    
+
     def getStorage(self):
         return cpyrit.storage.getStorage('http://127.0.0.1:17934')
 
     def setUp(self):
         TestCase.setUp(self)
         self.backend = FilesystemFunctions.getStorage(self)
-        self.server = cpyrit.storage.StorageRelay(self.backend, iface='127.0.0.1')
+        self.server = cpyrit.storage.StorageRelay(self.backend, \
+                                                  iface='127.0.0.1')
 
     def tearDown(self):
         self.server.shutdown()
@@ -393,7 +396,7 @@ class DatabaseTestCase(TestCase):
         tbl = cpyrit.storage.passwords_table
         for i in xrange(13):
             key = random.choice(keys)
-            sql = tbl.update().where(tbl.c._key==key)
+            sql = tbl.update().where(tbl.c._key == key)
             if i % 2 == 0:
                 buf = 'x'
             else:
@@ -411,10 +414,10 @@ class DatabaseTestCase(TestCase):
             if i % 3 == 0:
                 # Delete workunit
                 # Should cause a reference-error
-                sql = tbl.delete().where(tbl.c._key==key)
+                sql = tbl.delete().where(tbl.c._key == key)
             else:
                 # Corrupt it
-                sql = tbl.update().where(tbl.c._key==key)
+                sql = tbl.update().where(tbl.c._key == key)
                 if i % 2 == 0:
                     buf = 'x'
                 else:
@@ -444,7 +447,7 @@ class FilesystemTestCase(TestCase, FilesystemFunctions):
     def testHandshakes(self):
         for filename, essid, ap, sta, passwd in self.handshakes:
             self._testHandshake(filename, essid, ap, sta, passwd)
-    
+
     @requires_pckttools()
     def testAnalyze(self):
         self.cli.analyze(capturefile='wpapsk-linksys.dump.gz')
@@ -465,7 +468,7 @@ class FilesystemTestCase(TestCase, FilesystemFunctions):
             self.cli.stripCapture(filename, self.tempfile1)
             self._testHandshake(self.tempfile1, essid, ap, sta, passwd)
 
-    @requires_pckttools()            
+    @requires_pckttools()
     def testStripLive(self):
         self.cli.stripLive('wpa2psk-linksys.dump.gz', self.tempfile1)
         parser = self.cli._getParser(self.tempfile1)
@@ -491,8 +494,8 @@ def _runTests(case):
 if __name__ == "__main__":
     print "Testing with filesystem-storage..."
     if not _runTests(FilesystemTestCase):
-       sys.exit(1)
-    
+        sys.exit(1)
+
     # should have been imported by cpyrit.storage
     if 'sqlalchemy' not in sys.modules:
         print "SQLAlchemy seems to be unavailable; skipping all tests..."

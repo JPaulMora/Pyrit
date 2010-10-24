@@ -28,6 +28,7 @@ import xmlrpclib
 import storage
 import util
 
+
 class NetworkClient(util.Thread):
 
     class NetworkGatherer(threading.Thread):
@@ -35,7 +36,8 @@ class NetworkClient(util.Thread):
         def __init__(self, client):
             threading.Thread.__init__(self)
             self.client = client
-            self.server = xmlrpclib.ServerProxy("http://%s:%s" % client.srv_addr)
+            self.server = xmlrpclib.ServerProxy("http://%s:%s" % \
+                                                client.srv_addr)
             self.shallStop = False
             self.setDaemon(True)
             self.start()
@@ -44,7 +46,8 @@ class NetworkClient(util.Thread):
             while not self.shallStop:
                 #TODO calculate optimal max buffersize
                 try:
-                    essid, pwbuffer = self.server.gather(self.client.uuid, 5000)
+                    essid, pwbuffer = \
+                        self.server.gather(self.client.uuid, 5000)
                 except socket.error:
                     break
                 if essid != '' or pwbuffer != '':
@@ -82,7 +85,8 @@ class NetworkClient(util.Thread):
                     while len(self.results) == 0 and self.shallStop is False \
                           and self.gatherer.isAlive():
                         self.cv.wait(1)
-                    if self.shallStop is not False or not self.gatherer.isAlive():
+                    if self.shallStop is not False \
+                     or not self.gatherer.isAlive():
                         break
                     solvedPMKs = self.results.pop(0)
                 buf = ''.join(solvedPMKs)
@@ -164,7 +168,8 @@ class NetworkServer(util.Thread):
                         self.stat_scattered += len(solvedPMKs)
             with self.clients_lock:
                 for client in self.clients.values():
-                    if not client.isAlive() or time.time() - client.lastseen > 15.0:
+                    if not client.isAlive() or \
+                     time.time() - client.lastseen > 15.0:
                         del self.clients[client.uuid]
             if not self.cp.isAlive():
                 self.shallStop == True
@@ -172,7 +177,8 @@ class NetworkServer(util.Thread):
 
     def __contains__(self, srv_addr):
         with self.clients_lock:
-            return any(c.srv_addr == srv_addr for c in self.clients.itervalues())
+            i = self.clients.itervalues()
+            return any(c.srv_addr == srv_addr for c in i)
 
     def __len__(self):
         with self.clients_lock:

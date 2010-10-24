@@ -28,15 +28,9 @@
 """
 
 from __future__ import with_statement
+
 from collections import deque
-
-# prevent call to socket.getfqdn
 import BaseHTTPServer
-def fast_address_string(self):
-    return '%s' % self.client_address[0]
-BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
-del fast_address_string
-
 import hashlib
 import random
 import socket
@@ -53,6 +47,13 @@ import network
 import storage
 import util
 import _cpyrit_cpu
+
+
+# prevent call to socket.getfqdn
+def fast_address_string(self):
+    return '%s' % self.client_address[0]
+BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
+del fast_address_string
 
 
 def version_check(mod):
@@ -154,50 +155,52 @@ class LowLatencyCore(Core):
             raise ValueError("Test-vector does not result in correct PMK.")
 
     def _processData(self, essid, pwlist, res, tm):
-        assert( len(res) == len(pwlist) )
+        assert(len(res) == len(pwlist))
         t = time.time()
-        self.compTime  += t - tm
-        self.resCount  += len(res)
+        self.compTime += t - tm
+        self.resCount += len(res)
         self.callCount += 1
         avg = (2 * self.buffersize + (self.resCount / self.compTime * 3)) / 3
-        if self.bufferSizeDiv>0:
-            avg = self.bufferSizeDiv*int((avg + self.bufferSizeDiv - 1)/self.bufferSizeDiv)
+        if self.bufferSizeDiv > 0:
+            avg = self.bufferSizeDiv * int((avg + self.bufferSizeDiv - 1) \
+                  / self.bufferSizeDiv)
         self.buffersize = int(max(self.minBufferSize,
                               min(self.maxBufferSize, avg)))
         self.queue._scatter(essid, pwlist, res)
         return t
 
     def solve(self, essid, pwlist):
-        enq = self.send(essid,pwlist)
-        assert( enq )
+        enq = self.send(essid, pwlist)
+        assert(enq)
         return self.receive(True)
 
     def run(self):
-        work_queue     = deque()
+        work_queue = deque()
         work_available = False
-        t              = time.time()
+        t = time.time()
         while not self.shallStop:
             if not work_available:
                 if not self.isTested:
                     essid, pwlist = self._getTestData(101)
                 else:
-                    essid, pwlist = self.queue._gather(self.buffersize, timeout=0.5)
+                    essid, pwlist = self.queue._gather(self.buffersize, \
+                                                       timeout=0.5)
                 if essid is not None:
-                    work_queue.append( (essid, pwlist, not self.isTested) )
+                    work_queue.append((essid, pwlist, not self.isTested))
                     self.isTested = True
                     work_available = True
-                    if len(work_queue)==1:
+                    if len(work_queue) == 1:
                         t = time.time()
-            if len(work_queue)<=0:
+            if len(work_queue) <= 0:
                 continue
             if work_available:
                 essid, pwlist, testing = work_queue[-1]
-                work_available = not self.send(essid,pwlist)
+                work_available = not self.send(essid, pwlist)
             res = self.receive(work_available)
             if res is not None:
                 essid, pwlist, testing = work_queue.popleft()
                 if not testing:
-                    t = self._processData(essid,pwlist,res,t)
+                    t = self._processData(essid, pwlist, res, t)
                 else:
                     self._testData(res)
 
@@ -207,7 +210,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's OpenCL-driven core ('%s')." % e
+    print >> sys.stderr, "Failed to load Pyrit's OpenCL-core ('%s')." % e
 else:
     version_check(_cpyrit_opencl)
 
@@ -230,7 +233,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CUDA-driven core ('%s')." % e
+    print >> sys.stderr, "Failed to load Pyrit's CUDA-core ('%s')." % e
 else:
     version_check(_cpyrit_cuda)
 
@@ -252,7 +255,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CAL-driven core ('%s')." % e
+    print >> sys.stderr, "Failed to load Pyrit's CAL-core ('%s')." % e
 else:
     version_check(_cpyrit_calpp)
 
@@ -262,8 +265,10 @@ else:
         def __init__(self, queue, dev_idx):
             LowLatencyCore.__init__(self, queue)
             _cpyrit_calpp.CALDevice.__init__(self, dev_idx)
-            self.name = "CAL++ Device #%i '%s'" % (dev_idx + 1, self.deviceName)
-            self.minBufferSize, self.buffersize, self.maxBufferSize, self.bufferSizeDiv = self.workSizes()
+            self.name = "CAL++ Device #%i '%s'" % \
+                        (dev_idx + 1, self.deviceName)
+            self.minBufferSize, self.buffersize, self.maxBufferSize, \
+                self.bufferSizeDiv = self.workSizes()
             self.start()
 
 
@@ -633,7 +638,8 @@ class CPyrit(object):
                             newslice = pwslice[:restsize]
                             del pwdict[idx]
                             if len(pwslice[len(newslice):]) > 0:
-                                pwdict[idx + len(newslice)] = pwslice[len(newslice):]
+                                pwdict[idx + len(newslice)] = \
+                                    pwslice[len(newslice):]
                             pwslices.append((idx, len(newslice)))
                             passwords.extend(newslice)
                             restsize -= len(newslice)
