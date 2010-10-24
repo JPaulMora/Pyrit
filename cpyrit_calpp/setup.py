@@ -24,6 +24,9 @@ from distutils.command.clean import clean
 import os
 import re
 import subprocess
+
+VERSION = '0.4.0-dev' 
+
 import sys
 
 CALPP_INC_DIRS = []
@@ -43,11 +46,11 @@ else:
 try:
     svn_info = subprocess.Popen(('svn', 'info'), \
                                 stdout=subprocess.PIPE).stdout.read()
-    version_string = '0.3.1-dev (svn r%i)' % \
-                    int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
+    VERSION += ' (svn r%i)' % \
+                int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
-    version_string = '0.3.1-dev'
-EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % version_string]
+    pass
+EXTRA_COMPILE_ARGS = ['-DVERSION="%s"' % (VERSION,)]
 
 
 class GPUBuilder(build_ext):
@@ -80,7 +83,7 @@ calpp_extension = Extension('cpyrit._cpyrit_calpp',
 
 setup_args = dict(
         name = 'cpyrit-calpp',
-        version = '0.3.1',
+        version = VERSION,
         description = 'GPU-accelerated attack against WPA-PSK authentication',
         long_description = \
             "Pyrit allows to create massive databases, pre-computing part " \
@@ -105,7 +108,7 @@ setup_args = dict(
         ext_modules = [calpp_extension],
         cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
         options = {'install': {'optimize': 1}, \
-                    'bdist_rpm': {'requires': 'pyrit = 0.3.1-1'}})
+                    'bdist_rpm': {'requires': 'pyrit = 0.4.0-1'}})
 
 if __name__ == "__main__":
     setup(**setup_args)

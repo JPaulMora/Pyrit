@@ -17,13 +17,9 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Various utility- and backend- related classes and data for Pyrit.
+"""Various utility- and backend-related classes and data for Pyrit.
 
    AsyncFileWriter is used for threaded, buffered output.
-
-   StorageIterator and PassthroughIterator encapsulate the repetitive task of
-   getting workunits from the database, passing them to the hardware if
-   necessary and yielding the results to a client.
 
    CowpattyFile eases reading/writing files in cowpatty's binary format.
 
@@ -414,15 +410,21 @@ class Thread(threading.Thread):
 
 
 class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
+    """A stoppable XMLRPCServer
+    
+       The main socket is made non-blocking so we can check on
+       self.shallStop from time to time.
+       
+       Sub-classes should add (name:function)-entries to self.methods
+    """
 
-    def __init__(self, storage, iface='', port=17934):
+    def __init__(self, (iface, port)=('', 17934)):
         SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, (iface, port), \
                                                         logRequests=False)
         Thread.__init__(self)
         self.setDaemon(True)
         # Make the main socket non-blocking (for accept())
-        self.socket.settimeout(0.1)
-        self.storage = storage
+        self.socket.settimeout(1)
         self.methods = {}
         self.register_instance(self)
 
@@ -443,8 +445,8 @@ class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
     
     def serve_forever(self):
         while not self.shallStop:
-            self.get_request()
-    
+            time.sleep(1)
+
     def shutdown(self):
         Thread.shutdown(self)
         self.socket.close()

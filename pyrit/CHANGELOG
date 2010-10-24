@@ -1,3 +1,24 @@
+Changes since 0.3.0:
+ * Added CPyrit-CAL++
+ * Added CLI-function 'check_db'
+ * Added CLI-option '-h'
+ * Added option to batch-create ESSIDs by reading them for a file
+ * Added man-page
+ * Complete rework of packet-parsing and handshake detection
+ * Make default workunit-size configureable (workunit_size)
+ * Make maximum number of used CPUs configurable (limit_ncpus)
+ * Use GPU-native bitwise rotation with OpenCL if possible
+ * Remove user/password from storage-url before printing it on-screen
+ * CUDA-plugin now compatible with Fermi-GPUs
+ * OpenCL-plugin now builds on MacOS 10.6
+ * Link with libcrypto instead of libssl
+ * Fixed CUDA-plugin on MacOS 10.6
+ * Fixed SSE2-detection on old CPUs
+ * Fixed database-indices
+ * Fixed rare IndexError in EAPOLCracker
+ * Numerous fixes in storage-relay code
+ * Fix deprecation-warning with sqlalchemy.Binary
+
 Changes since 0.2.4:
  * Removed CPyrit-Stream in favor of OpenCL
  * Added Network-Core
@@ -12,7 +33,7 @@ Changes since 0.2.4:
  * Added output-option to all attack-modes
  * Fixed EAPOLCracker picking the wrong KeyScheme
  * Improved lazy-loading of files
- * Sourcecode now almost completly PEP8-compliant
+ * Sourcecode now almost completely PEP8-compliant
 
 Changes since 0.2.3:
  * Added module 'pckttools'

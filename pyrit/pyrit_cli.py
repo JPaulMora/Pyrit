@@ -881,9 +881,7 @@ class Pyrit_CLI(object):
                 self.tell("\rServing %i active clients; %i PMKs/s; %.1f TTS" % (len(server), perfcounter.avg, y), end=None)
         except (KeyboardInterrupt, SystemExit):
             self.tell("\nShutdown with %i active clients..." % len(server))
-            print "linstener"
             listener.shutdown()
-            print "server"
             server.shutdown()
     serve.cli_options = ((), ())
 
