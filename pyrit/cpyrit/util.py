@@ -24,10 +24,10 @@
    CowpattyFile eases reading/writing files in cowpatty's binary format.
 
    ncpus equals the number of available CPUs in the system.
-   
+
    Thread is a subclass of threading.Thread that adds a context-manager to
    make it 'stoppable'.
-   
+
    AsyncXMLRPCServer is a stoppable (incl. 'serve_forever') subclass of
    SimpleXMLRPCServer.
 
@@ -55,6 +55,7 @@ import config
 
 __version__ = VERSION
 
+
 def _detect_ncpus():
     """Detect the number of effective CPUs in the system"""
     # Snippet taken from ParallelPython
@@ -75,6 +76,7 @@ def _detect_ncpus():
             return ncpus
     #return the default value
     return 1
+
 
 def _limit_ncpus():
     """Limit the number of reported CPUs if so requested"""
@@ -233,7 +235,7 @@ class AsyncFileWriter(threading.Thread):
        thread.
     """
 
-    def __init__(self, f, maxsize=10 * 1024**2):
+    def __init__(self, f, maxsize=10 * 1024 ** 2):
         """Create a instance writing to the given file-like-object and
            buffering maxsize before blocking.
         """
@@ -373,7 +375,8 @@ class PerformanceCounter(object):
     def __purge(self):
         t = time.time()
         if t - self.datapoints[0][0] > self.window:
-            self.datapoints = filter(lambda x: (t - x[0]) < self.window, self.datapoints)
+            self.datapoints = filter(lambda x: (t - x[0]) < self.window, \
+                                                self.datapoints)
 
     def getAvg(self):
         self.__purge()
@@ -393,7 +396,7 @@ class PerformanceCounter(object):
 
 class Thread(threading.Thread):
     """A stoppable subclass of threading.Thread"""
-    
+
     def __init__(self):
         threading.Thread.__init__(self)
         self.shallStop = False
@@ -411,10 +414,10 @@ class Thread(threading.Thread):
 
 class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
     """A stoppable XMLRPCServer
-    
+
        The main socket is made non-blocking so we can check on
        self.shallStop from time to time.
-       
+
        Sub-classes should add (name:function)-entries to self.methods
     """
 
@@ -431,7 +434,7 @@ class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
     def run(self):
         while not self.shallStop:
             self.handle_request()
-    
+
     def get_request(self):
         while not self.shallStop:
             try:
@@ -442,7 +445,7 @@ class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
                 # Accepted connections are made blocking again
                 sock.settimeout(None)
                 return sock, addr
-    
+
     def serve_forever(self):
         while not self.shallStop:
             time.sleep(1)

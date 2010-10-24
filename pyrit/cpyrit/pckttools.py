@@ -40,7 +40,8 @@ import _cpyrit_cpu
 
 try:
     import scapy.config
-    scapy.config.conf.logLevel = 40 # Suppress useless warnings from scapy...
+    # Suppress useless warnings from scapy...
+    scapy.config.conf.logLevel = 40
     import scapy.fields
     import scapy.layers.dot11
     import scapy.packet
@@ -262,7 +263,7 @@ class Station(object):
             return self._buildAuthentications(frames[0], \
                                               {response: (pckt_idx, pckt)}, \
                                               frames[2])
-    
+
     def addConfirmationFrame(self, pckt_idx, pckt):
         """Store a packet that contains the EAPOL-confirmation"""
         frames = self.frames.setdefault(pckt.ReplayCounter - 1, ({}, {}, {}))
@@ -270,7 +271,7 @@ class Station(object):
             frames[2][pckt.Nonce] = (pckt_idx, pckt)
             return self._buildAuthentications(frames[0], frames[1], \
                                               {pckt.Nonce: (pckt_idx, pckt)})
-    
+
     def _buildAuthentications(self, f1_frames, f2_frames, f3_frames):
         auths = []
         for (version, snonce, keymic_frame, WPAKeyMIC), \
@@ -314,7 +315,7 @@ class Station(object):
         auths = []
         for frames in self.frames.itervalues():
             auths.extend(self._buildAuthentications(*frames))
-        return sorted(auths) 
+        return sorted(auths)
 
     def isCompleted(self):
         """Returns True if this instance includes at least one valid
@@ -351,7 +352,7 @@ class EAPOLAuthentication(object):
             return (self.quality, self.spread) < (other.quality, other.spread)
         else:
             return self < other
-            
+
     def __gt__(self, other):
         return not self < other
 
@@ -400,7 +401,7 @@ class PcapDevice(_cpyrit_cpu.PcapDevice):
         self.filtered_stations = set()
         if fname:
             self.open_offline(fname)
-            
+
     def _setup(self):
         try:
             self.datalink_handler = scapy.config.conf.l2types[self.datalink]
@@ -419,7 +420,7 @@ class PcapDevice(_cpyrit_cpu.PcapDevice):
                           "a bug in Pyrit or because your version of " \
                           "libpcap is too old. Falling back to unfiltered " \
                           "processing...")
-    
+
     def _update_bpf_filter(self):
         """ Update the BPF-filter to exclude certain traffic from stations
             and AccessPoints once they are known.
@@ -470,7 +471,7 @@ class PcapDevice(_cpyrit_cpu.PcapDevice):
             try:
                 with util.FileWrapper(fname) as infile:
                     while True:
-                        buf = infile.read(1024**2)
+                        buf = infile.read(1024 ** 2)
                         if not buf:
                             break
                         tfile.write(buf)
@@ -506,7 +507,7 @@ class PcapDevice(_cpyrit_cpu.PcapDevice):
         if self.type is None:
             raise RuntimeError("No device/file opened yet")
         return self
-    
+
     def __exit__(self, type, value, traceback):
         self.close()
 
@@ -560,7 +561,7 @@ class PacketParser(object):
             self.new_keypckt_callback((station, idx, pckt))
         if new_auths is not None and self.new_auth_callback is not None:
             for auth in new_auths:
-                self.new_auth_callback((station, auth))    
+                self.new_auth_callback((station, auth))
 
     def parse_file(self, pcapfile):
         with PcapDevice(pcapfile, self.use_bpf) as rdr:
@@ -578,7 +579,7 @@ class PacketParser(object):
 
     def parse_pcapdevice(self, reader):
         """Parse all packets from a instance of PcapDevice.
-           
+
            This method can be very fast as it updates PcapDevice's BPF-filter
            to exclude unwanted packets from Stations once we are aware of
            their presence.
@@ -600,10 +601,10 @@ class PacketParser(object):
             self.parse_packet(pckt)
         self.new_station_callback = sta_callback
         self.new_ap_callback = ap_callback
-        
+
     def parse_packet(self, pckt):
         """Parse one packet"""
-        
+
         self.pcktcount += 1
         if not scapy.layers.dot11.Dot11 in pckt:
             return
