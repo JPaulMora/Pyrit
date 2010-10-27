@@ -33,10 +33,8 @@ VERSION = '0.4.0-dev'
 
 OPENCL_INC_DIRS = []
 OPENCL_LIB_DIRS = []
-EXTRA_COMPILE_ARGS = []
 EXTRA_LINK_ARGS = []
 LIBRARIES = ['crypto', 'z']
-
 if sys.platform == 'darwin':
     # Use the built-in framework on MacOS
     EXTRA_LINK_ARGS.extend(('-framework', 'OpenCL'))
@@ -70,7 +68,8 @@ try:
                 int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     pass
-EXTRA_COMPILE_ARGS.append('-DVERSION="%s"' % (VERSION,))
+EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
+                      '-DVERSION="%s"' % (VERSION,)]
 
 
 class GPUBuilder(build_ext):

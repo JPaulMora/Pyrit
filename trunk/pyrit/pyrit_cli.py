@@ -1306,9 +1306,9 @@ class Pyrit_CLI(object):
                             testedEssid, testedKey, testedPMKs = \
                                 workunits.pop(0)
                             if testedPMKs != solvedPMKs:
-                                self.tell("Workunit %s for ESSID '%s' seems " \
-                                          "corrupted" % (testedKey, \
-                                                         testedEssid), \
+                                self.tell("Workunit %s for ESSID '%s' is " \
+                                          "corrupt." % (testedKey, \
+                                                        testedEssid), \
                                           stream=sys.stderr)
                                 err = True
                     self.tell("Computed %i PMKs so far; %i PMKs per " \

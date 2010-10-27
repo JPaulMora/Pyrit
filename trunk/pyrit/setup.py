@@ -34,7 +34,8 @@ try:
                 int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     pass
-EXTRA_COMPILE_ARGS = ['-Wall', '-DVERSION="%s"' % (VERSION,)]
+EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
+                      '-DVERSION="%s"' % (VERSION,)]
 
 
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
