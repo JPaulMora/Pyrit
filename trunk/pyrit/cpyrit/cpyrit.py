@@ -291,7 +291,7 @@ else:
             self.start()
 
 
-class NetworkCore(Core, util.AsyncXMLRPCServer):
+class NetworkCore(util.AsyncXMLRPCServer, Core):
 
     class NetworkObserver(util.Thread):
 
@@ -481,6 +481,8 @@ class CPyrit(object):
                     break
             else:
                 self.ncore_uuid = None
+        else:
+            self.ncore_uuid = None
 
     def _check_cores(self):
         for core in self.cores:

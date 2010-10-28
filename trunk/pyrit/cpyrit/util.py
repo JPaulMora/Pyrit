@@ -445,6 +445,7 @@ class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
                 # Accepted connections are made blocking again
                 sock.settimeout(None)
                 return sock, addr
+        raise socket.timeout("Server has stopped.")
 
     def serve_forever(self):
         while not self.shallStop:
