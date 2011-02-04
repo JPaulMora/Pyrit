@@ -290,10 +290,16 @@ start_kernel( CALDevice* self, int idx )
     w = CALPP_BLOCK_WIDTH * ((h + self->dev_maxheight - 1) / self->dev_maxheight);
     h = (size + w - 1) / w;
 
-    for(int i=0;i<5;i++) 
-        self->buffer[idx].g_in[i] = cal::Image2D(self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
-    for(int i=0;i<2;i++) 
-        self->buffer[idx].g_out[i] = cal::Image2D(self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+    for(int i=0;i<5;i++) {
+        if( !self->buffer[idx].g_in[i].isValid() || self->buffer[idx].g_in[i].getWidth()!=w || self->buffer[idx].g_in[i].getHeight()!=h ) {
+            self->buffer[idx].g_in[i] = cal::Image2D(self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+        }
+    }
+    for(int i=0;i<2;i++) {
+        if( !self->buffer[idx].g_out[i].isValid() || self->buffer[idx].g_out[i].getWidth()!=w || self->buffer[idx].g_out[i].getWidth()!=h ) {
+            self->buffer[idx].g_out[i] = cal::Image2D(self->dev_context, w, h, CAL_FORMAT_UINT_4, 0);
+        }
+    }
 
     copy_gpu_inbuffer( self, self->buffer[idx].in, self->buffer[idx].g_in, size );
 
@@ -541,7 +547,7 @@ cpyrit_sizes(CALDevice *self, PyObject *args)
 
     div_size = 8*64*2*simd; // 8 threads per simd * thread size * 2 elements per thread * number of simds
     min_size = 4096;
-    avg_size = div_size*((3*avg_speed*simd + div_size/2)/div_size);
+    avg_size = div_size*((1*avg_speed*simd + div_size - 1)/div_size);
     max_size = div_size*((3*max_speed*simd + div_size - 1)/div_size);
 
     return Py_BuildValue("iiii",min_size,avg_size,max_size,div_size);

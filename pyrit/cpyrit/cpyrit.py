@@ -160,7 +160,7 @@ class LowLatencyCore(Core):
         self.compTime += t - tm
         self.resCount += len(res)
         self.callCount += 1
-        avg = (2 * self.buffersize + (self.resCount / self.compTime * 3)) / 3
+        avg = (2 * self.buffersize + (self.resCount / self.compTime)) / 3
         if self.bufferSizeDiv > 0:
             avg = self.bufferSizeDiv * int((avg + self.bufferSizeDiv - 1) \
                   / self.bufferSizeDiv)
