@@ -1,6 +1,6 @@
 /*
 #
-#    Copyright 2008, 2009, 2010 Artur Kornacki, hazeman11@gmail.com, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008, 2009, 2010, 2011 Artur Kornacki, hazeman11@gmail.com, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -125,20 +125,6 @@ extern "C" typedef struct
 static int calDevCount;
 static cal::Context calContext;
 
-static const char* device_name[10] = {"ATI RV600", "ATI RV610", "ATI RV630",
-                                      "ATI RV670", "ATI RV7XX", "ATI RV770",
-                                      "ATI RV710", "ATI RV730", "ATI CYPRESS",
-                                      "ATI JUNIPER"};
-
-static const char*
-getDeviceName( int target )
-{
-    if(target >= 0 && target < 10)
-        return device_name[target];
-
-    return "ATI";
-}
-
 static int
 caldev_init( CALDevice *self, PyObject *args, PyObject *kwds )
 {
@@ -180,11 +166,11 @@ caldev_init( CALDevice *self, PyObject *args, PyObject *kwds )
         //std::cout << source;
 
         self->dev_idx  = dev_idx;
-        self->dev_name = PyString_FromString(getDeviceName(device.getInfo<CAL_DEVICE_TARGET>()));
+        self->dev_name = PyString_FromString(device.getInfo<CAL_DEVICE_NAME>().c_str());
 
         try {
             self->dev_prog = cal::Program(self->dev_context, source.c_str(), source.length() );
-            self->dev_prog.build(self->dev_context.getInfo<CAL_CONTEXT_DEVICES>());
+            self->dev_prog.build(device);
             //self->dev_prog.disassemble(std::cout);
         } catch( cal::Error& e ) {
             PyErr_SetString(PyExc_SystemError, "CAL++ kernel compilation error");
@@ -239,7 +225,7 @@ cpyrit_listDevices(PyObject* self, PyObject* args)
 
     result = PyTuple_New(calDevCount);
     for (i = 0; i < calDevCount; i++)
-        PyTuple_SetItem(result, i, Py_BuildValue("(s)", getDeviceName(devices[i].getInfo<CAL_DEVICE_TARGET>())));
+        PyTuple_SetItem(result, i, Py_BuildValue("(s)", devices[i].getInfo<CAL_DEVICE_NAME>().c_str()));
 
     return result;
 }
@@ -553,7 +539,7 @@ cpyrit_sizes(CALDevice *self, PyObject *args)
         max_speed = 3000;
     }
 
-    div_size = 8*64*simd; // 8 threads per simd * thread size * number of simds
+    div_size = 8*64*2*simd; // 8 threads per simd * thread size * 2 elements per thread * number of simds
     min_size = 4096;
     avg_size = div_size*((3*avg_speed*simd + div_size/2)/div_size);
     max_size = div_size*((3*max_speed*simd + div_size - 1)/div_size);
