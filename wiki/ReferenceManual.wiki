@@ -37,7 +37,6 @@ Pyrit recognizes the following options:
         `pyrit -r "test*.pcap" analyze`
         
     Pyrit shows a list of Access-Points, associated Stations and EAPOL-handshakes that could be identified from the captured data. Handshakes are shown ordered by their 'quality':
-    
         * _Good_
         The handshake includes the challenge from the Access-Point, the response from the Station and the confirmation from the Access-Point.
         * _Workable_
