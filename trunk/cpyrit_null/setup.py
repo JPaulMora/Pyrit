@@ -27,7 +27,7 @@ import re
 import subprocess
 import sys
 
-VERSION = '0.4.0-dev' 
+VERSION = '0.4.0' 
 
 try:
     svn_info = subprocess.Popen(('svn', 'info'), \

@@ -28,7 +28,7 @@ import subprocess
 import sys
 import zlib
 
-VERSION = '0.4.0-dev' 
+VERSION = '0.4.0' 
 
 NVIDIA_INC_DIRS = []
 NVCC = 'nvcc'

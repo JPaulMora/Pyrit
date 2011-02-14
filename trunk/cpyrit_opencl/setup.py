@@ -29,7 +29,7 @@ import subprocess
 import sys
 import zlib
 
-VERSION = '0.4.0-dev' 
+VERSION = '0.4.0' 
 
 OPENCL_INC_DIRS = []
 OPENCL_LIB_DIRS = []
@@ -52,7 +52,8 @@ else:
         pass
     for path in ('/usr/local/opencl/OpenCL/common/inc', \
                 '/opt/opencl/OpenCL/common/inc', \
-                '/usr/local/opencl/include'):
+                '/usr/local/opencl/include', \
+                '/usr/local/cuda/include'):
         if os.path.exists(path):
             OPENCL_INC_DIRS.append(path)
             break
