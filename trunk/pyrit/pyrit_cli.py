@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008-2010, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2008-2011, Lukas Lueg, lukas.lueg@gmail.com
 #
 #    This file is part of Pyrit.
 #
@@ -102,7 +102,7 @@ class Pyrit_CLI(object):
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
 
-        self.tell("Pyrit %s (C) 2008-2010 Lukas Lueg " \
+        self.tell("Pyrit %s (C) 2008-2011 Lukas Lueg " \
                   "http://pyrit.googlecode.com\n" \
                   "This code is distributed under the GNU General Public " \
                   "License v3+\n" % cpyrit.util.VERSION, stream=sys.stdout)

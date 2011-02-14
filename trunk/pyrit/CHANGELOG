@@ -3,12 +3,11 @@ Changes since 0.3.0:
  * Added CLI-function 'check_db'
  * Added CLI-option '-h'
  * Added option to batch-create ESSIDs by reading them for a file
- * Added man-page
  * Complete rework of packet-parsing and handshake detection
  * Make default workunit-size configureable (workunit_size)
  * Make maximum number of used CPUs configurable (limit_ncpus)
  * Use GPU-native bitwise rotation with OpenCL if possible
- * Remove user/password from storage-url before printing it on-screen
+ * Use libpcap to access capture-devices/files
  * CUDA-plugin now compatible with Fermi-GPUs
  * OpenCL-plugin now builds on MacOS 10.6
  * Link with libcrypto instead of libssl
@@ -18,6 +17,7 @@ Changes since 0.3.0:
  * Fixed rare IndexError in EAPOLCracker
  * Numerous fixes in storage-relay code
  * Fix deprecation-warning with sqlalchemy.Binary
+ * Various API-changes
 
 Changes since 0.2.4:
  * Removed CPyrit-Stream in favor of OpenCL

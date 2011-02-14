@@ -1,6 +1,6 @@
 /*
 #
-#    Copyright 2009-2010, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2009-2011, Lukas Lueg, lukas.lueg@gmail.com
 #    
 #    SHA-1 SSE2 Copyright 2008, 2009, Alvaro Salmador, naplam33@msn.com,
 #    included here with permission, under the licensing terms specified below.
