@@ -29,7 +29,7 @@ import subprocess
 import sys
 import zlib
 
-VERSION = '0.4.0' 
+VERSION = '0.4.1-dev' 
 
 OPENCL_INC_DIRS = []
 OPENCL_LIB_DIRS = []

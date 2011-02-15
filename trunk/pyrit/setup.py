@@ -23,7 +23,7 @@ from distutils.unixccompiler import UnixCCompiler
 import subprocess
 import re
 
-VERSION = '0.4.0' 
+VERSION = '0.4.1-dev'
 
 UnixCCompiler.src_extensions.append('.S')
 
