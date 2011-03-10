@@ -438,6 +438,8 @@ class FSEssidStore(ESSIDStore):
             os.makedirs(self.basepath)
         self.essids = {}
         for essid_hash in os.listdir(self.basepath):
+            if essid_hash.startswith('.') or len(essid_hash) != 8:
+                continue
             essidpath = os.path.join(self.basepath, essid_hash)
             with open(os.path.join(essidpath, 'essid'), 'rb') as f:
                 essid = f.read()
