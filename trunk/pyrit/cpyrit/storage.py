@@ -27,6 +27,7 @@ from __future__ import with_statement
 
 import BaseHTTPServer
 import hashlib
+import itertools
 import os
 import random
 import re
@@ -48,6 +49,7 @@ else:
 
 import config
 import util
+import _cpyrit_cpu
 
 
 # prevent call to socket.getfqdn
@@ -134,7 +136,7 @@ def getStorage(url):
         raise RuntimeError("The protocol '%s' is unsupported." % protocol)
 
 
-class StorageError(IOError):
+class StorageError(ValueError):
     pass
 
 
@@ -142,152 +144,105 @@ class DigestError(StorageError):
     pass
 
 
-class PasswordCollection(object):
-    """An abstract collection of passwords."""
+class PYR2_Buffer(object):
+    """The PYR2-binary format."""
+    pyrhead = '<4sH'
+    pyrlen = struct.calcsize(pyrhead)
 
-    def __init__(self, collection=None):
-        if collection is not None:
-            self.collection = collection
-
-    def __len__(self):
-        return len(self.collection)
-
-    def __iter__(self):
-        return self.collection.__iter__()
-
-
-class BasePYR_Buffer(object):
-    """The common parts of the PYRT- and PYR2-binary format."""
-    pyr_head = '<4sH'
-    pyr_len = struct.calcsize(pyr_head)
-
-    def __init__(self, essid=None, results=None):
-        self.results = results
-        self.essid = essid
-        self._unpackLock = threading.Lock()
-
-    def unpack(self, buf):
-        if len(buf) < self.pyr_len:
+    def __init__(self, compressed):
+        if len(compressed) < self.pyrlen:
             raise StorageError("Buffer too short")
-        self._magic, essidlen = struct.unpack(self.pyr_head, \
-                                              buf[:self.pyr_len])
-        if self._magic == 'PYR2':
-            self._delimiter = '\n'
-        elif self._magic == 'PYRT':
-            self._delimiter = '\00'
-        else:
-            raise StorageError("Not a PYRT- or PYR2-buffer.")
+        magic, essidlen = struct.unpack(self.pyrhead, compressed[:self.pyrlen])
+        if magic != 'PYR2':
+            raise StorageError("Not a PYR2-buffer.")
+        
         headfmt = "<%ssi16s" % (essidlen, )
         headsize = struct.calcsize(headfmt)
-        header = buf[self.pyr_len:self.pyr_len + headsize]
+        header = compressed[self.pyrlen:self.pyrlen + headsize]
         if len(header) != headsize:
             raise StorageError("Invalid header size")
-        header = struct.unpack(headfmt, header)
-        self.essid, self._numElems, self._digest = header
-        pmkoffset = self.pyr_len + headsize
-        pwoffset = pmkoffset + self._numElems * 32
-        self._pwbuffer = buf[pwoffset:]
-        self._pmkbuffer = buf[pmkoffset:pwoffset]
-        if len(self._pmkbuffer) % 32 != 0:
+        self.essid, self.numElems, self.digest = struct.unpack(headfmt, header)
+        
+        pmkoffset = self.pyrlen + headsize
+        pwoffset = pmkoffset + self.numElems * 32
+        self.pwbuffer = compressed[pwoffset:]
+        self.pmkbuffer = compressed[pmkoffset:pwoffset]
+        if len(self.pmkbuffer) % 32 != 0:
             raise StorageError("pmkbuffer seems truncated")
 
-    def _unpack(self):
-        with self._unpackLock:
-            if hasattr(self, '_pwbuffer'):
-                pwbuffer = zlib.decompress(self._pwbuffer)
-                pwbuffer = pwbuffer.split(self._delimiter)
-                assert len(pwbuffer) == self._numElems
-                md = hashlib.md5()
-                md.update(self.essid)
-                if self._magic == 'PYR2':
-                    md.update(self._pmkbuffer)
-                    md.update(self._pwbuffer)
-                else:
-                    md.update(self._pmkbuffer)
-                    md.update(''.join(pwbuffer))
-                if md.digest() != self._digest:
-                    raise DigestError("Digest check failed")
-                self.results = zip(pwbuffer, util.grouper(self._pmkbuffer, 32))
-                assert len(self.results) == self._numElems
-                del self._pwbuffer
-                del self._digest
-                del self._magic
-                del self._delimiter
+    def __getattr__(self, name):
+        if name == "passwords":
+            result = zlib.decompress(self.pwbuffer).split('\n')
+            assert len(result) == self.numElems
+            md = hashlib.md5()
+            md.update(self.essid)
+            md.update(self.pmkbuffer)
+            md.update(self.pwbuffer)
+            if md.digest() != self.digest:
+                raise DigestError("Digest check failed")
+            self.passwords = result
+            del self.pwbuffer
+        elif name == "pmks":
+            result = util.grouper(self.pmkbuffer, 32)
+            assert len(result) == self.numElems
+            self.pmks = result
+            del self.pmkbuffer
+        else:
+            raise AttributeError
+        return result
 
     def __getitem__(self, idx):
-        self._unpack()
-        try:
-            return self.results[idx]
-        except IndexError:
-            raise IndexError("Instance has %i results, index %i invalid." % \
-                             (len(self.results), idx))
+        return (self.passwords[idx], self.pmks[idx])
 
     def __len__(self):
-        if not hasattr(self, '_numElems'):
-            return len(self.results)
-        else:
-            return self._numElems
+        return self.numElems
 
     def __iter__(self):
-        self._unpack()
-        return self.results.__iter__()
+        return itertools.izip(self.passwords, self.pmks)
 
     def getpmkbuffer(self):
-        return buffer(self._pmkbuffer)
+        return buffer(self.pmkbuffer)
 
-
-class PYRT_Buffer(BasePYR_Buffer):
-    pass
-
-
-class PYR2_Buffer(BasePYR_Buffer):
-
-    def pack(self):
-        pws, pmks = zip(*self.results)
-        pwbuffer = zlib.compress('\n'.join(pws), 1)
-        pmkbuffer = ''.join(pmks)
+    @staticmethod
+    def pack(essid, results):
+        pwbuffer, pmkbuffer = _cpyrit_cpu.pyr2halfpack(results)
+        pblength = len(pmkbuffer)
+        assert pblength % 32 == 0
+        itemcount = pblength / 32
+        pwbuffer = zlib.compress(pwbuffer, 1)
         md = hashlib.md5()
-        md.update(self.essid)
+        md.update(essid)
         md.update(pmkbuffer)
         md.update(pwbuffer)
-        essidlen = len(self.essid)
+        essidlen = len(essid)
         b = struct.pack('<4sH%ssi%ss' % (essidlen, md.digest_size), 'PYR2', \
-                        essidlen, self.essid, len(pws), md.digest())
+                                    essidlen, essid, itemcount, md.digest())
         return b + pmkbuffer + pwbuffer
 
 
-class PAWD_Buffer(PasswordCollection):
+class PAW2_Buffer(object):
 
-    def unpack(self, buf):
-        if buf[:4] != "PAWD":
-            raise StorageError("Not a PAWD-buffer.")
-        md = hashlib.md5()
-        inp = tuple(buf[4 + md.digest_size:].split('\00'))
-        md.update(''.join(inp))
-        if buf[4:4 + md.digest_size] != md.digest():
-            raise DigestError("Digest check failed.")
-        self.collection = inp
-        self.key = md.hexdigest()
-
-
-class PAW2_Buffer(PasswordCollection):
-
-    def pack(self):
-        b = zlib.compress('\n'.join(self.collection), 1)
-        md = hashlib.md5(b)
-        self.key = md.hexdigest()
-        return (md.hexdigest(), 'PAW2' + md.digest() + b)
-
-    def unpack(self, buf):
-        if buf[:4] != "PAW2":
+    def __init__(self, compressed):
+        if compressed[:4] != "PAW2":
             raise StorageError("Not a PAW2-buffer.")
         md = hashlib.md5()
-        md.update(buf[4 + md.digest_size:])
-        if md.digest() != buf[4:4 + md.digest_size]:
+        md.update(compressed[4 + md.digest_size:])
+        if md.digest() != compressed[4:4 + md.digest_size]:
             raise DigestError("Digest check failed")
-        inp = tuple(zlib.decompress(buf[4 + md.digest_size:]).split('\n'))
-        self.collection = inp
+        self.buffer = zlib.decompress(compressed[4 + md.digest_size:])
         self.key = md.hexdigest()
+
+    @staticmethod
+    def pack(collection):
+        b = zlib.compress('\n'.join(collection), 1)
+        md = hashlib.md5(b)
+        return (md.hexdigest(), 'PAW2' + md.digest() + b)
+
+    def __iter__(self):
+        return iter(self.buffer.split('\n'))
+
+    def __len__(self):
+        return self.buffer.count('\n') + 1
 
 
 class ESSIDStore(object):
@@ -350,8 +305,9 @@ class PasswordStore(object):
            call .flush_buffer() (or use the context-manager) when he is done.
         """
         passwd = passwd.strip('\r\n')
-        if len(passwd) < 8 or len(passwd) > 63:
-            return
+        pwlen = len(passwd)
+        if pwlen < 8 or pwlen > 63:
+            return False
         pw_h1 = PasswordStore.h1_list[hash(passwd) & 0xFF]
         if self.unique_check:
             pw_bucket = self.pwbuffer.setdefault(pw_h1, set())
@@ -362,6 +318,7 @@ class PasswordStore(object):
         if len(pw_bucket) >= MAX_WORKUNIT_SIZE:
             self._flush_bucket(pw_h1, pw_bucket)
             self.pwbuffer[pw_h1] = (set if self.unique_check else list)()
+        return True
 
     def iterkeys(self):
         """Equivalent to self.__iter__"""
@@ -391,6 +348,11 @@ class Storage(object):
 
     def iterpasswords(self):
         return self.passwords.iterpasswords()
+    
+    def unfinishedESSIDs(self):
+        for e in self.essids:
+            if any(not self.essids.containskey(e, k) for k in self.passwords):
+                yield e
 
 
 class FSStorage(Storage):
@@ -466,13 +428,7 @@ class FSEssidStore(ESSIDStore):
         else:
             with open(fname, 'rb') as f:
                 buf = f.read()
-            if buf.startswith('PYR2'):
-                results = PYR2_Buffer()
-            elif buf.startswith('PYRT'):
-                results = PYRT_Buffer()
-            else:
-                raise StorageError("Header for '%s' unknown." % (fname,))
-            results.unpack(buf)
+            results = PYR2_Buffer(buf)
             if results.essid != essid:
                 raise StorageError("Invalid ESSID in result-collection")
             return results
@@ -485,7 +441,7 @@ class FSEssidStore(ESSIDStore):
             raise KeyError("ESSID not in store.")
         filename = os.path.join(self.essids[essid][0], key) + '.pyr'
         with open(filename, 'wb') as f:
-            f.write(PYR2_Buffer(essid, results).pack())
+            f.write(PYR2_Buffer.pack(essid, results))
         self.essids[essid][1][key] = filename
 
     def __len__(self):
@@ -591,13 +547,7 @@ class FSPasswordStore(PasswordStore):
         filename = os.path.join(self.pwfiles[key], key) + '.pw'
         with open(filename, 'rb') as f:
             buf = f.read()
-        if buf[:4] == "PAW2":
-            inp = PAW2_Buffer()
-        elif buf[:4] == "PAWD":
-            inp = PAWD_Buffer()
-        else:
-            raise StorageError("'%s' is not a PasswordFile." % filename)
-        inp.unpack(buf)
+        inp = PAW2_Buffer(buf)
         if inp.key != key:
             raise StorageError("File doesn't match the key '%s'." % inp.key)
         return inp
@@ -624,7 +574,7 @@ class FSPasswordStore(PasswordStore):
         pwpath = os.path.join(self.basepath, pw_h1)
         if not os.path.exists(pwpath):
             os.makedirs(pwpath)
-        key, b = PAW2_Buffer(bucket).pack()
+        key, b = PAW2_Buffer.pack(bucket)
         with open(os.path.join(pwpath, key) + '.pw', 'wb') as f:
             f.write(b)
         self.pwfiles[key] = pwpath
@@ -657,8 +607,7 @@ class RPCESSIDStore(ESSIDStore):
         """
         buf = self.cli.essids.getitem(essid, key)
         if buf:
-            results = PYR2_Buffer()
-            results.unpack(buf.data)
+            results = PYR2_Buffer(buf.data)
             if results.essid != essid:
                 raise StorageError("Invalid ESSID in result-collection")
             return results
@@ -670,7 +619,7 @@ class RPCESSIDStore(ESSIDStore):
         """Store a iterable of (password,PMK)-tuples under the given
            ESSID and key.
         """
-        b = xmlrpclib.Binary(PYR2_Buffer(essid, results).pack())
+        b = xmlrpclib.Binary(PYR2_Buffer.pack(essid, results))
         self.cli.essids.setitem(essid, key, b)
 
     @handle_xmlfault()
@@ -750,8 +699,7 @@ class RPCPasswordStore(PasswordStore):
     @handle_xmlfault()
     def __getitem__(self, key):
         """Return the collection of passwords indexed by the given key."""
-        bucket = PAW2_Buffer()
-        bucket.unpack(self.cli.passwords.getitem(key).data)
+        bucket = PAW2_Buffer(self.cli.passwords.getitem(key).data)
         if bucket.key != key:
             raise StorageError("File doesn't match the key '%s'." % bucket.key)
         return bucket
@@ -808,7 +756,7 @@ class StorageRelay(util.AsyncXMLRPCServer):
         return key in self.storage.passwords
 
     def passwords_getitem(self, key):
-        newkey, buf = PAW2_Buffer(self.storage.passwords[key]).pack()
+        newkey, buf = PAW2_Buffer.pack(self.storage.passwords[key])
         return xmlrpclib.Binary(buf)
 
     def passwords_delitem(self, key):
@@ -840,12 +788,11 @@ class StorageRelay(util.AsyncXMLRPCServer):
         except KeyError:
             return False
         else:
-            buf = PYR2_Buffer(essid, results).pack()
+            buf = PYR2_Buffer.pack(essid, results)
             return xmlrpclib.Binary(buf)
 
-    def essids_setitem(self, essid, key, pyr2_buffer):
-        results = PYR2_Buffer()
-        results.unpack(pyr2_buffer.data)
+    def essids_setitem(self, essid, key, buf):
+        results = PYR2_Buffer(buf.data)
         if results.essid != essid:
             raise ValueError("Invalid ESSID in result-collection")
         self.storage.essids[essid, key] = results
@@ -899,6 +846,7 @@ if 'sqlalchemy' in sys.modules:
                                nullable=False), \
                     mysql_engine='InnoDB')
 
+
     class ESSID_DBObject(object):
 
         def __init__(self, essid):
@@ -910,24 +858,29 @@ if 'sqlalchemy' in sys.modules:
         def __str__(self):
             return str(self.essid)
 
+
     class PAW2_DBObject(object):
 
         def __init__(self, h1, collection):
             self.h1 = h1
             self.collection = tuple(collection)
             self.numElems = len(self.collection)
-            key, collection_buffer = PAW2_Buffer(self.collection).pack()
+            key, collection_buffer = PAW2_Buffer.pack(self.collection)
             self.key, self.collection_buffer = key, collection_buffer
 
         def __len__(self):
             return self.numElems
 
-        def __iter__(self):
-            if not hasattr(self, 'collection'):
-                self.collection = PAW2_Buffer()
-                self.collection.unpack(self.collection_buffer)
+        def __getattr__(self, name):
+            if name == 'collection':
+                self.collection = PAW2_Buffer(self.collection_buffer)
                 assert len(self.collection) == self.numElems
-            return self.collection.__iter__()
+                return self.collection
+            raise AttributeError
+
+        def __iter__(self):
+            return iter(self.collection)
+
 
     class PYR2_DBObject(object):
 
@@ -937,30 +890,29 @@ if 'sqlalchemy' in sys.modules:
             self.key = key
             self.pack(results)
 
-        def _unpack(self):
-            if not hasattr(self, 'results'):
-                self.results = PYR2_Buffer()
-                self.results.unpack(self.results_buffer)
-                assert len(self.results) == self.numElems
-
         def pack(self, results):
             self.numElems = len(results)
-            self.results_buffer = PYR2_Buffer(str(self.essid), results).pack()
+            self.results_buffer = PYR2_Buffer.pack(str(self.essid), results)
 
         def __len__(self):
             return self.numElems
 
         def __iter__(self):
-            self._unpack()
-            return self.results.__iter__()
+            return iter(self.results)
+
+        def __getattr__(self, name):
+            if name == 'results':
+                self.results = PYR2_Buffer(self.results_buffer)
+                assert len(self.results) == self.numElems
+                return self.results
+            raise AttributeError
 
         def __getitem__(self, idx):
-            self._unpack()
             return self.results[idx]
 
         def getpmkbuffer(self):
-            self._unpack()
             return self.results.getpmkbuffer()
+
 
     orm.mapper(ESSID_DBObject, \
                essids_table, \
@@ -975,6 +927,7 @@ if 'sqlalchemy' in sys.modules:
     orm.mapper(PYR2_DBObject, \
                results_table, \
                properties={'_key': orm.synonym('key', map_column=True)})
+
 
     class SessionContext(object):
         """A wrapper around classes given by sessionmake to add a
@@ -991,6 +944,7 @@ if 'sqlalchemy' in sys.modules:
             if type is not None:
                 self.session.rollback()
             self.session.close()
+
 
     class SQLStorage(Storage):
 
@@ -1017,6 +971,7 @@ if 'sqlalchemy' in sys.modules:
                     else:
                         essid_results[str(essid)] = 0
                 return (pwtotal, essid_results)
+
 
     class SQLEssidStore(ESSIDStore):
 
@@ -1137,6 +1092,7 @@ if 'sqlalchemy' in sys.modules:
                 session.add(essid_obj)
                 session.commit()
 
+
     class SQLPasswordStore(PasswordStore):
 
         def __init__(self, session_class):
@@ -1159,7 +1115,7 @@ if 'sqlalchemy' in sys.modules:
                 keys = session.query(PAW2_DBObject.key)
             keys = [c[0] for c in keys]
             random.shuffle(keys)
-            return keys.__iter__()
+            return iter(keys)
 
         def __len__(self):
             """Return the number of keys that can be used to receive

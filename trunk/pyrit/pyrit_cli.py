@@ -781,14 +781,10 @@ class Pyrit_CLI(object):
                 storage.essids.create_essid(essid)
             essids = [essid]
         else:
-            essids = []
-            pwcount, essid_results = storage.getStats()
-            if len(essid_results) == 0:
+            if len(storage.essids) == 0:
                 raise PyritRuntimeError("No ESSID in storage. Use 'create_" \
                                         "essid' first.")
-            for e, rescount in essid_results.iteritems():
-                if rescount < pwcount:
-                    essids.append(e)
+            essids = storage.unfinishedESSIDs()
         if outfile is not None:
             outfilewriter = cpyrit.util.AsyncFileWriter(outfile)
             cowpwriter = cpyrit.util.CowpattyFile(outfilewriter, 'w', essid)
@@ -1351,22 +1347,20 @@ class Pyrit_CLI(object):
 
         # Check passwords
         self.tell("Checking workunits...")
-        wu_errors = []
+        wu_errors = set()
         for key in storage.passwords.iterkeys():
             try:
-                # Some errors are catched here
-                wu = storage.passwords[key]
-                # Now check what we can...
-                for pw in wu:
-                    if len(pw) < 8 or len(pw) > 64:
+                # explicit call to iter to work around swallowed
+                # exceptions in CPython's bltinmodule.c:map_new()
+                for l in map(len, iter(storage.passwords[key])):
+                    if l < 8 or l > 64:
                         raise cpyrit.storage.StorageError("Invalid password")
             except cpyrit.storage.StorageError, e:
                 self.tell("Error in workunit %s: %s" % (key, e), \
                           stream=sys.stderr)
-                wu_errors.append(key)
-
+                wu_errors.add(key)
         # Check results
-        res_errors = []
+        res_errors = set()
         for essid in storage.essids:
             self.tell("Checking results for ESSID '%s'..." % (essid,))
             for key in storage.essids.iterkeys(essid):
@@ -1378,26 +1372,29 @@ class Pyrit_CLI(object):
                     res = storage.essids[essid, key]
                     # Check entries
                     for pw, pmk in res:
-                        if len(pw) < 8 or len(pw) > 64:
+                        pwlen = len(pw)
+                        if pwlen < 8 or pwlen > 64:
                             raise cpyrit.storage.StorageError("Invalid " \
                                                               "password")
                         if len(pmk) != 32:
                             raise cpyrit.storage.StorageError("Invalid PMK")
                     if key not in wu_errors:
                         # Check that workunit and results match
-                        wu = storage.passwords[key]
-                        if any(pw not in wu for pw, pmk in res):
-                            raise cpyrit.storage.StorageError("Password not" \
-                                                              " in workunit")
-                        res_passwords = set(pw for pw, pmk in res)
-                        if any(pw not in res_passwords for pw in wu):
-                            raise cpyrit.storage.StorageError("Password not" \
-                                                              " in resultset")
+                        wu = frozenset(storage.passwords[key])
+                        for pw, pmk in res:
+                            if pw not in wu:
+                                raise cpyrit.storage.StorageError("Password " \
+                                                              "not in workunit")
+                        res_passwords = dict(res)
+                        for pw in wu:
+                            if pw not in res_passwords:
+                                raise cpyrit.storage.StorageError("Password " \
+                                                             "not in resultset")
                 except cpyrit.storage.StorageError, e:
                     self.tell("Error in results %s for ESSID '%s':" \
                               " %s" % (key, essid, e), stream=sys.stderr)
                     if key not in wu_errors:
-                        res_errors.append((essid, key))
+                        res_errors.add((essid, key))
 
         if len(wu_errors) + len(res_errors) > 0:
             self.tell("\nThere have been %i errors in workunits and %i errors"\

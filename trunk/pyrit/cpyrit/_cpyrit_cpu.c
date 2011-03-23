@@ -33,7 +33,9 @@
 #include <structmember.h>
 #include <stdint.h>
 #include <openssl/hmac.h>
+#include <openssl/md5.h>
 #include <openssl/sha.h>
+#include <zlib.h>
 #include <pcap.h>
 #include "_cpyrit_cpu.h"
 
@@ -99,7 +101,6 @@ typedef struct
     int datalink;
     char status;
 } PcapDevice;
-
 
 static PyObject *PlatformString;
 static PyTypeObject CowpattyResult_type;
@@ -884,9 +885,7 @@ EAPOLCracker_init(EAPOLCracker *self, PyObject *args, PyObject *kwds)
         return -1;
     }
 
-
     return 0;
-
 }
 
 static void
@@ -1578,7 +1577,7 @@ PcapDevice_read(PcapDevice *self, PyObject *args)
                 PyErr_Format(PyExc_IOError, "libpcap-error while reading: %s", pcap_geterr(self->p));
                 return NULL;
             default:
-                PyErr_SetString(PyExc_SystemError, "Unknown return-value from pcap_next_ex()");
+                PyErr_SetString(PyExc_IOError, "Unknown return-value from pcap_next_ex()");
                 return NULL;
         }
     }
@@ -1666,6 +1665,7 @@ PcapDevice_set_filter(PcapDevice *self, PyObject *args)
     return Py_None;
 }
 
+
 /*
     ###########################################################################
     
@@ -1717,6 +1717,134 @@ cpyrit_grouper(PyObject *self, PyObject *args)
     return result;
 }
 
+PyDoc_STRVAR(cpyrit_pyr2halfpack__doc__, 
+    "pyr2halfpack(results) -> tuple\n\n"
+    "Pack a sequence of (password, pmk)-tuples to a password- and a pmk-string");
+
+static PyObject *
+cpyrit_pyr2halfpack(PyObject *self, PyObject *args)
+{
+    PyObject *result, *seq, *iter, *entry, *item;
+    int buffercount, itemcount, pwsize;
+    unsigned char *pwbuffer, *pmkbuffer, *pwptr, *t;
+    
+    pwbuffer = pwptr = pmkbuffer = NULL;
+    buffercount = itemcount = 0;
+    result = NULL;
+    
+    if (!PyArg_ParseTuple(args, "O", &seq))
+        return NULL;
+
+    iter = PyObject_GetIter(seq);
+    if (!iter)
+    {
+        PyErr_SetString(PyExc_ValueError, "Parameter must be a iterable of (password, PMK)-sequences.");
+        return NULL;
+    }
+    
+    while ((entry = PyIter_Next(iter)))
+    {
+        if (buffercount <= itemcount)
+        {
+            buffercount += 100000;
+            t = PyMem_Realloc(pwbuffer, buffercount*(64+1));
+            if (!t)
+            {
+                PyErr_NoMemory();
+                Py_DECREF(entry);
+                goto out;
+            }
+            pwptr = t + (int)(pwptr - pwbuffer);
+            pwbuffer = t;
+            t = PyMem_Realloc(pmkbuffer, buffercount*32);
+            if (!t)
+            {
+                PyErr_NoMemory();
+                Py_DECREF(entry);
+                goto out;
+            }
+            pmkbuffer = t;
+        }
+        
+        item = PySequence_GetItem(entry, 0);
+        if (!item)
+        {
+            PyErr_SetString(PyExc_ValueError, "Expected password as first item in a sequence-object.");
+            Py_DECREF(entry);
+            goto out;
+        }
+        t = (unsigned char*)PyString_AsString(item);
+        pwsize = PyString_Size(item);
+        if (t == NULL || pwsize < 8 || pwsize > 64)
+        {
+            PyErr_SetString(PyExc_ValueError, "Passwords must be strings of 8-64 characters.");
+            Py_DECREF(entry);
+            Py_DECREF(item);
+            goto out;
+        }
+        memcpy(pwptr, t, pwsize);
+        pwptr[pwsize] = '\n';
+        pwptr += pwsize + 1;
+        Py_DECREF(item);
+        
+        item = PySequence_GetItem(entry, 1);
+        if (!item)
+        {
+            PyErr_SetString(PyExc_ValueError, "Expected PMK as second item in a sequence-object.");
+            Py_DECREF(entry);
+            goto out;
+        }
+        t = (unsigned char*)PyString_AsString(item);
+        if (t == NULL || PyString_Size(item) != 32)
+        {
+            PyErr_SetString(PyExc_ValueError, "PMKs must be strings of 32 characters.");
+            Py_DECREF(entry);
+            Py_DECREF(item);
+            goto out;
+        }
+        memcpy(pmkbuffer + itemcount*32, t, 32);
+        Py_DECREF(item);
+
+        itemcount += 1;
+        Py_DECREF(entry);
+    }
+
+    result = PyTuple_New(2);
+    if (!result)
+    {
+        PyErr_NoMemory();
+        goto out;
+    }
+    
+    if (itemcount > 0)
+        pwptr -= 1;
+    item = PyString_FromStringAndSize((char*)pwbuffer, (int)(pwptr - pwbuffer));
+    if (!item)
+    {
+        PyErr_NoMemory();
+        Py_DECREF(result);
+        goto out;
+    }
+    PyTuple_SetItem(result, 0, item);
+    
+    item = PyString_FromStringAndSize((char*)pmkbuffer, itemcount*32);
+    if (!item)
+    {
+        PyErr_NoMemory();
+        Py_DECREF(result);
+        goto out;
+    }
+    PyTuple_SetItem(result, 1, item);
+
+    out:
+    Py_DECREF(iter);
+    if (pmkbuffer)
+        PyMem_Free(pmkbuffer);
+    if (pwbuffer)
+        PyMem_Free(pwbuffer);
+
+    return result;
+}
 
 /*
     ###########################################################################
@@ -2015,10 +2143,12 @@ static PyTypeObject PcapDevice_type = {
     0,                          /*tp_is_gc*/
 };
 
+
 static PyMethodDef CPyritCPUMethods[] =
 {
     {"getPlatform", cpyrit_getPlatform, METH_NOARGS, cpyrit_getPlatform__doc__},
     {"grouper", cpyrit_grouper, METH_VARARGS, cpyrit_grouper__doc__},
+    {"pyr2halfpack", cpyrit_pyr2halfpack, METH_VARARGS, cpyrit_pyr2halfpack__doc__},
     {NULL, NULL, 0, NULL}
 };
 
