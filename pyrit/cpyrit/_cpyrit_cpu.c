@@ -35,6 +35,7 @@
 #include <openssl/hmac.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
+#include <openssl/aes.h>
 #include <zlib.h>
 #include <pcap.h>
 #include "_cpyrit_cpu.h"
@@ -72,6 +73,29 @@ typedef struct
     size_t eapolframe_size;
     unsigned char *eapolframe;
 } EAPOLCracker;
+
+struct ccm_nonce
+{
+    unsigned char priority;
+    unsigned char a2[6];
+    unsigned char pn[6];
+};
+
+struct A_i
+{
+    unsigned char flags;
+    struct ccm_nonce nonce;
+    unsigned short counter;
+};
+
+typedef struct
+{
+    PyObject_HEAD
+    unsigned char *pke1;
+    unsigned char *pke2;
+    unsigned char S0[6];
+    struct A_i A0;
+} CCMPCracker;
 
 typedef struct
 {
@@ -114,6 +138,9 @@ static unsigned char* (*fourwise_sha1hmac_prepare)(unsigned char* msg, int msg_l
 static void (*fourwise_sha1hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
 static unsigned char* (*fourwise_md5hmac_prepare)(unsigned char* msg, int msg_len) = NULL;
 static void (*fourwise_md5hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
+/* CCMPCracker */
+static void (*fourwise_pke2tk)(unsigned char *pke1, unsigned char *pke2, unsigned char *pmkbuffer, Py_ssize_t keycount, unsigned char *tkbuffer) = NULL;
+
 
 #ifdef COMPILE_SSE2
     uint32_t md5_constants[64][4];
@@ -551,7 +578,6 @@ CPUDevice_solve(PyObject *self, PyObject *args)
     return result;
 }
 
-
 /*
     ###########################################################################
     
@@ -559,6 +585,70 @@ CPUDevice_solve(PyObject *self, PyObject *args)
     
     ###########################################################################
 */
+
+static int
+Cracker_unpack(PyObject* result_seq, unsigned char **pmkbuffer_ptr)
+{
+    unsigned char *pmkbuffer, *t;
+    int buffersize, itemcount;
+    PyObject *result_iter, *result_obj, *pmk_obj;
+
+    pmkbuffer = pmkbuffer_ptr[0] = NULL;
+    buffersize = itemcount = 0;
+    
+    result_iter = PyObject_GetIter(result_seq);
+    if (!result_iter)
+    {
+        PyErr_SetString(PyExc_ValueError, "Parameter must be a iterable of (password, PMK)-sequences.");
+        return -1;
+    }
+    
+    while ((result_obj = PyIter_Next(result_iter)))
+    {
+        if (buffersize <= itemcount)
+        {
+            /* Step-size must be aligned to four entries (SSE2-path) */
+            buffersize += 50000;
+            t = PyMem_Realloc(pmkbuffer, buffersize*32);
+            if (!t)
+            {
+                PyErr_NoMemory();
+                Py_DECREF(result_obj);
+                goto out;
+            }
+            pmkbuffer = t;
+        }
+
+        pmk_obj = PySequence_GetItem(result_obj, 1);
+        if (!pmk_obj)
+        {
+            PyErr_SetString(PyExc_ValueError, "Expected Pairwise Master Key as second item in a sequence-object.");
+            Py_DECREF(result_obj);
+            PyMem_Free(pmkbuffer);
+            goto out;
+        }
+        t = (unsigned char*)PyString_AsString(pmk_obj);
+        if (t == NULL || PyString_Size(pmk_obj) != 32)
+        {
+            PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
+            Py_DECREF(result_obj);
+            Py_DECREF(pmk_obj);
+            PyMem_Free(pmkbuffer);
+            goto out;
+        }
+        memcpy(pmkbuffer + itemcount*32, t, 32);
+        itemcount += 1;
+        Py_DECREF(pmk_obj);
+        Py_DECREF(result_obj);
+    }
+    
+    pmkbuffer_ptr[0] = pmkbuffer;
+
+    out:
+    Py_DECREF(result_iter);
+
+    return itemcount * 32;
+}
 
 #ifdef COMPILE_SSE2
     static unsigned char*
@@ -645,7 +735,7 @@ CPUDevice_solve(PyObject *self, PyObject *args)
                 blockbuffer[j][i] = buffer[j] ^ 0x36363636;
         }
         sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
-        
+
         for (i = 0; i < message_length / 64; i++)
             sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)(prepared_msg + 64 * 4 * i), wrkbuf);
 
@@ -674,6 +764,7 @@ CPUDevice_solve(PyObject *self, PyObject *args)
             blockbuffer[ 5][i] = 0x80;       /* Terminator bit */
             blockbuffer[15][i] = 0xA0020000; /* size = (64 + 20) * 8 */
         }
+
         sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
 
         /* Second hash == HMAC */
@@ -898,71 +989,6 @@ EAPOLCracker_dealloc(EAPOLCracker *self)
     self->ob_type->tp_free((PyObject*)self);
 }
 
-static int
-EAPOLCracker_unpack(PyObject* result_seq, unsigned char **pmkbuffer_ptr)
-{
-    unsigned char *pmkbuffer, *t;
-    int buffersize, itemcount;
-    PyObject *result_iter, *result_obj, *pmk_obj;
-
-    pmkbuffer = pmkbuffer_ptr[0] = NULL;
-    buffersize = itemcount = 0;
-    
-    result_iter = PyObject_GetIter(result_seq);
-    if (!result_iter)
-    {
-        PyErr_SetString(PyExc_ValueError, "Parameter must be a iterable of (password, PMK)-sequences.");
-        return -1;
-    }
-    
-    while ((result_obj = PyIter_Next(result_iter)))
-    {
-        if (buffersize <= itemcount)
-        {
-            /* Step-size must be aligned to four entries (SSE2-path) */
-            buffersize += 50000;
-            t = PyMem_Realloc(pmkbuffer, buffersize*32);
-            if (!t)
-            {
-                PyErr_NoMemory();
-                Py_DECREF(result_obj);
-                goto out;
-            }
-            pmkbuffer = t;
-        }
-
-        pmk_obj = PySequence_GetItem(result_obj, 1);
-        if (!pmk_obj)
-        {
-            PyErr_SetString(PyExc_ValueError, "Expected Pairwise Master Key as second item in a sequence-object.");
-            Py_DECREF(result_obj);
-            PyMem_Free(pmkbuffer);
-            goto out;
-        }
-        t = (unsigned char*)PyString_AsString(pmk_obj);
-        if (t == NULL || PyString_Size(pmk_obj) != 32)
-        {
-            PyErr_SetString(PyExc_ValueError, "All PMKs must be strings of 32 characters");
-            Py_DECREF(result_obj);
-            Py_DECREF(pmk_obj);
-            PyMem_Free(pmkbuffer);
-            goto out;
-        }
-        memcpy(pmkbuffer + itemcount*32, t, 32);
-        itemcount += 1;
-        Py_DECREF(pmk_obj);
-        Py_DECREF(result_obj);
-    }
-    
-    pmkbuffer_ptr[0] = pmkbuffer;
-
-    out:
-    Py_DECREF(result_iter);
-
-    return itemcount * 32;
-}
-
-
 PyDoc_STRVAR(EAPOLCracker_solve__doc__, 
     "solve(object) -> solution or None\n\n"
     "Try to find the password that corresponds to this instance's EAPOL-session.\n");
@@ -1018,7 +1044,7 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
         }
     } else {
         /* Basic sequence-like objects must be unpacked */
-        buffersize = EAPOLCracker_unpack(result_seq, &pmkbuffer);
+        buffersize = Cracker_unpack(result_seq, &pmkbuffer);
         if (!pmkbuffer)
             return NULL;
     }
@@ -1065,6 +1091,348 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
     return solution_obj;
 }
 
+/*
+ ###########################################################################
+ 
+ CCMPCracker
+ 
+ ###########################################################################
+ */
+
+static int
+CCMPCracker_init(CCMPCracker *self, PyObject *args, PyObject *kwds)
+{
+    unsigned char *pkeptr, *msgblock, *sourcemac, *pn, pke[100];
+    Py_ssize_t pkelen, msglen, sourcemaclen, pnlen;
+    
+    self->pke1 = self->pke2 = NULL;
+    pkelen = msglen = sourcemaclen = pnlen = 0;
+    if (!PyArg_ParseTuple(args, "s#s#s#s#", &pkeptr, &pkelen, &msgblock, &msglen,
+                          &sourcemac, &sourcemaclen, &pn, &pnlen))
+        return -1;
+    
+    if (pkelen != 100)
+    {
+        PyErr_SetString(PyExc_ValueError, "PKE must be a string of exactly 100 bytes.");
+        return -1;
+    }
+    memcpy(pke, pkeptr, 100);    
+    
+    /* Key Computation Block to compute Temporal Key */
+    pke[99] = 1;
+    self->pke1 = fourwise_sha1hmac_prepare(pke, 100);
+    if (!self->pke1)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+
+    pke[99] = 2;
+    self->pke2 = fourwise_sha1hmac_prepare(pke, 100);
+    if (!self->pke2)
+    {
+        PyErr_NoMemory();
+        return -1;
+    }
+
+        
+    /* First 6 bytes in an CCMP-encrypted message */
+    if (msglen < 6)
+    {
+        PyErr_SetString(PyExc_ValueError, "Message must a string of at least six bytes.");
+        return -1;
+    }
+    memcpy(self->S0, msgblock, 6);
+    
+    /* We are looking for S0 that decrypts C0 to a LLC+SNAP-header (AAAA03000000).
+     As C0 ^ S0 = P0, therefor C0 ^ P0 = S0. We xor the ciphertext with the plaintext
+     to get the key (S0) we are looking for.
+    */
+    self->S0[0] ^= 0xAA; self->S0[1] ^= 0xAA; self->S0[2] ^= 0x03;
+    
+    if (sourcemaclen != 6)
+    {
+        PyErr_SetString(PyExc_ValueError, "Source-MAC must be a string of six bytes.");
+        return -1;
+    }
+    memcpy(self->A0.nonce.a2, sourcemac, 6);
+    
+    if (pnlen != 6)
+    {
+        PyErr_SetString(PyExc_ValueError, "Counter must be a string of 6 bytes.");
+        return -1;
+    }
+    memcpy(self->A0.nonce.pn, pn, 6);
+    
+    self->A0.flags = 1;           /* flags = L' = 2 - 1 = 1 */
+    self->A0.nonce.priority = 0;  /* priority is always zero */
+    self->A0.counter = 1 << 8;    /* counter for first block */
+    
+    return 0;
+}
+
+static void
+CCMPCracker_dealloc(CCMPCracker *self)
+{
+    if (self->pke1)
+        PyMem_Free(self->pke1);
+    if (self->pke2)
+        PyMem_Free(self->pke2);
+    self->ob_type->tp_free((PyObject*)self);
+}
+
+#ifdef COMPILE_SSE2
+    /* A note regarding the following function:
+
+       The Temporal Key is derived from the Pairwise Key Expansion Block (PKE)
+       using PRF-384. As HMAC-SHA1 produces 20 bytes of output per call and
+       the Temporal Key is 32 bytes into the PRF-stream, the first eight bytes
+       of the TK are produced by the second while the last eight bytes are produced
+       by the third round of PRF-384.
+       A naive solution requires two complete calls to HMAC-SHA1, which in turn
+       requires five rounds of SHA1 each.
+       
+       As the key to HMAC-SHA1 (the PMK) is the same for both rounds and the message
+       (the PKE) only differs in the second block (where the counter is), we can
+       optimize computing the TK by re-using the SHA1-state from the OPAD and the
+       SHA1-state from the IPAD+(first block of PKE).
+       Thereby we only need 5+2 rounds of SHA1 instead of 5+5. 
+    */
+    static void
+    fourwise_pke2tk_sse2(unsigned char *pke1, unsigned char *pke2, unsigned char *pmkbuffer, Py_ssize_t keycount, unsigned char *tkbuffer)
+    {
+        Py_ssize_t i;
+        int j, k;
+        uint32_t wrkbuf[4*80]        __attribute__ ((aligned (16)));
+        uint32_t blockbuffer[16][4]  __attribute__ ((aligned (16)));
+        uint32_t innerhash[16][4];
+        fourwise_sha1_ctx ctx, ipad_ctx, opad_ctx;
+
+        /* The PKE-data is aligned to 16 bytes inside the allocated buffer so re-align the pointer now. */
+        pke1 = pke1 + 16 - ((long)pke1 % 16);
+        pke2 = pke2 + 16 - ((long)pke2 % 16);
+
+        /* Initialize static values for inner hash block */
+        for (j = 0; j < 4; j++)
+        {
+            innerhash[ 5][j] = 0x80;       /* Terminator bit */
+            innerhash[15][j] = 0xA0020000; /* size = (64 + 20) * 8 */
+            for (k = 6; k < 15; k++)
+                innerhash[k][j] = 0;
+        }
+
+        for (i = 0; i < keycount; i += 4)
+        {
+            /* Second round of PRF-384 to compute first half of TK */
+
+            /* HMAC-SHA1 step 1: Inner hash = SHA1((IPAD ^ PMK) // PKE) */
+            fourwise_sha1_init(&ctx);
+
+            /* Mix-in key (PMK) */
+            memset((unsigned char*)blockbuffer, 0x36, sizeof(blockbuffer));
+            for (j = 0; j < 4; j++)
+                for (k = 0; k < 8; k++)
+                    blockbuffer[k][j] ^= ((uint32_t*)pmkbuffer)[(i + j) * 8 + k];
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
+
+            /* Mix-in first block of PKE */
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)(pke1), wrkbuf);
+
+            /* Copy state before mixing in second block */
+            memcpy((unsigned char*)&ipad_ctx, (unsigned char*)&ctx, sizeof(ipad_ctx));
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)(pke1 + 64*4), wrkbuf);
+
+            /* First hash done */
+            sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&innerhash);
+
+            /* Step 2: Outer hash = SHA1((OPAD ^ PMK) // inner hash) */
+            fourwise_sha1_init(&ctx);
+            memset((unsigned char*)blockbuffer, 0x5C, sizeof(blockbuffer));
+            for (j = 0; j < 4; j++)
+                for (k = 0; k < 8; k++)
+                    blockbuffer[k][j] ^= ((uint32_t*)pmkbuffer)[(i + j) * 8 + k];
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
+
+            /* Copy this state before mixing in the inner hash */
+            memcpy((unsigned char*)&opad_ctx, (unsigned char*)&ctx, sizeof(opad_ctx));
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)&innerhash, wrkbuf);
+
+            /* Second round of PRF-384 done -> First 8 bytes of TK */
+            sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&blockbuffer);
+            for (j = 0; j < 4; j++)
+                for (k = 0; k < 2; k++)
+                    ((uint32_t*)tkbuffer)[(i + j) * 4 + k + 0] = blockbuffer[k + 3][j];
+
+            /* Quick third round of PRF-384 */
+            sse2_sha1_update((uint32_t*)&ipad_ctx, (uint32_t*)(pke2 + 64*4), wrkbuf);
+            sse2_sha1_finalize((uint32_t*)&ipad_ctx, (uint32_t*)&innerhash);
+            sse2_sha1_update((uint32_t*)&opad_ctx, (uint32_t*)&innerhash, wrkbuf);
+
+            /* Third round of PRF-384 done -> Last 8 bytes of TK */
+            sse2_sha1_finalize((uint32_t*)&opad_ctx, (uint32_t*)&blockbuffer);
+            for (j = 0; j < 4; j++)
+                for (k = 0; k < 2; k++)
+                    ((uint32_t*)tkbuffer)[(i + j) * 4 + k + 2] = blockbuffer[k + 0][j];
+        }
+    }
+#endif /* COMPILE_SSE2 */
+
+static void
+fourwise_pke2tk_openssl(unsigned char *pke1, unsigned char *pke2, unsigned char *pmkbuffer, Py_ssize_t keycount, unsigned char *tkbuffer)
+{
+    Py_ssize_t i;
+    int j;
+    unsigned char pad[64], hash[20];
+    SHA_CTX ctx, ipad_ctx, opad_ctx;
+
+    /* See the comments above and inside fourwise_pke2tk_sse2() */
+    
+    for (i = 0; i < keycount; i++)
+    {
+        /* Second round of PRF-384 to compute first half of TK */
+        SHA1_Init(&ctx);
+
+        memset(pad, 0x36, sizeof(pad));
+        for (j = 0; j < 32; j++)
+            pad[j] ^= pmkbuffer[i * 32 + j];
+        SHA1_Update(&ctx, pad, sizeof(pad));
+        
+        SHA1_Update(&ctx, pke1, 64);
+        
+        memcpy((unsigned char*)&ipad_ctx, (unsigned char*)&ctx, sizeof(ipad_ctx));
+        SHA1_Update(&ctx, pke1 + 64, 100 - 64);
+        
+        SHA1_Final(hash, &ctx);
+
+        SHA1_Init(&ctx);
+        memset(pad, 0x5C, sizeof(pad));
+        for (j = 0; j < 32; j++)
+            pad[j] ^= pmkbuffer[i * 32 + j];
+        SHA1_Update(&ctx, pad, sizeof(pad));
+        
+        memcpy((unsigned char*)&opad_ctx, (unsigned char*)&ctx, sizeof(opad_ctx));
+        SHA1_Update(&ctx, hash, 20);
+        
+        /* Second round of PRF-384 done -> First 8 bytes of TK */
+        SHA1_Final(hash, &ctx);
+        memcpy(&tkbuffer[16 * i + 0], hash + 12, 8);
+        
+        /* Quick third round of PRF-384 */
+        SHA1_Update(&ipad_ctx, pke2 + 64, 100 - 64);
+        SHA1_Final(hash, &ipad_ctx);
+        SHA1_Update(&opad_ctx, hash, 20);
+        
+        /* Third round of PRF-384 done -> Last 8 bytes of TK */
+        SHA1_Final(hash, &opad_ctx);
+        memcpy(&tkbuffer[16 * i + 8], hash + 0, 8);
+    }
+}
+
+PyDoc_STRVAR(CCMPCracker_solve__doc__, 
+             "solve(object) -> solution or None\n\n"
+             "Try to find the password that corresponds to this instance's CCMP-encrypted message.\n");
+
+static PyObject*
+CCMPCracker_solve(CCMPCracker *self, PyObject *args)
+{
+    PyObject *result_seq, *pmkbuffer_obj, *solution_obj;
+    unsigned char *pmkbuffer, *t, *tkbuffer, S0[16];
+    Py_ssize_t buffersize, keycount;
+    int i, j, solution_idx;
+    PyBufferProcs *pb;
+    AES_KEY aes_ctx;
+    
+    buffersize = keycount = 0;
+    
+    if (!PyArg_ParseTuple(args, "O", &result_seq))
+        return NULL;
+    
+    /* Try to get the PMKs through the object's buffer-protocol (faster) */
+    if (PyObject_HasAttrString(result_seq, "getpmkbuffer"))
+    {
+        pmkbuffer_obj = PyObject_CallMethod(result_seq, "getpmkbuffer", NULL);
+        if (pmkbuffer_obj)
+        {
+            if (!PyBuffer_Check(pmkbuffer_obj))
+            {
+                PyErr_SetString(PyExc_ValueError, "The object's .getpmkbuffer() must provide a buffer-object.");
+                Py_DECREF(pmkbuffer_obj);
+                return NULL;
+            } else {
+                pb = pmkbuffer_obj->ob_type->tp_as_buffer;
+                buffersize = (*pb->bf_getreadbuffer)(pmkbuffer_obj, 0, (void**)&t);
+                if (buffersize % 32 != 0)
+                {
+                    PyErr_SetString(PyExc_ValueError, "Object's buffer's length is not a multiple of 32.");
+                    Py_DECREF(pmkbuffer_obj);
+                    return NULL;
+                }
+                /* Align size to 4*32 for SSE2 */
+                pmkbuffer = PyMem_Malloc(buffersize + 128 - (buffersize % 128));
+                if (!pmkbuffer)
+                {
+                    PyErr_NoMemory();
+                    Py_DECREF(pmkbuffer_obj);
+                    return NULL;
+                }
+                memcpy(pmkbuffer, t, buffersize);
+                Py_DECREF(pmkbuffer_obj);
+            }
+        } else {
+            /* Pass the error from getpmkbuffer() */
+            return NULL;
+        }
+    } else {
+        /* Basic sequence-like objects must be unpacked */
+        buffersize = Cracker_unpack(result_seq, &pmkbuffer);
+        if (!pmkbuffer)
+            return NULL;
+    }
+    keycount = buffersize / 32;
+    
+    tkbuffer = PyMem_Malloc((keycount + 3) * 16);
+    if (!tkbuffer)
+    {
+        PyMem_Free(pmkbuffer);
+        PyErr_NoMemory();
+        return NULL;
+    }
+    
+    solution_idx = -1;
+    Py_BEGIN_ALLOW_THREADS;
+
+    /* Compute TKs from PMKs and PKE */
+    fourwise_pke2tk(self->pke1, self->pke2, pmkbuffer, keycount, tkbuffer);
+
+    /* Try to find the TK that encrypts A0 to S0 */
+    for (i = 0; i < keycount && solution_idx == -1; i += 4)
+    {
+        /* Use TK to encrypt A0 into S0 */
+        for (j = 0; j < 4 && i + j < keycount; j++)
+        {
+            AES_set_encrypt_key(&tkbuffer[(i + j) * 16], 128, &aes_ctx);
+            AES_encrypt((unsigned char*)&self->A0, S0, &aes_ctx);
+            if (memcmp(S0, &self->S0, 6) == 0)
+            {
+                solution_idx = i + j;
+                break;
+            }
+        }
+    }
+    Py_END_ALLOW_THREADS;
+    
+    PyMem_Free(pmkbuffer);
+    
+    if (solution_idx == -1)
+    {
+        solution_obj = Py_None;
+        Py_INCREF(solution_obj);
+    } else {
+        solution_obj = PySequence_GetItem(result_seq, solution_idx);
+    }
+    
+    return solution_obj;
+}
 
 /*
     ###########################################################################
@@ -1457,8 +1825,7 @@ PyDoc_STRVAR(PcapDevice_open_live__doc__,
 static PyObject*
 PcapDevice_open_live(PcapDevice *self, PyObject *args)
 {
-    char errbuf[PCAP_ERRBUF_SIZE];
-    char *device_name;
+    char errbuf[PCAP_ERRBUF_SIZE], *device_name;
 
     if (!PyArg_ParseTuple(args, "s", &device_name))
         return NULL;
@@ -1489,8 +1856,7 @@ PyDoc_STRVAR(PcapDevice_open_offline__doc__,
 static PyObject*
 PcapDevice_open_offline(PcapDevice *self, PyObject *args)
 {
-    char errbuf[PCAP_ERRBUF_SIZE];
-    char *fname;
+    char errbuf[PCAP_ERRBUF_SIZE], *fname;
     
     if (!PyArg_ParseTuple(args, "s", &fname))
         return NULL;
@@ -1957,6 +2323,57 @@ static PyTypeObject EAPOLCracker_type = {
     0,                          /*tp_is_gc*/
 };
 
+static PyMethodDef CCMPCracker_methods[] =
+{
+    {"solve", (PyCFunction)CCMPCracker_solve, METH_VARARGS, CCMPCracker_solve__doc__},
+    {NULL, NULL}
+};
+
+static PyTypeObject CCMPCracker_type = {
+    PyObject_HEAD_INIT(NULL)
+    0,                          /*ob_size*/
+    "_cpyrit_cpu.CCMPCracker",  /*tp_name*/
+    sizeof(CCMPCracker),        /*tp_basicsize*/
+    0,                          /*tp_itemsize*/
+    (destructor)CCMPCracker_dealloc, /*tp_dealloc*/
+    0,                          /*tp_print*/
+    0,                          /*tp_getattr*/
+    0,                          /*tp_setattr*/
+    0,                          /*tp_compare*/
+    0,                          /*tp_repr*/
+    0,                          /*tp_as_number*/
+    0,                          /*tp_as_sequence*/
+    0,                          /*tp_as_mapping*/
+    0,                          /*tp_hash*/
+    0,                          /*tp_call*/
+    0,                          /*tp_str*/
+    0,                          /*tp_getattro*/
+    0,                          /*tp_setattro*/
+    0,                          /*tp_as_buffer*/
+    Py_TPFLAGS_DEFAULT          /*tp_flags*/
+    | Py_TPFLAGS_BASETYPE,
+    0,                          /*tp_doc*/
+    0,                          /*tp_traverse*/
+    0,                          /*tp_clear*/
+    0,                          /*tp_richcompare*/
+    0,                          /*tp_weaklistoffset*/
+    0,                          /*tp_iter*/
+    0,                          /*tp_iternext*/
+    CCMPCracker_methods,        /*tp_methods*/
+    0,                          /*tp_members*/
+    0,                          /*tp_getset*/
+    0,                          /*tp_base*/
+    0,                          /*tp_dict*/
+    0,                          /*tp_descr_get*/
+    0,                          /*tp_descr_set*/
+    0,                          /*tp_dictoffset*/
+    (initproc)CCMPCracker_init, /*tp_init*/
+    0,                          /*tp_alloc*/
+    0,                          /*tp_new*/
+    0,                          /*tp_free*/
+    0,                          /*tp_is_gc*/
+};
+
 static PyMethodDef CowpattyResult_methods[] =
 {
     {"getpmkbuffer", CowpattyResult_getpmkbuffer, METH_NOARGS, CowpattyResult_getpmkbuffer__doc__},
@@ -2177,6 +2594,7 @@ static void pathconfig(void)
             fourwise_sha1hmac = fourwise_sha1hmac_sse2;
             fourwise_md5hmac_prepare = fourwise_md5hmac_prepare_sse2;
             fourwise_md5hmac = fourwise_md5hmac_sse2;
+            fourwise_pke2tk = fourwise_pke2tk_sse2;
             return;
         }
     #endif 
@@ -2188,6 +2606,7 @@ static void pathconfig(void)
     fourwise_sha1hmac = fourwise_sha1hmac_openssl;
     fourwise_md5hmac_prepare = fourwise_hmac_prepare_openssl;
     fourwise_md5hmac = fourwise_md5hmac_openssl;
+    fourwise_pke2tk = fourwise_pke2tk_openssl;
 }
 
 
@@ -2262,6 +2681,14 @@ init_cpyrit_cpu(void)
     if (PyType_Ready(&EAPOLCracker_type) < 0)
 	    return;
 
+    CCMPCracker_type.tp_getattro = PyObject_GenericGetAttr;
+    CCMPCracker_type.tp_setattro = PyObject_GenericSetAttr;
+    CCMPCracker_type.tp_alloc  = PyType_GenericAlloc;
+    CCMPCracker_type.tp_new = PyType_GenericNew;
+    CCMPCracker_type.tp_free = _PyObject_Del;
+    if (PyType_Ready(&CCMPCracker_type) < 0)
+	    return;
+
     CowpattyFile_type.tp_getattro = PyObject_GenericGetAttr;
     CowpattyFile_type.tp_setattro = PyObject_GenericSetAttr;
     CowpattyFile_type.tp_alloc  = PyType_GenericAlloc;
@@ -2295,6 +2722,9 @@ init_cpyrit_cpu(void)
 
     Py_INCREF(&EAPOLCracker_type);
     PyModule_AddObject(m, "EAPOLCracker", (PyObject*)&EAPOLCracker_type);
+    
+    Py_INCREF(&CCMPCracker_type);
+    PyModule_AddObject(m, "CCMPCracker", (PyObject*)&CCMPCracker_type);
 
     Py_INCREF(&CowpattyFile_type);
     PyModule_AddObject(m, "CowpattyFile", (PyObject*)&CowpattyFile_type);
