@@ -13,7 +13,7 @@ Pyrit consists of basically two parts:
   * There are currently two extension modules that add support for more advanced hardware. The extension modules for [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA] and [http://www.khronos.org/opencl/ OpenCL] may be installed optionally and are used if available and supported by local hardware.
 
 You can choose between OpenCL and CUDA if you have a compatible Nvidia-GPU; you may want to take a look at [http://www.nvidia.com/object/cuda_learn_products.html this page] to find out if your hardware supports [http://www.nvidia.com/object/cuda_home.html Nvidia-CUDA].
-People with GPUs from ATI are supported through [http://ati.amd.com/technology/streamcomputing/opencl.html AMD's OpenCL-implementation] and may find [http://ati.amd.com/technology/streamcomputing/requirements.html this page] of interest; other possible OpenCL-platforms like [http://www-03.ibm.com/technology/cell/ IBM's Cell B.E.] (that powers the Playstation 3) should work but are untested at the moment.
+People with GPUs from ATI are supported through [http://developer.amd.com/gpu/AMDAPPSDK/Pages/default.aspx AMD's OpenCL-implementation] and may find [http://developer.amd.com/gpu/AMDAPPSDK/pages/DriverCompatibility.aspx this page] of interest; other possible OpenCL-platforms like [http://www-03.ibm.com/technology/cell/ IBM's Cell B.E.] (that powers the Playstation 3) should work but are untested at the moment.
 
 
 = Compiling from sources =
