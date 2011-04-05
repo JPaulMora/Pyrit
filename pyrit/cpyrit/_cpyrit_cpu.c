@@ -39,6 +39,9 @@
 #include <zlib.h>
 #include <pcap.h>
 #include "_cpyrit_cpu.h"
+#ifdef COMPILE_AESNI
+    #include <wmmintrin.h>
+#endif
 
 typedef struct {
     uint32_t h0[4];
@@ -140,6 +143,7 @@ static unsigned char* (*fourwise_md5hmac_prepare)(unsigned char* msg, int msg_le
 static void (*fourwise_md5hmac)(unsigned char* message, int message_length, unsigned char* keys, int key_length, unsigned char* hmacs) = NULL;
 /* CCMPCracker */
 static void (*fourwise_pke2tk)(unsigned char *pke1, unsigned char *pke2, unsigned char *pmkbuffer, Py_ssize_t keycount, unsigned char *tkbuffer) = NULL;
+static Py_ssize_t (*ccmp_encrypt)(const unsigned char *A0, const unsigned char *S0, const unsigned char *tkbuffer, Py_ssize_t keycount) = NULL;
 
 
 #ifdef COMPILE_SSE2
@@ -1328,6 +1332,118 @@ fourwise_pke2tk_openssl(unsigned char *pke1, unsigned char *pke2, unsigned char 
     }
 }
 
+static Py_ssize_t
+ccmp_encrypt_openssl(const unsigned char *A0, const unsigned char *S0, const unsigned char *tkbuffer, Py_ssize_t keycount)
+{
+    Py_ssize_t i, solution_idx;
+    AES_KEY aes_ctx;
+    unsigned char crib[16];
+    
+    solution_idx = -1;
+
+    for (i = 0; i < keycount; i++)
+    {
+        /* Use TK to encrypt A0 into S0 */
+        AES_set_encrypt_key(&tkbuffer[i * 16], 128, &aes_ctx);
+        AES_encrypt(A0, crib, &aes_ctx);
+        if (memcmp(crib, S0, 6) == 0)
+        {
+            solution_idx = i;
+            break;
+        }
+    }
+    
+    return solution_idx;
+}
+
+#ifdef COMPILE_AESNI
+    inline __m128i
+    aesni_key(__m128i a, __m128i b)
+    {
+        __m128i t;
+        b = _mm_shuffle_epi32(b, 255);
+        t = _mm_slli_si128(a, 4);
+        a = _mm_xor_si128(a, t);
+        t = _mm_slli_si128(t, 4);
+        a = _mm_xor_si128(a, t);
+        t = _mm_slli_si128(t, 4);
+        a = _mm_xor_si128(a, t);
+        a = _mm_xor_si128(a, b);
+        return a;
+    }
+
+    static Py_ssize_t
+    ccmp_encrypt_aesni(const unsigned char *A0, const unsigned char *S0, const unsigned char *tkbuffer, Py_ssize_t keycount)
+    {
+        __m128i tmp1, tmp2, rkey[10];
+        Py_ssize_t i, solution_idx;
+        unsigned char crib[16];
+        
+        solution_idx = -1;
+        
+        for (i = 0; i < keycount; i++)
+        {
+            /* Setup round keys */
+            tmp1 = _mm_loadu_si128((__m128i*)&tkbuffer[i * 16]);
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 1);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[0] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 2);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[1] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 4);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[2] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 8);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[3] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 16);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[4] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 32);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[5] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 64);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[6] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 128);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[7] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 27);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[8] = tmp1;
+            tmp2 = _mm_aeskeygenassist_si128(tmp1, 54);
+            tmp1 = aesni_key(tmp1, tmp2);
+            rkey[9] = tmp1;
+            
+            /* Get plaintext and XOR it with key to get AES-state */
+            tmp1 = _mm_loadu_si128((__m128i*)A0);
+            tmp1 = _mm_xor_si128(tmp1, ((__m128i*)(&tkbuffer[i * 16]))[0]);
+
+            /* Perform AES encryption on the state using derived round keys */
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[0]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[1]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[2]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[3]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[4]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[5]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[6]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[7]);
+            tmp1 = _mm_aesenc_si128(tmp1, rkey[8]);
+            tmp1 = _mm_aesenclast_si128 (tmp1, rkey[9]);
+            _mm_storeu_si128 (&((__m128i*)crib)[0], tmp1);
+
+            if (memcmp(crib, S0, 6) == 0)
+            {
+                solution_idx = i;
+                break;
+            }           
+        }
+        
+        return solution_idx;
+    }
+#endif /* COMPILE_AESNI */
+
 PyDoc_STRVAR(CCMPCracker_solve__doc__, 
              "solve(object) -> solution or None\n\n"
              "Try to find the password that corresponds to this instance's CCMP-encrypted message.\n");
@@ -1336,11 +1452,9 @@ static PyObject*
 CCMPCracker_solve(CCMPCracker *self, PyObject *args)
 {
     PyObject *result_seq, *pmkbuffer_obj, *solution_obj;
-    unsigned char *pmkbuffer, *t, *tkbuffer, S0[16];
-    Py_ssize_t buffersize, keycount;
-    int i, j, solution_idx;
+    unsigned char *pmkbuffer, *t, *tkbuffer;
+    Py_ssize_t buffersize, keycount, solution_idx;
     PyBufferProcs *pb;
-    AES_KEY aes_ctx;
     
     buffersize = keycount = 0;
     
@@ -1398,27 +1512,11 @@ CCMPCracker_solve(CCMPCracker *self, PyObject *args)
         return NULL;
     }
     
-    solution_idx = -1;
     Py_BEGIN_ALLOW_THREADS;
-
     /* Compute TKs from PMKs and PKE */
     fourwise_pke2tk(self->pke1, self->pke2, pmkbuffer, keycount, tkbuffer);
-
     /* Try to find the TK that encrypts A0 to S0 */
-    for (i = 0; i < keycount && solution_idx == -1; i += 4)
-    {
-        /* Use TK to encrypt A0 into S0 */
-        for (j = 0; j < 4 && i + j < keycount; j++)
-        {
-            AES_set_encrypt_key(&tkbuffer[(i + j) * 16], 128, &aes_ctx);
-            AES_encrypt((unsigned char*)&self->A0, S0, &aes_ctx);
-            if (memcmp(S0, &self->S0, 6) == 0)
-            {
-                solution_idx = i + j;
-                break;
-            }
-        }
-    }
+    solution_idx = ccmp_encrypt((unsigned char*)&self->A0, (unsigned char*)&self->S0, tkbuffer, keycount);
     Py_END_ALLOW_THREADS;
     
     PyMem_Free(pmkbuffer);
@@ -2571,6 +2669,9 @@ static PyMethodDef CPyritCPUMethods[] =
 
 static void pathconfig(void)
 {
+
+    ccmp_encrypt = ccmp_encrypt_openssl;
+
     #ifdef COMPILE_PADLOCK
         if (detect_padlock())
         {
@@ -2597,7 +2698,7 @@ static void pathconfig(void)
             fourwise_pke2tk = fourwise_pke2tk_sse2;
             return;
         }
-    #endif 
+    #endif
 
     PlatformString = PyString_FromString("x86");
     prepare_pmk = prepare_pmk_openssl;
