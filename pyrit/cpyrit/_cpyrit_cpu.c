@@ -38,101 +38,16 @@
 #include <openssl/aes.h>
 #include <zlib.h>
 #include <pcap.h>
+#include "cpufeatures.h"
 #include "_cpyrit_cpu.h"
 #ifdef COMPILE_AESNI
     #include <wmmintrin.h>
 #endif
 
-typedef struct {
-    uint32_t h0[4];
-    uint32_t h1[4];
-    uint32_t h2[4];
-    uint32_t h3[4];
-    uint32_t h4[4];
-    uint32_t cst[6][4];
-} fourwise_sha1_ctx;
-
-typedef struct {
-    uint32_t a[4];
-    uint32_t b[4];
-    uint32_t c[4];
-    uint32_t d[4];
-} fourwise_md5_ctx;
-
-struct pmk_ctr
-{
-    SHA_CTX ctx_ipad;
-    SHA_CTX ctx_opad;
-    uint32_t e1[5];
-    uint32_t e2[5];
-};
-
-typedef struct
-{
-    PyObject_HEAD
-    char keyscheme;
-    unsigned char *pke;
-    unsigned char keymic[16];
-    size_t eapolframe_size;
-    unsigned char *eapolframe;
-} EAPOLCracker;
-
-struct ccm_nonce
-{
-    unsigned char priority;
-    unsigned char a2[6];
-    unsigned char pn[6];
-};
-
-struct A_i
-{
-    unsigned char flags;
-    struct ccm_nonce nonce;
-    unsigned short counter;
-};
-
-typedef struct
-{
-    PyObject_HEAD
-    unsigned char *pke1;
-    unsigned char *pke2;
-    unsigned char S0[6];
-    struct A_i A0;
-} CCMPCracker;
-
-typedef struct
-{
-    PyObject_HEAD
-} CPUDevice;
-
-typedef struct
-{
-    PyObject_HEAD
-} CowpattyFile;
-
-typedef struct
-{
-    PyObject_HEAD
-    unsigned char *buffer, *current_ptr;
-    Py_ssize_t buffersize;
-    int current_idx, itemcount;
-} CowpattyResult;
-
-typedef struct
-{
-    PyObject_HEAD
-    PyObject *device_name;
-    PyObject *type;
-    PyObject *datalink_name;
-    pcap_t *p;
-    int datalink;
-    char status;
-} PcapDevice;
-
 static PyObject *PlatformString;
 static PyTypeObject CowpattyResult_type;
 
-/* Function pointers depend on the execution path that got compiled and that we can take (SSE2, Padlock, x86) */
+/* Function pointers depend on the execution path that got compiled and that we can take (AES-NI, SSE2, x86) */
 /* CPUDevice */
 static void (*prepare_pmk)(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr) = NULL;
 static int (*finalize_pmk)(struct pmk_ctr *ctr) = NULL;
@@ -162,196 +77,6 @@ static Py_ssize_t (*ccmp_encrypt)(const unsigned char *A0, const unsigned char *
     
     ###########################################################################
 */
-
-#ifdef COMPILE_PADLOCK
-    struct xsha1_ctx {
-        unsigned int state[32];
-        unsigned char inputbuffer[20+64];
-    } __attribute__((aligned(16)));
-
-    #include <sys/ucontext.h>
-    #include <signal.h>
-    #include <errno.h>
-    #include <sys/mman.h>
-
-    // Snippet taken from OpenSSL 0.9.8
-    static int
-    detect_padlock(void)
-    {
-        char vendor_string[16];
-        unsigned int eax, edx;
-
-        eax = 0x00000000;
-        vendor_string[12] = 0;
-        asm volatile (
-                "pushl  %%ebx\n"
-                "cpuid\n"
-                "movl   %%ebx,(%%edi)\n"
-                "movl   %%edx,4(%%edi)\n"
-                "movl   %%ecx,8(%%edi)\n"
-                "popl   %%ebx"
-                : "+a"(eax) : "D"(vendor_string) : "ecx", "edx");
-        if (strcmp(vendor_string, "CentaurHauls") != 0)
-                return 0;
-
-        /* Check for Centaur Extended Feature Flags presence */
-        eax = 0xC0000000;
-        asm volatile ("pushl %%ebx; cpuid; popl %%ebx"
-                : "+a"(eax) : : "ecx", "edx");
-        if (eax < 0xC0000001)
-                return 0;
-
-        /* Read the Centaur Extended Feature Flags */
-        eax = 0xC0000001;
-        asm volatile ("pushl %%ebx; cpuid; popl %%ebx"
-                : "+a"(eax), "=d"(edx) : : "ecx");
-
-        return (edx & 0x300) == 0x300;
-    }
-
-    // This instruction is not available on all CPUs (do we really care about those?)
-    // Therefor it is only used on padlock-enabled machines
-    static inline int bswap(int x)
-    {
-        asm volatile ("bswap %0":
-                    "=r" (x):
-                    "0" (x));
-        return x;
-    }
-
-    static int
-    padlock_xsha1(unsigned char *input, unsigned int *output, int done, int count)
-    {
-        int volatile d = done;
-        asm volatile ("xsha1"
-                  : "+S"(input), "+D"(output), "+a"(d)
-                  : "c"(count));
-        return d;
-    }
-
-    // This handler will ignore the SIGSEGV deliberately caused by padlock_xsha1_prepare
-    static void
-    segv_action(int sig, siginfo_t *info, void *uctxp)            
-    {
-        MCTX_EIP((ucontext_t*)uctxp) += 4;
-    }
-
-    // REP XSHA1 is crashed into the mprotect'ed page so we can
-    // steal the state at *EDI before finalizing.
-    static int
-    padlock_xsha1_prepare(const unsigned char *input, SHA_CTX *output)
-    {
-        size_t page_size = getpagesize(), buffersize = 2 * page_size, hashed = 0;
-        struct sigaction act, oldact;
-        unsigned char *cnt, *inputbuffer;
-        
-        inputbuffer = mmap(0, buffersize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0, 0);
-
-        mprotect(inputbuffer + page_size, page_size, PROT_NONE);
-
-        struct xsha1_ctx ctx;
-        ((int*)ctx.state)[0] = 0x67452301;
-        ((int*)ctx.state)[1] = 0xEFCDAB89;
-        ((int*)ctx.state)[2] = 0x98BADCFE;
-        ((int*)ctx.state)[3] = 0x10325476;
-        ((int*)ctx.state)[4] = 0xC3D2E1F0;
-
-        cnt = inputbuffer + page_size - (64*2);
-        memcpy(cnt, input, 64);
-        memset(&act, 0, sizeof(act));
-        act.sa_sigaction = segv_action;
-        act.sa_flags = SA_SIGINFO;
-        sigaction(SIGSEGV, &act, &oldact);
-        hashed = padlock_xsha1(cnt, ctx.state, 0, (64*2));        
-        sigaction(SIGSEGV, &oldact, NULL);
-
-        munmap(inputbuffer, buffersize);
-        
-        output->h0 = ((int*)ctx.state)[0];
-        output->h1 = ((int*)ctx.state)[1];
-        output->h2 = ((int*)ctx.state)[2];
-        output->h3 = ((int*)ctx.state)[3];
-        output->h4 = ((int*)ctx.state)[4];
-
-        return hashed;
-    }
-
-    // Now lie about the total number of bytes hashed by this call to get the correct hash
-    static inline int
-    padlock_xsha1_finalize(SHA_CTX *prestate, unsigned char *buffer)
-    {
-        struct xsha1_ctx ctx;
-        size_t hashed;
-
-        ((int*)ctx.state)[0] = prestate->h0;
-        ((int*)ctx.state)[1] = prestate->h1;
-        ((int*)ctx.state)[2] = prestate->h2;
-        ((int*)ctx.state)[3] = prestate->h3;
-        ((int*)ctx.state)[4] = prestate->h4;
-            
-        memcpy(ctx.inputbuffer, buffer, 20);
-        hashed = padlock_xsha1(ctx.inputbuffer, ctx.state, 64, 64+20);
-
-        ((int*)buffer)[0] = bswap(ctx.state[0]); ((int*)buffer)[1] = bswap(ctx.state[1]);
-        ((int*)buffer)[2] = bswap(ctx.state[2]); ((int*)buffer)[3] = bswap(ctx.state[3]);
-        ((int*)buffer)[4] = bswap(ctx.state[4]);
-
-        return hashed;
-    }
-
-    static void
-    prepare_pmk_padlock(const unsigned char *essid_pre, int essidlen, const unsigned char *password, int passwdlen, struct pmk_ctr *ctr)
-    {
-        int i;
-        unsigned char pad[64], essid[32+4];
-
-        essidlen = essidlen > 32 ? 32 : essidlen;
-        passwdlen = passwdlen > 64 ? 64 : passwdlen;
-
-        memcpy(essid, essid_pre, essidlen);
-        memset(essid + essidlen, 0, sizeof(essid) - essidlen);
-
-        memcpy(pad, password, passwdlen);
-        memset(pad + passwdlen, 0, sizeof(pad) - passwdlen);
-        for (i = 0; i < 16; i++)
-            ((unsigned int*)pad)[i] ^= 0x36363636;
-        padlock_xsha1_prepare(pad, &ctr->ctx_ipad);
-        for (i = 0; i < 16; i++)
-            ((unsigned int*)pad)[i] ^= 0x6A6A6A6A;
-        padlock_xsha1_prepare(pad, &ctr->ctx_opad);
-
-        essid[essidlen + 4 - 1] = '\1';
-        HMAC(EVP_sha1(), password, passwdlen, essid, essidlen + 4, (unsigned char*)ctr->e1, NULL);
-
-        essid[essidlen + 4 - 1] = '\2';
-        HMAC(EVP_sha1(), password, passwdlen, essid, essidlen + 4, (unsigned char*)ctr->e2, NULL);
-    }
-
-    static int
-    finalize_pmk_padlock(struct pmk_ctr *ctr)
-    {
-        int i, j;
-        unsigned int e1_buffer[5], e2_buffer[5];
-
-        memcpy(e1_buffer, ctr->e1, 20);
-        memcpy(e2_buffer, ctr->e2, 20);
-        for (i = 0; i < 4096-1; i++)
-        {
-            padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e1_buffer);
-            padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e1_buffer);
-            for (j = 0; j < 5; j++)
-                ctr->e1[j] ^= e1_buffer[j];
-            
-            padlock_xsha1_finalize(&ctr->ctx_ipad, (unsigned char*)e2_buffer);
-            padlock_xsha1_finalize(&ctr->ctx_opad, (unsigned char*)e2_buffer);
-            for (j = 0; j < 3; j++)
-                ctr->e2[j] ^= e2_buffer[j];
-        }
-        
-        return 1;
-    }
-
-#endif // COMPILE_PADLOCK
 
 #ifdef COMPILE_SSE2
     static int
@@ -1138,7 +863,6 @@ CCMPCracker_init(CCMPCracker *self, PyObject *args, PyObject *kwds)
         PyErr_NoMemory();
         return -1;
     }
-
         
     /* First 6 bytes in an CCMP-encrypted message */
     if (msglen < 6)
@@ -1335,25 +1059,20 @@ fourwise_pke2tk_openssl(unsigned char *pke1, unsigned char *pke2, unsigned char 
 static Py_ssize_t
 ccmp_encrypt_openssl(const unsigned char *A0, const unsigned char *S0, const unsigned char *tkbuffer, Py_ssize_t keycount)
 {
-    Py_ssize_t i, solution_idx;
+    Py_ssize_t i;
     AES_KEY aes_ctx;
     unsigned char crib[16];
     
-    solution_idx = -1;
-
     for (i = 0; i < keycount; i++)
     {
         /* Use TK to encrypt A0 into S0 */
         AES_set_encrypt_key(&tkbuffer[i * 16], 128, &aes_ctx);
         AES_encrypt(A0, crib, &aes_ctx);
         if (memcmp(crib, S0, 6) == 0)
-        {
-            solution_idx = i;
-            break;
-        }
+            return i;
     }
     
-    return solution_idx;
+    return -1;
 }
 
 #ifdef COMPILE_AESNI
@@ -1361,6 +1080,7 @@ ccmp_encrypt_openssl(const unsigned char *A0, const unsigned char *S0, const uns
     aesni_key(__m128i a, __m128i b)
     {
         __m128i t;
+        
         b = _mm_shuffle_epi32(b, 255);
         t = _mm_slli_si128(a, 4);
         a = _mm_xor_si128(a, t);
@@ -1369,78 +1089,54 @@ ccmp_encrypt_openssl(const unsigned char *A0, const unsigned char *S0, const uns
         t = _mm_slli_si128(t, 4);
         a = _mm_xor_si128(a, t);
         a = _mm_xor_si128(a, b);
+        
         return a;
     }
 
     static Py_ssize_t
     ccmp_encrypt_aesni(const unsigned char *A0, const unsigned char *S0, const unsigned char *tkbuffer, Py_ssize_t keycount)
     {
-        __m128i tmp1, tmp2, rkey[10];
-        Py_ssize_t i, solution_idx;
+        __m128i roundkey, state;
+        Py_ssize_t i;
         unsigned char crib[16];
-        
-        solution_idx = -1;
         
         for (i = 0; i < keycount; i++)
         {
-            /* Setup round keys */
-            tmp1 = _mm_loadu_si128((__m128i*)&tkbuffer[i * 16]);
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 1);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[0] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 2);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[1] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 4);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[2] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 8);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[3] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 16);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[4] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 32);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[5] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 64);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[6] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 128);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[7] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 27);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[8] = tmp1;
-            tmp2 = _mm_aeskeygenassist_si128(tmp1, 54);
-            tmp1 = aesni_key(tmp1, tmp2);
-            rkey[9] = tmp1;
+            /* Setup round key from main key */
+            roundkey = _mm_loadu_si128((__m128i*)&tkbuffer[i * 16]);
+ 
+             /* Get plaintext and XOR it with key to get AES-state */
+            state = _mm_loadu_si128((__m128i*)A0);
+            state = _mm_xor_si128(state, roundkey);
+ 
+            /* Perform 10 AES-rounds on the state using the derived round keys */
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 1));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 2));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 4));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 8));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 16));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 32));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 64));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 128));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 27));
+            state = _mm_aesenc_si128(state, roundkey);
+            roundkey = aesni_key(roundkey, _mm_aeskeygenassist_si128(roundkey, 54));
+            state = _mm_aesenclast_si128 (state, roundkey);
             
-            /* Get plaintext and XOR it with key to get AES-state */
-            tmp1 = _mm_loadu_si128((__m128i*)A0);
-            tmp1 = _mm_xor_si128(tmp1, ((__m128i*)(&tkbuffer[i * 16]))[0]);
-
-            /* Perform AES encryption on the state using derived round keys */
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[0]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[1]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[2]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[3]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[4]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[5]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[6]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[7]);
-            tmp1 = _mm_aesenc_si128(tmp1, rkey[8]);
-            tmp1 = _mm_aesenclast_si128 (tmp1, rkey[9]);
-            _mm_storeu_si128 (&((__m128i*)crib)[0], tmp1);
-
+            _mm_storeu_si128 (&((__m128i*)crib)[0], state);
             if (memcmp(crib, S0, 6) == 0)
-            {
-                solution_idx = i;
-                break;
-            }           
+                return i;
         }
         
-        return solution_idx;
+        return -1;
     }
 #endif /* COMPILE_AESNI */
 
@@ -2667,47 +2363,63 @@ static PyMethodDef CPyritCPUMethods[] =
     {NULL, NULL, 0, NULL}
 };
 
+int
+detect_cpu()
+{
+    unsigned int a,b,c,d;
+    
+    cpuid(1, a, b, c, d);
+    return (c & HAVE_AESNI) | (d & HAVE_SSE2);
+}
+
+
 static void pathconfig(void)
 {
-
-    ccmp_encrypt = ccmp_encrypt_openssl;
-
-    #ifdef COMPILE_PADLOCK
-        if (detect_padlock())
-        {
-            PlatformString = PyString_FromString("VIA Padlock");
-            prepare_pmk = prepare_pmk_padlock;
-            finalize_pmk = finalize_pmk_padlock;
-            fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_sse2;
-            fourwise_sha1hmac = fourwise_sha1hmac_sse2;
-            fourwise_md5hmac_prepare = fourwise_md5hmac_prepare_sse2;
-            fourwise_md5hmac = fourwise_md5hmac_sse2;
-            return;
-        }
+    int cpufeatures;
+    
+    cpufeatures = detect_cpu();
+    
+    #ifdef COMPILE_AESNI
+    if (cpufeatures & HAVE_AESNI)
+    {
+        PlatformString = PyString_FromString("SSE2/AES");
+        ccmp_encrypt = ccmp_encrypt_aesni;
+    }
     #endif
+
     #ifdef COMPILE_SSE2
-        if (detect_sse2())
-        {
+    if (cpufeatures & HAVE_SSE2)
+    {
+        if (!PlatformString)
             PlatformString = PyString_FromString("SSE2");
-            prepare_pmk = prepare_pmk_openssl;
-            finalize_pmk = finalize_pmk_sse2;
-            fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_sse2;
-            fourwise_sha1hmac = fourwise_sha1hmac_sse2;
-            fourwise_md5hmac_prepare = fourwise_md5hmac_prepare_sse2;
-            fourwise_md5hmac = fourwise_md5hmac_sse2;
-            fourwise_pke2tk = fourwise_pke2tk_sse2;
-            return;
-        }
+        prepare_pmk = prepare_pmk_openssl;
+        finalize_pmk = finalize_pmk_sse2;
+        fourwise_sha1hmac_prepare = fourwise_sha1hmac_prepare_sse2;
+        fourwise_sha1hmac = fourwise_sha1hmac_sse2;
+        fourwise_md5hmac_prepare = fourwise_md5hmac_prepare_sse2;
+        fourwise_md5hmac = fourwise_md5hmac_sse2;
+        fourwise_pke2tk = fourwise_pke2tk_sse2;
+    }
     #endif
 
-    PlatformString = PyString_FromString("x86");
-    prepare_pmk = prepare_pmk_openssl;
-    finalize_pmk = finalize_pmk_openssl;
-    fourwise_sha1hmac_prepare = fourwise_hmac_prepare_openssl;
-    fourwise_sha1hmac = fourwise_sha1hmac_openssl;
-    fourwise_md5hmac_prepare = fourwise_hmac_prepare_openssl;
-    fourwise_md5hmac = fourwise_md5hmac_openssl;
-    fourwise_pke2tk = fourwise_pke2tk_openssl;
+    if (!PlatformString)
+        PlatformString = PyString_FromString("x86");
+    if (!prepare_pmk)
+        prepare_pmk = prepare_pmk_openssl;
+    if (!finalize_pmk)
+        finalize_pmk = finalize_pmk_openssl;
+    if (!fourwise_sha1hmac_prepare)
+        fourwise_sha1hmac_prepare = fourwise_hmac_prepare_openssl;
+    if (!fourwise_sha1hmac)
+        fourwise_sha1hmac = fourwise_sha1hmac_openssl;
+    if (!fourwise_md5hmac_prepare)
+        fourwise_md5hmac_prepare = fourwise_hmac_prepare_openssl;
+    if (!fourwise_md5hmac)
+        fourwise_md5hmac = fourwise_md5hmac_openssl;
+    if (!fourwise_pke2tk)
+        fourwise_pke2tk = fourwise_pke2tk_openssl;
+    if (!ccmp_encrypt)
+        ccmp_encrypt = ccmp_encrypt_openssl;
 }
 
 

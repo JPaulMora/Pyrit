@@ -34,7 +34,7 @@
 #    OpenSSL library used as well as that of the covered work.
 */
 
-#include "_cpyrit_cpu.h"
+#include "cpufeatures.h"
 
 #ifdef COMPILE_SSE2
 
@@ -512,7 +512,7 @@ cpuid_exit:
 
     ret
 
-#endif // COMPILE_SSE2
+#endif /* COMPILE_SSE2 */
 
 #if defined(__linux__) && defined(__ELF__)
     .section .note.GNU-stack,"",%progbits
