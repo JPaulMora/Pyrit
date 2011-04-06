@@ -1216,6 +1216,7 @@ CCMPCracker_solve(CCMPCracker *self, PyObject *args)
     Py_END_ALLOW_THREADS;
     
     PyMem_Free(pmkbuffer);
+    PyMem_Free(tkbuffer);
     
     if (solution_idx == -1)
     {
