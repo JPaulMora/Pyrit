@@ -471,47 +471,6 @@ sse2_md5_update:
 
     ret
 
-
-
-/* returns 1 if SSE2 is supported, 0 otherwise */
-_detect_sse2:
-detect_sse2:
-#ifndef __x86_64__
-    pushfl
-    pushfl
-    popl    %eax
-    movl    %eax, %ecx
-    xorl    $0x200000, %eax
-    push    %eax
-    popfl
-    pushfl
-    popl    %eax
-    popfl
-    xorl    %ecx, %eax
-    jnz     do_cpuid
-    ret
-do_cpuid:
-#endif
-    push ebx_rbx
-    push ecx_rcx
-    push edx_rdx
-
-    movl    $1, %eax
-    cpuid
-    testl   $0x04000000, %edx  // bit 26 (SSE2)
-    jz      no_sse2
-    movl    $1, %eax
-    jmp     cpuid_exit
-no_sse2:
-    xorl    %eax, %eax
-cpuid_exit:
-    
-    pop edx_rdx
-    pop ecx_rcx
-    pop ebx_rbx
-
-    ret
-
 #endif /* COMPILE_SSE2 */
 
 #if defined(__linux__) && defined(__ELF__)

@@ -21,6 +21,7 @@
 from distutils.core import setup, Extension
 from distutils.unixccompiler import UnixCCompiler
 import subprocess
+import sys
 import re
 
 VERSION = '0.4.1-dev'
@@ -34,9 +35,12 @@ try:
                 int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
 except:
     pass
+
 EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
                       '-DVERSION="%s"' % (VERSION,)]
-
+# Support for AES-NI-intrinsics is not found everyhwere
+if sys.platform in ('darwin', 'linux2'):
+    EXTRA_COMPILE_ARGS.extend(('-maes', '-mpclmul'))
 
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
                     sources = ['cpyrit/_cpyrit_cpu.c',
@@ -52,9 +56,9 @@ setup_args = dict(
             "Pyrit allows to create massive databases, pre-computing part " \
             "of the WPA/WPA2-PSK authentication phase in a space-time-" \
             "tradeoff. Exploiting the computational power of Many-Core- " \
-            "and other platforms through ATI-Stream, Nvidia CUDA, OpenCL " \
-            "and VIA Padlock, it is currently by far the most powerful " \
-            "attack against one of the world's most used security-protocols.",
+            "and other platforms through ATI-Stream, Nvidia CUDA and OpenCL " \
+            ", it is currently by far the most powerful attack against one " \
+            "of the world's most used security-protocols.",
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg',
         author_email = 'lukas.lueg@gmail.com',
