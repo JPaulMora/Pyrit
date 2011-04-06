@@ -18,33 +18,104 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef __i386__
-    #define COMPILE_PADLOCK
-    #if defined(linux)
-        #define MCTX_EIP(context) ((context)->uc_mcontext.gregs[REG_EIP])
-    #elif defined(__APPLE__)
-        #ifdef __DARWIN_UNIX03
-            #define MCTX_EIP(context) (*((unsigned long*)&(context)->uc_mcontext->__ss.__eip))
-        #else
-            #define MCTX_EIP(context) (*((unsigned long*)&(context)->uc_mcontext->ss.eip))
-        #endif
-        #define MAP_ANONYMOUS MAP_ANON
-    #else
-        #undef COMPILE_PADLOCK
-    #endif
-#endif
+#ifndef CPYRIT
 
+#define CPYRIT
 
-#if (defined(__i386__) || defined(__x86_64__))
-    #define COMPILE_SSE2
-    #define PUT_BE(n,b,i)                            \
-    {                                                       \
-        (b)[(i)    ] = (unsigned char) ( (n) >> 24 );       \
-        (b)[(i) + 1] = (unsigned char) ( (n) >> 16 );       \
-        (b)[(i) + 2] = (unsigned char) ( (n) >>  8 );       \
-        (b)[(i) + 3] = (unsigned char) ( (n)       );       \
-    }
-#endif
+#define cpuid(func,ax,bx,cx,dx) \
+    __asm__ __volatile__ ("cpuid":\
+    "=a" (ax), "=b" (bx), "=c" (cx), "=d" (dx) : "a" (func));
+
+#define HAVE_AESNI 0x2000000 /* CPUID.01H:ECX.AES[bit 25] */
+#define HAVE_SSE2 0x4000000 /* CPUID.01H:EDX.AES[bit 26] */
 
 #define HMAC_MD5_RC4 0
 #define HMAC_SHA1_AES 1
+
+typedef struct {
+    uint32_t h0[4];
+    uint32_t h1[4];
+    uint32_t h2[4];
+    uint32_t h3[4];
+    uint32_t h4[4];
+    uint32_t cst[6][4];
+} fourwise_sha1_ctx;
+
+typedef struct {
+    uint32_t a[4];
+    uint32_t b[4];
+    uint32_t c[4];
+    uint32_t d[4];
+} fourwise_md5_ctx;
+
+struct pmk_ctr
+{
+    SHA_CTX ctx_ipad;
+    SHA_CTX ctx_opad;
+    uint32_t e1[5];
+    uint32_t e2[5];
+};
+
+typedef struct
+{
+    PyObject_HEAD
+    char keyscheme;
+    unsigned char *pke;
+    unsigned char keymic[16];
+    size_t eapolframe_size;
+    unsigned char *eapolframe;
+} EAPOLCracker;
+
+struct ccm_nonce
+{
+    unsigned char priority;
+    unsigned char a2[6];
+    unsigned char pn[6];
+};
+
+struct A_i
+{
+    unsigned char flags;
+    struct ccm_nonce nonce;
+    unsigned short counter;
+};
+
+typedef struct
+{
+    PyObject_HEAD
+    unsigned char *pke1;
+    unsigned char *pke2;
+    unsigned char S0[6];
+    struct A_i A0;
+} CCMPCracker;
+
+typedef struct
+{
+    PyObject_HEAD
+} CPUDevice;
+
+typedef struct
+{
+    PyObject_HEAD
+} CowpattyFile;
+
+typedef struct
+{
+    PyObject_HEAD
+    unsigned char *buffer, *current_ptr;
+    Py_ssize_t buffersize;
+    int current_idx, itemcount;
+} CowpattyResult;
+
+typedef struct
+{
+    PyObject_HEAD
+    PyObject *device_name;
+    PyObject *type;
+    PyObject *datalink_name;
+    pcap_t *p;
+    int datalink;
+    char status;
+} PcapDevice;
+
+#endif /* CPYRIT */
