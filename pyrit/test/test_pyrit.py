@@ -167,7 +167,7 @@ class BaseTestCase(unittest.TestCase):
             solution = cp.next()
         auths = parser[ap][sta].getAuthentications()
         for auth in parser[ap][sta].getAuthentications():
-            with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
+            with cpyrit.pckttools.AuthenticationCracker(auth) as cracker:
                 cracker.enqueue(solution)
             if cracker.solution == passwd:
                 break

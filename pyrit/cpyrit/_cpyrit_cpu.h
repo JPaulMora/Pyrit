@@ -22,9 +22,15 @@
 
 #define CPYRIT
 
-#define cpuid(func,ax,bx,cx,dx) \
-    __asm__ __volatile__ ("cpuid":\
-    "=a" (ax), "=b" (bx), "=c" (cx), "=d" (dx) : "a" (func));
+#if (defined(__x86_64__))
+    #define cpuid(func, ax, bx, cx, dx) \
+        __asm__ __volatile__ ("cpuid;":\
+        "=a" (ax), "=b" (bx), "=c" (cx), "=d" (dx) : "a" (func));
+#elif (defined(__i386__))
+    #define cpuid(func, ax, bx, cx, dx) \
+        __asm__ __volatile__ ("pushl %%ebx; cpuid; movl %%ebx, %1; popl %%ebx":\
+        "=a" (ax), "=r" (bx), "=c" (cx), "=d" (dx) : "a" (func));
+#endif
 
 #define HAVE_AESNI 0x2000000 /* CPUID.01H:ECX.AES[bit 25] */
 #define HAVE_SSE2 0x4000000 /* CPUID.01H:EDX.AES[bit 26] */

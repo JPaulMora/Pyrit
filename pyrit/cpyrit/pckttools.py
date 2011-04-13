@@ -30,6 +30,7 @@
 
 from __future__ import with_statement
 
+import binascii
 import tempfile
 import threading
 import Queue
@@ -153,6 +154,13 @@ class EAPOL_RSNKey(EAPOL_AbstractEAPOLKey):
 scapy.packet.bind_layers(EAPOL_Key, EAPOL_RSNKey, DescType=2)
 
 
+class SCSortedCollection(util.SortedCollection):
+    '''A collection of packets, ordered by their sequence-number'''
+    
+    def __init__(self):
+        util.SortedCollection.__init__(self, key=lambda pckt:pckt.SC)
+
+
 class AccessPoint(object):
 
     def __init__(self, mac):
@@ -194,20 +202,60 @@ class AccessPoint(object):
 
 
 class Station(object):
-
+    '''A Station (e.g. a laptop) on a Dot11-network'''
     def __init__(self, mac, ap):
         self.ap = ap
         self.mac = mac
-        self.frames = {}
+        ''' A note about the three data-structures of the Station-class:
+        
+            self.eapoldict stores the first, second and third frame of an
+            authentication so that related packets can be stored and retrieved
+            quickly. It is a nested dictionary where every *unique*
+            authentication is represented by the dicts' keys while all
+            *possible* frames that build an authentication are found in the
+            dicts' values.
+            The key to self.eapoldict is the EAPOL-ReplayCounter.
+            Underneath each ReplayCounter is a set of three dicts, one for each
+            of the frames that build an authentication (the fourth frame is
+            not used). For the first and third dictionary, the values indexed
+            by the ANonces are the frames (and an index) themselves.
+            For the second dictionary, the values indexed by a tuple of
+            (SNonce, authentication-scheme, virginized frame and MIC) are the
+            frame itself and an index.
+
+            self.xtframes and self.xrframes store CCMP-encrypted packets as a frame-
+            number-sorted list so that packets that might be related to a certain
+            authentiction frame can be found quickly.
+        '''
+        self.eapoldict = {}
+        # Double-reference to EAPOL-frames
+        self.eapolrlist = SCSortedCollection()
+        self.eapoltlist = SCSortedCollection()
+        # Packets transmitted by this station (sorted by station's seq-number)
+        self.xtframes = SCSortedCollection()
+        # Packets received by this station (sorted by ap's seq-number)
+        self.xrframes = SCSortedCollection()
 
     def __str__(self):
         return self.mac
 
     def __iter__(self):
-        return self.getAuthentications().__iter__()
+        return iter(self.getAuthentications())
 
-    def __len__(self):
-        return len(self.auths)
+    def getPackets(self):
+        for col in (self.eapolrlist, self.eapoltlist, self.xtframes,
+                    self.xrframes):
+            for packet in col:
+                yield packet
+
+    def addEncryptedFrame(self, pckt):
+        if pckt.addr2 == self.mac:
+            frames = self.xtframes
+        elif pckt.addr1 == self.mac:
+            frames = self.xrframes
+        else:
+            raise ValueError("Encrypted frame does not belong to this station.")
+        frames.insert_right(pckt)
 
     def addAuthenticationFrame(self, idx, pckt_idx, pckt):
         if idx == 0:
@@ -221,15 +269,16 @@ class Station(object):
 
     def addChallengeFrame(self, pckt_idx, pckt):
         """Store a packet that contains the EAPOL-challenge"""
-        frames = self.frames.setdefault(pckt.ReplayCounter, ({}, {}, {}))
+        frames = self.eapoldict.setdefault(pckt.ReplayCounter, ({}, {}, {}))
         if pckt.Nonce not in frames[0]:
             frames[0][pckt.Nonce] = (pckt_idx, pckt)
+            self.eapolrlist.insert_right(pckt)
             return self._buildAuthentications({pckt.Nonce: (pckt_idx, pckt)}, \
                                               frames[1], frames[2])
 
     def addResponseFrame(self, pckt_idx, pckt):
         """Store a packet that contains the EAPOL-response"""
-        frames = self.frames.setdefault(pckt.ReplayCounter, ({}, {}, {}))
+        frames = self.eapoldict.setdefault(pckt.ReplayCounter, ({}, {}, {}))
 
         if EAPOL_WPAKey in pckt:
             keypckt = pckt[EAPOL_WPAKey]
@@ -259,6 +308,8 @@ class Station(object):
 
         response = (version, keypckt.Nonce, keymic_frame, keypckt.WPAKeyMIC)
         if response not in frames[1]:
+            # A new response - store packet
+            self.eapoltlist.insert_right(pckt)
             frames[1][response] = (pckt_idx, pckt)
             return self._buildAuthentications(frames[0], \
                                               {response: (pckt_idx, pckt)}, \
@@ -266,9 +317,10 @@ class Station(object):
 
     def addConfirmationFrame(self, pckt_idx, pckt):
         """Store a packet that contains the EAPOL-confirmation"""
-        frames = self.frames.setdefault(pckt.ReplayCounter - 1, ({}, {}, {}))
+        frames = self.eapoldict.setdefault(pckt.ReplayCounter - 1, ({}, {}, {}))
         if pckt.Nonce not in frames[2]:
             frames[2][pckt.Nonce] = (pckt_idx, pckt)
+            self.eapolrlist.insert_right(pckt)
             return self._buildAuthentications(frames[0], frames[1], \
                                               {pckt.Nonce: (pckt_idx, pckt)})
 
@@ -306,6 +358,38 @@ class Station(object):
                                         anonce, WPAKeyMIC, keymic_frame, \
                                         2, spread, (f1, f2, None))
                     auths.append(auth)
+        # See which authentications can be annotated with an CCMP-encrypted
+        # packet (for CCMPCracker).
+        for auth in auths:
+            # The response is transmitted from the station to the AP,
+            # let's see if we have an encrypted packet also going this way.
+            fx = auth.frames[1]
+            try:
+                ccmpframe = self.xtframes.find_gt(fx.SC)
+            except ValueError:
+                # No CCMP-frame next to F2's sequence-number. Maybe we have
+                # a packet transmitted from the AP to the station?
+                fx = auth.frames[2] or auth.frames[0]
+                assert fx is not None
+                try:
+                    ccmpframe = self.xrframes.find_gt(fx.SC)
+                except ValueError:
+                    ccmpframe = None
+                else:
+                    eapollist = self.eapolrlist
+            else:
+                eapollist = self.eapoltlist
+            if ccmpframe is not None:
+                # We found an encrypted packet following the authentication.
+                # Make sure that there are no authentications in between.
+                try:
+                    nextauth = eapollist.find_lt(ccmpframe.SC)
+                except ValueError:
+                    nextauth = None
+                if nextauth is None or nextauth.SC <= fx.SC:
+                    # No sign of another authentication before that CCMP-
+                    # packet. Should be safe to use.
+                    auth.ccmpframe = ccmpframe
         return auths
 
     def getAuthentications(self):
@@ -313,7 +397,7 @@ class Station(object):
            handshake-packets. Best matches come first.
         """
         auths = []
-        for frames in self.frames.itervalues():
+        for frames in self.eapoldict.itervalues():
             auths.extend(self._buildAuthentications(*frames))
         return sorted(auths)
 
@@ -327,7 +411,7 @@ class Station(object):
 class EAPOLAuthentication(object):
 
     def __init__(self, station, version, snonce, anonce, keymic, \
-                    keymic_frame, quality, spread, frames=None):
+                    keymic_frame, quality, spread, frames=None, ccmpframe=None):
         self.station = station
         self.version = version
         self.snonce = snonce
@@ -337,6 +421,7 @@ class EAPOLAuthentication(object):
         self.quality = quality
         self.spread = spread
         self.frames = frames
+        self.ccmpframe = ccmpframe
 
     def getpke(self):
         pke = "Pairwise key expansion\x00" \
@@ -349,7 +434,8 @@ class EAPOLAuthentication(object):
 
     def __lt__(self, other):
         if isinstance(other, EAPOLAuthentication):
-            return (self.quality, self.spread) < (other.quality, other.spread)
+            return (self.ccmpframe is None, self.quality, self.spread) < \
+                   (self.ccmpframe is None, other.quality, other.spread)
         else:
             return self < other
 
@@ -358,6 +444,8 @@ class EAPOLAuthentication(object):
 
     def __str__(self):
         quality = ['good', 'workable', 'bad'][self.quality]
+        if self.version == 'HMAC_SHA1_AES' and self.ccmpframe is not None:
+            quality += "*"
         return "%s, %s, spread %s" % (self.version, quality, self.spread)
 
 
@@ -519,7 +607,7 @@ class PacketParser(object):
 
     def __init__(self, pcapfile=None, new_ap_callback=None,
                 new_station_callback=None, new_keypckt_callback=None,
-                new_auth_callback=None, use_bpf=True):
+                new_auth_callback=None, use_bpf=False):
         self.air = {}
         self.pcktcount = 0
         self.dot11_pcktcount = 0
@@ -562,6 +650,9 @@ class PacketParser(object):
         if new_auths is not None and self.new_auth_callback is not None:
             for auth in new_auths:
                 self.new_auth_callback((station, auth))
+
+    def _add_ccmppckt(self, station, pckt):
+        station.addEncryptedFrame(pckt)
 
     def parse_file(self, pcapfile):
         with PcapDevice(pcapfile, self.use_bpf) as rdr:
@@ -650,6 +741,23 @@ class PacketParser(object):
             wpakey_pckt = dot11_pckt[EAPOL_WPAKey]
         elif EAPOL_RSNKey in dot11_pckt:
             wpakey_pckt = dot11_pckt[EAPOL_RSNKey]
+        elif dot11_pckt.isFlagSet('type', 'Data') \
+         and dot11_pckt.subtype == 0 \
+         and dot11_pckt.isFlagSet('FCfield', 'wep'):
+            # An encrypted data packet - maybe useful for CCMP-attack
+            s = str(dot11_pckt.payload)
+            if len(s) < 8+6:
+                # We need at least 8 bytes for CCMP-PN and 6 bytes for message
+                return
+            ccmp_msg = s[8:8+6]
+            ccmp_counter = (s[0:2] + s[4:8])[::-1]
+            # Ignore packets with high CCMP-counter. A high CCMP-counter
+            # means that we missed a lot of packets since the last
+            # authentication which also means a whole new authentication
+            # might already have happened.
+            if int(binascii.hexlify(ccmp_counter), 16) < 30:
+                self._add_ccmppckt(sta, pckt)
+            return
         else:
             return
 
@@ -658,6 +766,7 @@ class PacketParser(object):
         if wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'ack')) \
          and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'mic')):
             self._add_keypckt(sta, 0, pckt)
+            return
 
         # Frame 2: pairwise set, install unset, ack unset, mic set,
         # SNonce != 0. Results in SNonce, MIC and keymic_frame
@@ -665,12 +774,14 @@ class PacketParser(object):
          and wpakey_pckt.areFlagsNotSet('KeyInfo', ('install', 'ack')) \
          and not all(c == '\x00' for c in wpakey_pckt.Nonce):
             self._add_keypckt(sta, 1, pckt)
+            return
 
         # Frame 3: pairwise set, install set, ack set, mic set
         # Results in ANonce
         elif wpakey_pckt.areFlagsSet('KeyInfo', ('pairwise', 'install', \
                                                  'ack', 'mic')):
             self._add_keypckt(sta, 2, pckt)
+            return
 
     def __iter__(self):
         return [ap for essid, ap in sorted([(ap.essid, ap) \
@@ -686,12 +797,10 @@ class PacketParser(object):
         return len(self.air)
 
 
-class EAPOLCrackerThread(threading.Thread, _cpyrit_cpu.EAPOLCracker):
+class CrackerThread(threading.Thread):
 
-    def __init__(self, workqueue, auth):
+    def __init__(self, workqueue):
         threading.Thread.__init__(self)
-        _cpyrit_cpu.EAPOLCracker.__init__(self, auth.version, auth.pke,
-                                            auth.keymic, auth.keymic_frame)
         self.workqueue = workqueue
         self.shallStop = False
         self.solution = None
@@ -713,14 +822,43 @@ class EAPOLCrackerThread(threading.Thread, _cpyrit_cpu.EAPOLCracker):
                 self.workqueue.task_done()
 
 
-class EAPOLCracker(object):
+class EAPOLCrackerThread(CrackerThread, _cpyrit_cpu.EAPOLCracker):
+
+    def __init__(self, workqueue, auth):
+        CrackerThread.__init__(self, workqueue)
+        _cpyrit_cpu.EAPOLCracker.__init__(self, auth.version, auth.pke,
+                                          auth.keymic, auth.keymic_frame)
+
+
+class CCMPCrackerThread(CrackerThread, _cpyrit_cpu.CCMPCracker):
+
+    def __init__(self, workqueue, auth):
+        if auth.version != "HMAC_SHA1_AES":
+            raise RuntimeError("CCMP-Attack is only possible for " \
+                               "HMAC_SHA1_AES-authentications.")
+        CrackerThread.__init__(self, workqueue)
+        s = str(auth.ccmpframe.payload)
+        msg = s[8:8+6]
+        counter = (s[0:2] + s[4:8])[::-1]
+        mac = scapy.utils.mac2str(auth.station.mac)
+        _cpyrit_cpu.CCMPCracker.__init__(self, auth.pke, msg, mac, counter) 
+
+
+class AuthenticationCracker(object):
 
     def __init__(self, authentication):
         self.queue = Queue.Queue(10)
         self.workers = []
         self.solution = None
+        # CCMPCracker is disabled until further testing
+        if authentication.version == "HMAC_SHA1_AES" \
+         and authentication.ccmpframe is not None \
+         and False:
+            cracker = CCMPCrackerThread
+        else:
+            cracker = EAPOLCrackerThread
         for i in xrange(util.ncpus):
-            self.workers.append(EAPOLCrackerThread(self.queue, authentication))
+            self.workers.append(cracker(self.queue, authentication))
 
     def _getSolution(self):
         if self.solution is None:
