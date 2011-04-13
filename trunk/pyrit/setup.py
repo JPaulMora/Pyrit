@@ -19,7 +19,9 @@
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
 from distutils.core import setup, Extension
+from distutils.command.build_ext import build_ext
 from distutils.unixccompiler import UnixCCompiler
+from distutils.errors import CompileError
 import subprocess
 import sys
 import re
@@ -41,6 +43,28 @@ EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
 # Support for AES-NI-intrinsics is not found everyhwere
 if sys.platform in ('darwin', 'linux2'):
     EXTRA_COMPILE_ARGS.extend(('-maes', '-mpclmul'))
+
+
+class LazyBuilder(build_ext):
+    '''The LazyBuilder-class tries to build the cpyrit_cpu-extension with
+       -maes and -mpclmul first. If that fails, it simply re-tries with
+       those flags disabled.
+       This is not exactly elegant but probably the most portable solution
+       given the limited capabilities of distutils to detect compiler-versions.
+    '''
+
+    def build_extension(self, ext):
+        try:
+            return build_ext.build_extension(self, ext)
+        except CompileError:
+            if ext.extra_compile_args and '-maes' in ext.extra_compile_args:
+                print "Failed to build; Compiling without AES-NI"
+                ext.extra_compile_args.remove('-maes')
+                ext.extra_compile_args.remove('-mpclmul')
+                return build_ext.build_extension(self, ext)
+            else:
+                raise
+
 
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
                     sources = ['cpyrit/_cpyrit_cpu.c',
@@ -78,6 +102,7 @@ setup_args = dict(
                       'cpyrit.config', 'cpyrit.network'],
         scripts = ['pyrit'],
         ext_modules = [cpu_extension],
+        cmdclass = {'build_ext': LazyBuilder},
         options = {'install': {'optimize': 1}})
 
 if __name__ == '__main__':

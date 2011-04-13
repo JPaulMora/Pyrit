@@ -2364,13 +2364,17 @@ static PyMethodDef CPyritCPUMethods[] =
     {NULL, NULL, 0, NULL}
 };
 
-int
-detect_cpu()
+static int
+detect_cpu(void)
 {
+#ifdef COMPILE_SSE2
     unsigned int a,b,c,d;
     
     cpuid(1, a, b, c, d);
     return (c & HAVE_AESNI) | (d & HAVE_SSE2);
+#else
+    return 0;
+#endif
 }
 
 

@@ -175,7 +175,7 @@ class Pyrit_CLI(object):
         for idx, capturefile in enumerate(filelist):
             self.tell("Parsing file '%s' (%i/%i)..." % (capturefile, idx + 1, \
                                                         len(filelist)))
-            dev = cpyrit.pckttools.PcapDevice(capturefile, True)
+            dev = cpyrit.pckttools.PcapDevice(capturefile)
             parser.parse_pcapdevice(dev)
         self.tell("Parsed %i packets (%i 802.11-packets), got %i AP(s)\n" % \
                     (parser.pcktcount, parser.dot11_pcktcount, len(parser)))
@@ -496,10 +496,7 @@ class Pyrit_CLI(object):
                     else:
                         self.tell("")
                     packets = []
-                    for frames in sta.frames.itervalues():
-                        for i in xrange(3):
-                            packets.extend(frames[i].itervalues())
-                    for pckt_idx, pckt in sorted(packets):
+                    for pckt in sta.getPackets():
                         writer.write(pckt)
         self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
                     (outfile, writer.pcktcount, parser.pcktcount))
@@ -915,11 +912,11 @@ class Pyrit_CLI(object):
         auths = ap.getCompletedAuthentications()
         crackers = []
         if not all_handshakes:
-            crackers.append(cpyrit.pckttools.EAPOLCracker(auths[0]))
+            crackers.append(cpyrit.pckttools.AuthenticationCracker(auths[0]))
         else:
             self.tell("Attacking %i handshake(s)." % (len(auths),))
             for auth in auths:
-                crackers.append(cpyrit.pckttools.EAPOLCracker(auth))
+                crackers.append(cpyrit.pckttools.AuthenticationCracker(auth))
         with cpyrit.util.FileWrapper(infile) as reader:
             with cpyrit.cpyrit.PassthroughIterator(essid, reader) as rstiter:
                 for results in rstiter:
@@ -985,7 +982,7 @@ class Pyrit_CLI(object):
         if all_handshakes:
             self.tell("Attacking %i handshake(s)." % (len(auths),))
         for auth in auths if all_handshakes else auths[:1]:
-            with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
+            with cpyrit.pckttools.AuthenticationCracker(auth) as cracker:
                 with cpyrit.cpyrit.StorageIterator(storage, essid) as dbiter:
                     self.tell("Attacking handshake with " \
                               "station %s" % (auth.station,))
@@ -1049,7 +1046,7 @@ class Pyrit_CLI(object):
         if all_handshakes:
             self.tell("Attacking %i handshake(s)." % (len(auths),))
         for auth in auths if all_handshakes else auths[:1]:
-            with cpyrit.pckttools.EAPOLCracker(auth) as cracker:
+            with cpyrit.pckttools.AuthenticationCracker(auth) as cracker:
                 self.tell("Attacking handshake with " \
                           "Station %s..." % auth.station)
                 for idx, results in enumerate(cpyrit.cpyrit.StorageIterator(
@@ -1118,11 +1115,11 @@ class Pyrit_CLI(object):
             auths = ap.getCompletedAuthentications()
             crackers = []
             if not all_handshakes:
-                crackers.append(cpyrit.pckttools.EAPOLCracker(auths[0]))
+                crackers.append(cpyrit.pckttools.AuthenticationCracker(auths[0]))
             else:
                 self.tell("Attacking %i handshake(s)." % (len(auths),))
                 for auth in auths:
-                    crackers.append(cpyrit.pckttools.EAPOLCracker(auth))
+                    crackers.append(cpyrit.pckttools.AuthenticationCracker(auth))
             for results in cowreader:
                 for cracker in crackers:
                     cracker.enqueue(results)
