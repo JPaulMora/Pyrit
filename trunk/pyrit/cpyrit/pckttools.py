@@ -844,21 +844,20 @@ class CCMPCrackerThread(CrackerThread, _cpyrit_cpu.CCMPCracker):
         _cpyrit_cpu.CCMPCracker.__init__(self, auth.pke, msg, mac, counter) 
 
 
-class AuthenticationCracker(object):
+class AuthCracker(object):
 
-    def __init__(self, authentication):
+    def __init__(self, authentication, use_aes=False):
         self.queue = Queue.Queue(10)
         self.workers = []
         self.solution = None
-        # CCMPCracker is disabled until further testing
         if authentication.version == "HMAC_SHA1_AES" \
          and authentication.ccmpframe is not None \
-         and False:
-            cracker = CCMPCrackerThread
+         and use_aes:
+            self.cracker = CCMPCrackerThread
         else:
-            cracker = EAPOLCrackerThread
+            self.cracker = EAPOLCrackerThread
         for i in xrange(util.ncpus):
-            self.workers.append(cracker(self.queue, authentication))
+            self.workers.append(self.cracker(self.queue, authentication))
 
     def _getSolution(self):
         if self.solution is None:
