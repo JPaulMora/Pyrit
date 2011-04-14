@@ -161,13 +161,13 @@ class BaseTestCase(unittest.TestCase):
                 l += len(results)
         self.assertEqual(l, 5000)
 
-    def _testHandshake(self, filename, essid, ap, sta, passwd):
+    def _testHandshake(self, filename, essid, ap, sta, passwd, aes=False):
         parser = cpyrit.pckttools.PacketParser(filename)
         with cpyrit.cpyrit.PassthroughIterator(essid, (passwd,)) as cp:
             solution = cp.next()
         auths = parser[ap][sta].getAuthentications()
         for auth in parser[ap][sta].getAuthentications():
-            with cpyrit.pckttools.AuthenticationCracker(auth) as cracker:
+            with cpyrit.pckttools.AuthCracker(auth, aes) as cracker:
                 cracker.enqueue(solution)
             if cracker.solution == passwd:
                 break
@@ -484,6 +484,8 @@ class FilesystemTestCase(TestCase, FilesystemFunctions):
     def testAttackPassthrough(self):
         self._createPasswords(self.tempfile1)
         self.cli.attack_passthrough(self.tempfile1, 'wpapsk-linksys.dump.gz')
+        self.cli.attack_passthrough(self.tempfile1, 'wpa2psk-linksys.dump.gz', \
+                                    use_aes=True)
 
 
 def _runTests(case):

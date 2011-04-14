@@ -59,7 +59,7 @@ class Pyrit_CLI(object):
         options = {}
         args, commands = getopt.getopt(sys.argv[1:], \
                                        'b:e:i:o:r:u:h', \
-                                       ['all-handshakes'])
+                                       ('all-handshakes', 'aes'))
         args = dict(args)
 
         if len(commands) == 1 and commands[0] in self.commands:
@@ -98,6 +98,8 @@ class Pyrit_CLI(object):
                     options['command'] = value
                 elif arg == '--all-handshakes':
                     options['all_handshakes'] = True
+                elif arg == '--aes':
+                    options['use_aes'] = True
             else:
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
@@ -885,7 +887,8 @@ class Pyrit_CLI(object):
 
     @requires_pckttools()
     def attack_passthrough(self, infile, capturefile, essid=None, \
-                           bssid=None, outfile=None, all_handshakes=False):
+                           bssid=None, outfile=None, all_handshakes=False, \
+                           use_aes=False):
         """Attack a handshake with passwords from a file
 
            Attack an EAPOL-handshake found in the packet-capture file given by
@@ -912,11 +915,11 @@ class Pyrit_CLI(object):
         auths = ap.getCompletedAuthentications()
         crackers = []
         if not all_handshakes:
-            crackers.append(cpyrit.pckttools.AuthenticationCracker(auths[0]))
+            crackers.append(cpyrit.pckttools.AuthCracker(auths[0], use_aes))
         else:
             self.tell("Attacking %i handshake(s)." % (len(auths),))
             for auth in auths:
-                crackers.append(cpyrit.pckttools.AuthenticationCracker(auth))
+                crackers.append(cpyrit.pckttools.AuthCracker(auth), use_aes)
         with cpyrit.util.FileWrapper(infile) as reader:
             with cpyrit.cpyrit.PassthroughIterator(essid, reader) as rstiter:
                 for results in rstiter:
@@ -946,11 +949,12 @@ class Pyrit_CLI(object):
                 errmsg += "\n"
             raise PyritRuntimeError(errmsg)
     attack_passthrough.cli_options = (('-i', '-r'), ('-e', '-b', '-o', \
-                                                     '--all-handshakes'))
+                                                     '--all-handshakes', \
+                                                     '--aes'))
 
     @requires_pckttools()
     def attack_batch(self, storage, capturefile, essid=None, bssid=None, \
-                    outfile=None, all_handshakes=False):
+                    outfile=None, all_handshakes=False, use_aes=False):
         """Attack a handshake with PMKs/passwords from the db
 
             Attack an EAPOL-handshake found in the packet-capture file(s) given
@@ -982,7 +986,7 @@ class Pyrit_CLI(object):
         if all_handshakes:
             self.tell("Attacking %i handshake(s)." % (len(auths),))
         for auth in auths if all_handshakes else auths[:1]:
-            with cpyrit.pckttools.AuthenticationCracker(auth) as cracker:
+            with cpyrit.pckttools.AuthCracker(auth, use_aes) as cracker:
                 with cpyrit.cpyrit.StorageIterator(storage, essid) as dbiter:
                     self.tell("Attacking handshake with " \
                               "station %s" % (auth.station,))
@@ -1011,11 +1015,11 @@ class Pyrit_CLI(object):
                 errmsg += "\n"
             raise PyritRuntimeError(errmsg)
     attack_batch.cli_options = (('-r', '-u'), ('-e', '-b', '-o', \
-                                               '--all-handshakes'))
+                                               '--all-handshakes', '--aes'))
 
     @requires_pckttools()
     def attack_db(self, storage, capturefile, essid=None, bssid=None, \
-                  outfile=None, all_handshakes=False):
+                  outfile=None, all_handshakes=False, use_aes=False):
         """Attack a handshake with PMKs from the db
 
            Attack an EAPOL-handshake found in the packet-capture file(s) given
@@ -1046,7 +1050,7 @@ class Pyrit_CLI(object):
         if all_handshakes:
             self.tell("Attacking %i handshake(s)." % (len(auths),))
         for auth in auths if all_handshakes else auths[:1]:
-            with cpyrit.pckttools.AuthenticationCracker(auth) as cracker:
+            with cpyrit.pckttools.AuthCracker(auth, use_aes) as cracker:
                 self.tell("Attacking handshake with " \
                           "Station %s..." % auth.station)
                 for idx, results in enumerate(cpyrit.cpyrit.StorageIterator(
@@ -1076,11 +1080,11 @@ class Pyrit_CLI(object):
                 errmsg += "\n"
             raise PyritRuntimeError(errmsg)
     attack_db.cli_options = (('-r', '-u'), ('-e', '-b', '-o', \
-                                            '--all-handshakes'))
+                                            '--all-handshakes', '--aes'))
 
     @requires_pckttools()
     def attack_cowpatty(self, capturefile, infile, essid=None, bssid=None,\
-                        outfile=None, all_handshakes=False):
+                        outfile=None, all_handshakes=False, use_aes=False):
         """Attack a handshake with PMKs from a cowpatty-file
 
            Attack an EAPOL-handshake found in the packet-capture file(s) given
@@ -1115,11 +1119,11 @@ class Pyrit_CLI(object):
             auths = ap.getCompletedAuthentications()
             crackers = []
             if not all_handshakes:
-                crackers.append(cpyrit.pckttools.AuthenticationCracker(auths[0]))
+                crackers.append(cpyrit.pckttools.AuthCracker(auths[0], use_aes))
             else:
                 self.tell("Attacking %i handshake(s)." % (len(auths),))
                 for auth in auths:
-                    crackers.append(cpyrit.pckttools.AuthenticationCracker(auth))
+                    crackers.append(cpyrit.pckttools.AuthCracker(auth, use_aes))
             for results in cowreader:
                 for cracker in crackers:
                     cracker.enqueue(results)
@@ -1149,7 +1153,7 @@ class Pyrit_CLI(object):
                     errmsg += "\n"
                 raise PyritRuntimeError(errmsg)
     attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b', '-o', \
-                                                  '--all-handshakes'))
+                                                  '--all-handshakes', '--aes'))
 
     def benchmark(self, timeout=60, calibrate=10):
         """Determine performance of available cores

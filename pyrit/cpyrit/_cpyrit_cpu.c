@@ -932,8 +932,9 @@ CCMPCracker_dealloc(CCMPCracker *self)
         Py_ssize_t i;
         int j, k;
         uint32_t wrkbuf[4*80]        __attribute__ ((aligned (16)));
-        uint32_t blockbuffer[16][4]  __attribute__ ((aligned (16)));
-        uint32_t innerhash[16][4];
+        uint32_t ipad[16][4]         __attribute__ ((aligned (16)));
+        uint32_t opad[16][4]         __attribute__ ((aligned (16)));
+        uint32_t digest[16][4]       __attribute__ ((aligned (16)));
         fourwise_sha1_ctx ctx, ipad_ctx, opad_ctx;
 
         /* The PKE-data is aligned to 16 bytes inside the allocated buffer so re-align the pointer now. */
@@ -943,11 +944,13 @@ CCMPCracker_dealloc(CCMPCracker *self)
         /* Initialize static values for inner hash block */
         for (j = 0; j < 4; j++)
         {
-            innerhash[ 5][j] = 0x80;       /* Terminator bit */
-            innerhash[15][j] = 0xA0020000; /* size = (64 + 20) * 8 */
+            digest[ 5][j] = 0x80;       /* Terminator bit */
+            digest[15][j] = 0xA0020000; /* size = (64 + 20) * 8 */
             for (k = 6; k < 15; k++)
-                innerhash[k][j] = 0;
+                digest[k][j] = 0;
         }
+        memset((unsigned char*)ipad, 0x36, sizeof(ipad));
+        memset((unsigned char*)opad, 0x5C, sizeof(opad));
 
         for (i = 0; i < keycount; i += 4)
         {
@@ -957,11 +960,10 @@ CCMPCracker_dealloc(CCMPCracker *self)
             fourwise_sha1_init(&ctx);
 
             /* Mix-in key (PMK) */
-            memset((unsigned char*)blockbuffer, 0x36, sizeof(blockbuffer));
             for (j = 0; j < 4; j++)
                 for (k = 0; k < 8; k++)
-                    blockbuffer[k][j] ^= ((uint32_t*)pmkbuffer)[(i + j) * 8 + k];
-            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
+                    ipad[k][j] = ((uint32_t*)pmkbuffer)[(i + j) * 8 + k] ^ 0x36363636;
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)ipad, wrkbuf);
 
             /* Mix-in first block of PKE */
             sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)(pke1), wrkbuf);
@@ -971,36 +973,35 @@ CCMPCracker_dealloc(CCMPCracker *self)
             sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)(pke1 + 64*4), wrkbuf);
 
             /* First hash done */
-            sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&innerhash);
+            sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&digest);
 
             /* Step 2: Outer hash = SHA1((OPAD ^ PMK) // inner hash) */
             fourwise_sha1_init(&ctx);
-            memset((unsigned char*)blockbuffer, 0x5C, sizeof(blockbuffer));
             for (j = 0; j < 4; j++)
                 for (k = 0; k < 8; k++)
-                    blockbuffer[k][j] ^= ((uint32_t*)pmkbuffer)[(i + j) * 8 + k];
-            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)blockbuffer, wrkbuf);
+                    opad[k][j] = ((uint32_t*)pmkbuffer)[(i + j) * 8 + k] ^ 0x5C5C5C5C;
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)opad, wrkbuf);
 
             /* Copy this state before mixing in the inner hash */
             memcpy((unsigned char*)&opad_ctx, (unsigned char*)&ctx, sizeof(opad_ctx));
-            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)&innerhash, wrkbuf);
+            sse2_sha1_update((uint32_t*)&ctx, (uint32_t*)&digest, wrkbuf);
 
             /* Second round of PRF-384 done -> First 8 bytes of TK */
-            sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&blockbuffer);
+            sse2_sha1_finalize((uint32_t*)&ctx, (uint32_t*)&digest);
             for (j = 0; j < 4; j++)
                 for (k = 0; k < 2; k++)
-                    ((uint32_t*)tkbuffer)[(i + j) * 4 + k + 0] = blockbuffer[k + 3][j];
+                    ((uint32_t*)tkbuffer)[(i + j) * 4 + k + 0] = digest[k + 3][j];
 
             /* Quick third round of PRF-384 */
             sse2_sha1_update((uint32_t*)&ipad_ctx, (uint32_t*)(pke2 + 64*4), wrkbuf);
-            sse2_sha1_finalize((uint32_t*)&ipad_ctx, (uint32_t*)&innerhash);
-            sse2_sha1_update((uint32_t*)&opad_ctx, (uint32_t*)&innerhash, wrkbuf);
+            sse2_sha1_finalize((uint32_t*)&ipad_ctx, (uint32_t*)&digest);
+            sse2_sha1_update((uint32_t*)&opad_ctx, (uint32_t*)&digest, wrkbuf);
 
             /* Third round of PRF-384 done -> Last 8 bytes of TK */
-            sse2_sha1_finalize((uint32_t*)&opad_ctx, (uint32_t*)&blockbuffer);
+            sse2_sha1_finalize((uint32_t*)&opad_ctx, (uint32_t*)&digest);
             for (j = 0; j < 4; j++)
                 for (k = 0; k < 2; k++)
-                    ((uint32_t*)tkbuffer)[(i + j) * 4 + k + 2] = blockbuffer[k + 0][j];
+                    ((uint32_t*)tkbuffer)[(i + j) * 4 + k + 2] = digest[k + 0][j];
         }
     }
 #endif /* COMPILE_SSE2 */
