@@ -919,7 +919,7 @@ class Pyrit_CLI(object):
         else:
             self.tell("Attacking %i handshake(s)." % (len(auths),))
             for auth in auths:
-                crackers.append(cpyrit.pckttools.AuthCracker(auth), use_aes)
+                crackers.append(cpyrit.pckttools.AuthCracker(auth, use_aes))
         with cpyrit.util.FileWrapper(infile) as reader:
             with cpyrit.cpyrit.PassthroughIterator(essid, reader) as rstiter:
                 for results in rstiter:
