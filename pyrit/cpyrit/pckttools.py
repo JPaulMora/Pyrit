@@ -840,7 +840,7 @@ class CCMPCrackerThread(CrackerThread, _cpyrit_cpu.CCMPCracker):
         s = str(auth.ccmpframe.payload)
         msg = s[8:8+6]
         counter = (s[0:2] + s[4:8])[::-1]
-        mac = scapy.utils.mac2str(auth.station.mac)
+        mac = scapy.utils.mac2str(auth.ccmpframe.addr2)
         _cpyrit_cpu.CCMPCracker.__init__(self, auth.pke, msg, mac, counter) 
 
 
