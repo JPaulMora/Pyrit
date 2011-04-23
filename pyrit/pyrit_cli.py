@@ -519,6 +519,11 @@ class Pyrit_CLI(object):
                   (writer.pcktcount, parser.pcktcount, \
                   ["Challenge", "Response", "Confirmation"][idx], \
                   station.ap, station))
+    
+    def _stripLive_newEncPckt(self, parser, writer, station, pckt):
+        writer.write(pckt)
+        self.tell("%i/%i: CCMP-Encrypted traffic AP %s <-> STA %s" % \
+                  (writer.pcktcount, parser.pcktcount, station.ap, station))
 
     def _stripLive_newAuth(self, parser, writer, station, auth):
         self.tell("%i/%i: New Handshake AP %s: %s" % \
@@ -552,6 +557,10 @@ class Pyrit_CLI(object):
         parser.new_keypckt_callback = \
             lambda (sta, idx, pckt): \
                     self._stripLive_newKeyPckt(parser, writer, sta, idx, pckt)
+        
+        parser.new_encpckt_callback = \
+            lambda (sta, pckt): \
+                    self._stripLive_newEncPckt(parser, writer, sta, pckt)
 
         parser.new_auth_callback = \
             lambda (sta, auth): self._stripLive_newAuth(parser, writer, sta, \

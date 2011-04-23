@@ -482,7 +482,7 @@ class PcapDevice(_cpyrit_cpu.PcapDevice):
                " and not (dir nods and not " \
                "  (subtype beacon or subtype probe-resp or subtype assoc-req))"
 
-    def __init__(self, fname=None, use_bpf=False):
+    def __init__(self, fname=None, use_bpf=True):
         _cpyrit_cpu.PcapDevice.__init__(self)
         self.use_bpf = use_bpf
         self.filtered_aps = set()
@@ -530,10 +530,11 @@ class PcapDevice(_cpyrit_cpu.PcapDevice):
         if len(self.filtered_stations) > 0:
             while len(self.filtered_stations) > 10:
                 self.filtered_stations.pop()
-            # Exclude encrypted or null-typed data traffic once a station
-            # is known
+            # Exclude encrypted traffic with high ccmp-counter and null-typed
+            # data traffic once a station is known
             bpf += " and not (wlan host %s) " \
-                   "or (wlan[1] & 0x40 = 0 " \
+                   "or (((wlan[25:2] = 0 and wlan[28:4] = 0) " \
+                         "or wlan[1] & 0x40 = 0) " \
                         "and type data " \
                         "and not subtype null)" % \
                    (" or ".join(self.filtered_stations), )
@@ -607,13 +608,15 @@ class PacketParser(object):
 
     def __init__(self, pcapfile=None, new_ap_callback=None,
                 new_station_callback=None, new_keypckt_callback=None,
-                new_auth_callback=None, use_bpf=False):
+                new_encpckt_callback=None, new_auth_callback=None,
+                use_bpf=False):
         self.air = {}
         self.pcktcount = 0
         self.dot11_pcktcount = 0
         self.new_ap_callback = new_ap_callback
         self.new_station_callback = new_station_callback
         self.new_keypckt_callback = new_keypckt_callback
+        self.new_encpckt_callback = new_encpckt_callback
         self.new_auth_callback = new_auth_callback
         self.use_bpf = use_bpf
         if pcapfile is not None:
@@ -653,6 +656,8 @@ class PacketParser(object):
 
     def _add_ccmppckt(self, station, pckt):
         station.addEncryptedFrame(pckt)
+        if self.new_encpckt_callback is not None:
+            self.new_encpckt_callback((station, pckt))
 
     def parse_file(self, pcapfile):
         with PcapDevice(pcapfile, self.use_bpf) as rdr:
