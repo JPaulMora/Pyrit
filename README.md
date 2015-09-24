@@ -1,6 +1,6 @@
 # Pyrit #
 Pyrit allows you to create massive databases of pre-computed  [WPA/WPA2-PSK](https://secure.wikimedia.org/wikipedia/en/wiki/Wi-Fi_Protected_Access) authentication phase in a space-time-tradeoff. 
-By using the computational power of Multi-Core CPUs and other platforms through [ATI-Stream](http://ati.amd.com/technology/streamcomputing/),[Nvidia CUDA](http://www.nvidia.com/object/cuda_home.html) and [OpenCL](http://www.khronos.org/opencl/), 
+By using the computational power of Multi-Core CPUs and other platforms through [ATI-Stream](http://ati.amd.com/technology/streamcomputing/),[Nvidia CUDA](http://www.nvidia.com/object/cuda_home_new.html) and [OpenCL](http://www.khronos.org/opencl/), 
 it is currently by far the most powerful attack against one of the world's most used security-protocols.
 
 WPA/WPA2-PSK is a subset of [IEEE 802.11 WPA/WPA2](https://secure.wikimedia.org/wikipedia/en/wiki/Wi-Fi_Protected_Access) that skips the complex task of key distribution and client authentication by assigning every participating party the same _pre shared key_. 
@@ -41,4 +41,4 @@ A guide for installing _Pyrit_ on your system can be found in the [wiki](https:/
 # How to participate #
 
 You may want to read [this wiki-entry](https://github.com/JPaulMora/Pyrit/wiki/ExtendPyrit) if interested in porting Pyrit to new hardware-platform.
-Contributions or bug reports should be submitted as [Issues] (https://github.com/JPaulMora/Pyrit/issues).
+Contributions or bug reports you should [submit an Issue] (https://github.com/JPaulMora/Pyrit/issues).
