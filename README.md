@@ -35,7 +35,7 @@ See http://pyrit.wordpress.com *_(Outdated, 2011)_*
 # How to use #
 
 _Pyrit_ compiles and runs fine on Linux, MacOS X and BSD. I don't care about Windows; drop me a line (read: patch) if you make _Pyrit_ work without copying half of GNU ...
-A guide for installing _Pyrit_ on your system can be found in the [wiki](https://github.com/JPaulMora/Pyrit/wiki). There is also a [Tutorial](https://github.com/JPaulMora/Pyrit/wiki/Tutorial) and a [reference manual](https://github.com/JPaulMora/Pyrit/wiki/ReferenceManual) for the commandline-client.
+A guide for installing _Pyrit_ on your system can be found in the [wiki](https://github.com/JPaulMora/Pyrit/wiki). There is also a [Tutorial](https://github.com/JPaulMora/Pyrit/wiki/Usage) and a [reference manual](https://github.com/JPaulMora/Pyrit/wiki/ReferenceManual) for the commandline-client.
 
 
 # How to participate #
