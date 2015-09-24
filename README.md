@@ -20,18 +20,13 @@ It compiles and executes on a wide variety of platforms including FreeBSD, MacOS
 Attacking WPA/WPA2 by brute-force boils down to to computing _Pairwise Master Keys_ as fast as possible. 
 Every _Pairwise Master Key_ is 'worth' exactly one megabyte of data getting pushed through [PBKDF2](http://en.wikipedia.org/wiki/PBKDF2)-[HMAC](http://en.wikipedia.org/wiki/Hmac)-[SHA1](http://en.wikipedia.org/wiki/SHA_hash_functions). 
 In turn, computing 10.000 PMKs per second is equivalent to hashing 9,8 gigabyte of data with [SHA1](http://en.wikipedia.org/wiki/SHA_hash_functions) in one second.
-The following graph shows various performance numbers measured on platforms supported by Pyrit.
-
-![http://pyrit.googlecode.com/svn/tags/opt/pyritperfaa3.png](http://pyrit.googlecode.com/svn/tags/opt/pyritperfaa3.png)
 
 
-The following graph shows an example of multiple computational nodes accessing a single storage server over various ways provided by Pyrit:
+These are examples of how multiple computational nodes can access a single storage server over various ways provided by Pyrit:
 
   * A single storage (e.g. a MySQL-server)
   * A local network that can access the storage-server directly and provide four computational nodes on various levels with only one node actually accessing the storage server itself.
   * Another, untrusted network can access the storage through Pyrit's RPC-interface and provides three computional nodes, two of which actually access the RPC-interface.
-
-![http://pyrit.googlecode.com/svn/tags/opt/deployment_example.png](http://pyrit.googlecode.com/svn/tags/opt/deployment_example.png)
 
 # What's new #
 
@@ -40,10 +35,10 @@ See http://pyrit.wordpress.com *_(Outdated, 2011)_*
 # How to use #
 
 _Pyrit_ compiles and runs fine on Linux, MacOS X and BSD. I don't care about Windows; drop me a line (read: patch) if you make _Pyrit_ work without copying half of GNU ...
-A guide for [installing](https://github.com/JPaulMora/Pyrit/wiki/Installation.md) _Pyrit_ on your system can be found in the [wiki](https://github.com/JPaulMora/Pyrit/wiki). There is also a [Tutorial](https://github.com/JPaulMora/Pyrit/wiki/Tutorial.md) and a [reference manual](https://github.com/JPaulMora/Pyrit/wiki/ReferenceManual.md) for the commandline-client.
+A guide for installing _Pyrit_ on your system can be found in the [wiki](https://github.com/JPaulMora/Pyrit/wiki). There is also a [Tutorial](https://github.com/JPaulMora/Pyrit/wiki/Tutorial) and a [reference manual](https://github.com/JPaulMora/Pyrit/wiki/ReferenceManual) for the commandline-client.
 
 
 # How to participate #
 
-You may want to read [this wiki-entry](https://github.com/JPaulMora/Pyrit/wiki/ExtendPyrit.md) if interested in porting Pyrit to new hardware-platform.
-Contributions or bug reports should be posted on the [Issue-tracker](http://code.google.com/p/pyrit/issues/list). General questions get answered on Pyrit's mailing-list; just send an eMail to pyrit@googlegroups.com or see http://groups.google.com/group/pyrit.
+You may want to read [this wiki-entry](https://github.com/JPaulMora/Pyrit/wiki/ExtendPyrit) if interested in porting Pyrit to new hardware-platform.
+Contributions or bug reports should be submitted as [Issues] (https://github.com/JPaulMora/Pyrit/issues).
