@@ -43,13 +43,7 @@ else:
         print >>sys.stderr, "The headers required to build CAL++ kernel" \
                             "were not found. Trying to continue anyway..."
 
-try:
-    svn_info = subprocess.Popen(('svn', 'info'), \
-                                stdout=subprocess.PIPE).stdout.read()
-    VERSION += ' (svn r%i)' % \
-                int(re.compile('Revision: ([0-9]*)').findall(svn_info)[0])
-except:
-    pass
+
 EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
                       '-DVERSION="%s"' % (VERSION,)]
 
@@ -96,7 +90,9 @@ setup_args = dict(
         license = 'GNU General Public License v3',
         author = 'Lukas Lueg, Artur Kornacki',
         author_email = 'lukas.lueg@gmail.com',
-        url = 'http://pyrit.googlecode.com',
+        url = 'https://github.com/JPaulMora/Pyrit',
+        maintainer = 'John Mora',
+        maintainer_email = 'johmora12@engineer.com',
         classifiers = \
               ['Development Status :: 4 - Beta',
                'Environment :: Console',
