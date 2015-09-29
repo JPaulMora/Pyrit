@@ -374,7 +374,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
             return ('', '')
         else:
             client.workunits.append((essid, pwlist))
-            key, buf = storage.PAW2_Buffer(pwlist).pack()
+            key, buf = storage.PAW2_Buffer.pack(pwlist)
             return (essid, xmlrpclib.Binary(buf))
 
     def rpc_scatter(self, client_uuid, encoded_buf):

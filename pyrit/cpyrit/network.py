@@ -51,8 +51,7 @@ class NetworkClient(util.Thread):
                 except socket.error:
                     break
                 if essid != '' or pwbuffer != '':
-                    pwlist = storage.PAW2_Buffer()
-                    pwlist.unpack(pwbuffer.data)
+                    pwlist = storage.PAW2_Buffer(pwbuffer.data)
                     self.client.enqueue(essid, pwlist)
                 else:
                     time.sleep(1)
