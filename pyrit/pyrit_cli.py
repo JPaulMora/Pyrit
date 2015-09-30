@@ -104,7 +104,7 @@ class Pyrit_CLI(object):
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
 
-        self.tell("Pyrit %s (C) 2008-2011 Lukas Lueg - 2015 John Mora" \
+        self.tell("Pyrit %s (C) 2008-2011 Lukas Lueg - 2015 John Mora\n" \
                   "https://github.com/JPaulMora/Pyrit\n" \
                   "This code is distributed under the GNU General Public " \
                   "License v3+\n" % cpyrit.util.VERSION, stream=sys.stdout)
