@@ -430,35 +430,37 @@ class CPyrit(object):
         self.slices = {}
         self.in_idx = self.out_idx = 0
         self.cores = []
+        self.CUDAs = []
+        self.OpCL = []
         self.cv = threading.Condition()
 
-        ncpus = util.ncpus  # Note this function doesnt include GPUs.
-
         # CUDA
-        if 'cpyrit._cpyrit_cuda' in sys.modules:
-            for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
-                self.cores.append(CUDACore(queue=self, dev_idx=dev_idx))
-        #ncpus -= 1  ## If cuda GPU detected, we shouldn't be substracting from ncpus.
-
+        if config.cfg['use_CUDA'] == 'true' and 'cpyrit._cpyrit_cuda' in sys.modules:
+            
+            CUDA =  cpyrit_cuda.listDevices()
+            
+            for dev_idx, device in enumerate(CUDAs):
+                self.CUDAs.append(CUDACore(queue=self, dev_idx=dev_idx))
+                CUDA -= 1
+    
         # OpenCL
-        if 'cpyrit._cpyrit_opencl' in sys.modules:
+        if config.cfg['use_OpenCL'] == 'true' and 'cpyrit._cpyrit_opencl' in sys.modules:
+
             for platform_idx in range(_cpyrit_opencl.numPlatforms):
                 p = _cpyrit_opencl.OpenCLPlatform(platform_idx)
                 for dev_idx in range(p.numDevices):
                     dev = _cpyrit_opencl.OpenCLDevice(platform_idx, dev_idx)
                     if dev.deviceType in ('GPU', 'ACCELERATOR'):
                         core = OpenCLCore(self, platform_idx, dev_idx)
-                        self.cores.append(core)
-        #ncpus -= 1 ## If OpenCL GPU detected, we shouldn't be substracting from ncpus.
-
+                        self.OpCL.append(core)
         # CAL++
         if 'cpyrit._cpyrit_calpp' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_calpp.listDevices()):
                 self.cores.append(CALCore(queue=self, dev_idx=dev_idx))
-                ncpus -= 1
+        
 
         #CPUs
-        for i in xrange(ncpus):
+        for i in xrange(util.ncpus):
             self.cores.append(CPUCore(queue=self))
 
         #Network

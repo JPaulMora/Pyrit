@@ -104,8 +104,8 @@ class Pyrit_CLI(object):
                 raise PyritRuntimeError("The command '%s' ignores the " \
                                         "option '%s'." % (command, arg))
 
-        self.tell("Pyrit %s (C) 2008-2011 Lukas Lueg " \
-                  "http://pyrit.googlecode.com\n" \
+        self.tell("Pyrit %s (C) 2008-2011 Lukas Lueg - 2015 John Mora" \
+                  "https://github.com/JPaulMora/Pyrit\n" \
                   "This code is distributed under the GNU General Public " \
                   "License v3+\n" % cpyrit.util.VERSION, stream=sys.stdout)
         if '-u' in req_params:
@@ -132,6 +132,7 @@ class Pyrit_CLI(object):
             '\n  -r               : Packet capture source in pcap-format'
             '\n  -u               : URL of the storage-system to use'
             '\n  --all-handshakes : Use all handshakes instead of the best one'
+            '\n  --aes            : Use AES'
             '\n'
             '\nRecognized commands:')
         m = max([len(command) for command in self.commands])
@@ -294,6 +295,17 @@ class Pyrit_CLI(object):
             self.tell("The following cores seem available...")
             for i, core in enumerate(cp.cores):
                 self.tell("#%i:  '%s'" % (i + 1, core))
+            if cpyrit.config.cfg['use_CUDA'] == 'true':
+                if len(cp.CUDAs) != 0:
+                    self.tell("\nThe following CUDA GPUs seem aviable...")
+                    for i, CD in enumerate(cp.CUDAs):
+                        self.tell("#%i:  '%s'" % (i + 1, CD))
+            
+            if cpyrit.config.cfg['use_OpenCL'] == 'true':
+                if len(cp.OpCL) != 0:
+                    self.tell("\nThe following OpenCL GPUs seem aviable...")
+                    for i, OCL in enumerate(cp.OpCL):
+                        self.tell("#%i:  '%s'" % (i + 1, OCL))
     list_cores.cli_options = ((), ())
 
     def list_essids(self, storage):
@@ -1164,7 +1176,7 @@ class Pyrit_CLI(object):
     attack_cowpatty.cli_options = (('-r', '-i'), ('-e', '-b', '-o', \
                                                   '--all-handshakes', '--aes'))
 
-    def benchmark(self, timeout=60, calibrate=10):
+    def benchmark(self, timeout=45, calibrate=10):
         """Determine performance of available cores
 
            Determine the peak-performance of the available hardware by
@@ -1210,13 +1222,42 @@ class Pyrit_CLI(object):
                     rtt = 0
                 self.tell("#%i: '%s': %.1f PMKs/s (RTT %.1f)" % \
                             (i + 1, core.name, perf, rtt))
+            if cpyrit.config.cfg['use_CUDA'] == 'true':
+                    self.tell("CUDA:")
+            for i, CD in enumerate(cp.CUDAs):
+                
+                if CD.compTime > 0:
+                    perf = CD.resCount / CD.compTime
+                else:
+                    perf = 0
+                if CD.callCount > 0 and perf > 0:
+                    rtt = (CD.resCount / CD.callCount) / perf
+                else:
+                    rtt = 0
+                self.tell("#%i: '%s': %.1f PMKs/s (RTT %.1f)" % \
+                          (i + 1, CD.name, perf, rtt))
+            if cpyrit.config.cfg['use_OpenCL'] == 'true':
+                self.tell("OpenCL:")
+            for i, OCL in enumerate(cp.OpCL):
+                
+                if OCL.compTime > 0:
+                    perf = OCL.resCount / OCL.compTime
+                else:
+                    perf = 0
+                if OCL.callCount > 0 and perf > 0:
+                    rtt = (OCL.resCount / OCL.callCount) / perf
+                else:
+                    rtt = 0
+                self.tell("#%i: '%s': %.1f PMKs/s (RTT %.1f)" % \
+                          (i + 1, OCL.name, perf, rtt))
+            
             for r in cp:
                 pass
     benchmark.cli_options = ((), ())
 
     def benchmark_long(self):
-        """Longer and more accurate version of benchmark (~10 minutes)"""
-        self.benchmark(570, 30)
+        """Longer and more accurate version of benchmark (5 minutes)"""
+        self.benchmark(300, 30)
     benchmark_long.cli_options = ((), ())
 
     def selftest(self, timeout=60):
@@ -1231,9 +1272,15 @@ class Pyrit_CLI(object):
            pyrit selftest
         """
         with cpyrit.cpyrit.CPyrit() as cp:
-            self.tell("Cores incorporated in the test:")
+            self.tell("Cores incorporated in the test:\nCPUs:")
             for i, core in enumerate(cp.cores):
                 self.tell("#%i:  '%s'" % (i + 1, core))
+            self.tell("GPUs:")
+            for i, CD in enumerate(cp.CUDAs):
+                self.tell("#%i:  '%s'" % (i + 1, CD))
+            for i, OCL in enumerate(cp.OpCL):
+                self.tell("#%i:  '%s'" % (i + 1, OCL))
+            
             self.tell("\nRunning selftest...")
             workunits = []
             t = time.time()
