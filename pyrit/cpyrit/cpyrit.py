@@ -432,13 +432,13 @@ class CPyrit(object):
         self.cores = []
         self.cv = threading.Condition()
 
-        ncpus = util.ncpus
+        ncpus = util.ncpus  # Note this function doesnt include GPUs.
 
         # CUDA
         if 'cpyrit._cpyrit_cuda' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_cuda.listDevices()):
                 self.cores.append(CUDACore(queue=self, dev_idx=dev_idx))
-                ncpus -= 1
+        #ncpus -= 1  ## If cuda GPU detected, we shouldn't be substracting from ncpus.
 
         # OpenCL
         if 'cpyrit._cpyrit_opencl' in sys.modules:
@@ -449,7 +449,7 @@ class CPyrit(object):
                     if dev.deviceType in ('GPU', 'ACCELERATOR'):
                         core = OpenCLCore(self, platform_idx, dev_idx)
                         self.cores.append(core)
-                        ncpus -= 1
+        #ncpus -= 1 ## If OpenCL GPU detected, we shouldn't be substracting from ncpus.
 
         # CAL++
         if 'cpyrit._cpyrit_calpp' in sys.modules:
