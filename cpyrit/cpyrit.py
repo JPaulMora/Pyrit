@@ -432,14 +432,15 @@ class CPyrit(object):
         self.cores = []
         self.CUDAs = []
         self.OpCL = []
+        self.all = []
         self.cv = threading.Condition()
 
         # CUDA
-        if config.cfg['use_CUDA'] == 'true' and 'cpyrit._cpyrit_cuda' in sys.modules:
+        if config.cfg['use_CUDA'] == 'true' and 'cpyrit._cpyrit_cuda' in sys.modules and config.cfg['use_OpenCL'] == 'false':
             
             CUDA =  cpyrit_cuda.listDevices()
             
-            for dev_idx, device in enumerate(CUDAs):
+            for dev_idx, device in enumerate(CUDA):
                 self.CUDAs.append(CUDACore(queue=self, dev_idx=dev_idx))
                 CUDA -= 1
     
@@ -463,6 +464,8 @@ class CPyrit(object):
         for i in xrange(util.ncpus):
             self.cores.append(CPUCore(queue=self))
 
+    
+
         #Network
         if config.cfg['rpc_server'] == 'true':
             for port in xrange(17935, 18000):
@@ -485,9 +488,18 @@ class CPyrit(object):
                 self.ncore_uuid = None
         else:
             self.ncore_uuid = None
+                
+
+        for core in self.cores:
+            self.all.append(core)
+        for OCL in self.OpCL:
+            self.all.append(OCL)
+        for CD in self.CUDAs:
+            self.all.append(CD)
 
     def _check_cores(self):
-        for core in self.cores:
+        all = []
+        for core in self.all:
             if not core.shallStop and not core.isAlive():
                 raise SystemError("The core '%s' has died unexpectedly" % core)
 
@@ -518,13 +530,13 @@ class CPyrit(object):
         self.shutdown()
 
     def shutdown(self):
-        for core in self.cores:
+        for core in self.all:
             core.shallStop = True
-        for core in self.cores:
+        for core in self.all:
             core.shutdown()
 
     def isAlive(self):
-        return all(core.isAlive() for core in self.cores)
+        return all(core.isAlive() for core in self.all)
 
     def waitForSchedule(self, maxBufferSize):
         """Block until less than the given number of passwords wait for being
@@ -538,7 +550,7 @@ class CPyrit(object):
 
     def resetStatistics(self):
         """Reset all cores' statistics"""
-        for core in self.cores:
+        for core in self.all:
             core.resetStatistics()
 
     def getPeakPerformance(self):
@@ -548,7 +560,7 @@ class CPyrit(object):
            with 100% occupancy. The real performance is lower if the caller
            fails to keep the pipeline filled.
         """
-        return sum([c.resCount / c.compTime for c in self.cores if c.compTime])
+        return sum([c.resCount / c.compTime for c in self.all if c.compTime])
 
     def enqueue(self, essid, passwords, block=True):
         """Enqueue the given ESSID and iterable of passwords for processing.

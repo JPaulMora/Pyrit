@@ -292,20 +292,25 @@ class Pyrit_CLI(object):
            pyrit list_cores
         """
         with cpyrit.cpyrit.CPyrit() as cp:
-            self.tell("The following cores seem available...")
+            if int(cpyrit.config.cfg['limit_ncpus']) < 0:
+                self.tell("CPUs disabled in config...")
+            else:
+                self.tell("The following cores seem available...")
             for i, core in enumerate(cp.cores):
                 self.tell("#%i:  '%s'" % (i + 1, core))
-            if cpyrit.config.cfg['use_CUDA'] == 'true':
-                if len(cp.CUDAs) != 0:
-                    self.tell("\nThe following CUDA GPUs seem aviable...")
-                    for i, CD in enumerate(cp.CUDAs):
-                        self.tell("#%i:  '%s'" % (i + 1, CD))
             
             if cpyrit.config.cfg['use_OpenCL'] == 'true':
+                if cpyrit.config.cfg['use_CUDA'] == 'true':
+                    self.tell("\nWARNING: OpenCL disables CUDA!\n")
                 if len(cp.OpCL) != 0:
                     self.tell("\nThe following OpenCL GPUs seem aviable...")
                     for i, OCL in enumerate(cp.OpCL):
                         self.tell("#%i:  '%s'" % (i + 1, OCL))
+            elif cpyrit.config.cfg['use_OpenCL'] == 'false' and cpyrit.config.cfg['use_CUDA'] == 'true':
+                if len(cp.CUDAs) != 0:
+                    self.tell("\nThe following CUDA GPUs seem aviable...")
+                    for i, CD in enumerate(cp.CUDAs):
+                        self.tell("#%i:  '%s'" % (i + 1, CD))
     list_cores.cli_options = ((), ())
 
     def list_essids(self, storage):
