@@ -26,7 +26,7 @@ import subprocess
 import sys
 import re
 
-VERSION = '0.4.6'
+VERSION = '0.5.0'
 
 UnixCCompiler.src_extensions.append('.S')
 
