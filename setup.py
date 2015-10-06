@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 #
-#    Copyright 2008-2011, Lukas Lueg, lukas.lueg@gmail.com
+#    Copyright 2015, John Mora, johmora12@engineer.com
+#    Original Work by Lukas Lueg (c) 2008-2011.
 #
 #    This file is part of Pyrit.
 #
