@@ -1,3 +1,9 @@
+Changes since 0.4.0
+ * Added use_CUDA and use_OpenCL in config file.
+ * Improved cores listing and managing.
+ * Updated Wiki and ported to GitHub.
+ * limit_cpus now disables all CPUs when set to value below 0.
+
 Changes since 0.3.0:
  * Added CPyrit-CAL++
  * Added CLI-function 'check_db'

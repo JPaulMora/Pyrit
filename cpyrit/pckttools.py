@@ -685,14 +685,6 @@ class PacketParser(object):
             raise TypeError("Argument must be of type PcapDevice")
         sta_callback = self.new_station_callback
         ap_callback = self.new_ap_callback
-        # Update the filter only when parsing offline dumps. The kernel can't
-        # take complex filters and libpcap starts throwing unmanageable
-        # warnings....
-        if reader.type == 'offline':
-            self.new_station_callback = lambda sta: \
-                                    self._filter_sta(reader, sta_callback, sta)
-            self.new_ap_callback = lambda ap: \
-                                    self._filter_ap(reader, ap_callback, ap)
         for pckt in reader:
             self.parse_packet(pckt)
         self.new_station_callback = sta_callback
@@ -747,19 +739,19 @@ class PacketParser(object):
         elif EAPOL_RSNKey in dot11_pckt:
             wpakey_pckt = dot11_pckt[EAPOL_RSNKey]
         elif dot11_pckt.isFlagSet('type', 'Data') \
-         and dot11_pckt.subtype == 0 \
-         and dot11_pckt.isFlagSet('FCfield', 'wep'):
+         and dot11_pckt.haslayer(scapy.layers.dot11.Dot11WEP):
             # An encrypted data packet - maybe useful for CCMP-attack
-            s = str(dot11_pckt.payload)
-            if len(s) < 8+6:
-                # We need at least 8 bytes for CCMP-PN and 6 bytes for message
+
+            dot11_wep = str(dot11_pckt[scapy.layers.dot11.Dot11WEP])
+            # Ignore packets which has less than len(header + data + signature)
+            if len(dot11_wep) < 8 + 6 + 8:
                 return
-            ccmp_msg = s[8:8+6]
-            ccmp_counter = (s[0:2] + s[4:8])[::-1]
+
             # Ignore packets with high CCMP-counter. A high CCMP-counter
             # means that we missed a lot of packets since the last
             # authentication which also means a whole new authentication
             # might already have happened.
+            ccmp_counter = (dot11_wep[0:2] + dot11_wep[4:8])[::-1]
             if int(binascii.hexlify(ccmp_counter), 16) < 30:
                 self._add_ccmppckt(sta, pckt)
             return
@@ -842,7 +834,7 @@ class CCMPCrackerThread(CrackerThread, _cpyrit_cpu.CCMPCracker):
             raise RuntimeError("CCMP-Attack is only possible for " \
                                "HMAC_SHA1_AES-authentications.")
         CrackerThread.__init__(self, workqueue)
-        s = str(auth.ccmpframe.payload)
+        s = str(auth.ccmpframe[scapy.layers.dot11.Dot11WEP])
         msg = s[8:8+6]
         counter = (s[0:2] + s[4:8])[::-1]
         mac = scapy.utils.mac2str(auth.ccmpframe.addr2)
