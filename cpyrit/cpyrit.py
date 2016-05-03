@@ -46,7 +46,6 @@ import xmlrpclib
 import config
 import network
 import storage
-import util
 import _cpyrit_cpu
 
 
@@ -60,7 +59,7 @@ del fast_address_string
 def version_check(mod):
     ver = getattr(mod, "VERSION", "unknown")
     if ver != _cpyrit_cpu.VERSION:
-        warnings.warn("WARNING: Version mismatch between %s ('%s') and %s " \
+        warnings.warn("WARNING: Version mismatch between %s ('%s') and %s "
                      "('%s')\n" % (_cpyrit_cpu, _cpyrit_cpu.VERSION, mod, ver))
 
 
@@ -99,7 +98,7 @@ class Core(util.Thread):
         self.setDaemon(True)
 
     def _testComputeFunction(self, i):
-        if any((pmk != Core.TV_PMK for pmk in \
+        if any((pmk != Core.TV_PMK for pmk in
                     self.solve(Core.TV_ESSID, [Core.TV_PW] * i))):
             raise ValueError("Test-vector does not result in correct PMK.")
 
@@ -121,7 +120,7 @@ class Core(util.Thread):
                 self.callCount += 1
                 if self.compTime > 0:
                     # carefully move towards three seconds of execution-time
-                    avg = (2 * self.buffersize + \
+                    avg = (2 * self.buffersize +
                            (self.resCount / self.compTime * 3)) / 3
                     self.buffersize = int(max(self.minBufferSize,
                                               min(self.maxBufferSize, avg)))
@@ -163,8 +162,7 @@ class LowLatencyCore(Core):
         self.callCount += 1
         avg = (2 * self.buffersize + (self.resCount / self.compTime)) / 3
         if self.bufferSizeDiv > 0:
-            avg = self.bufferSizeDiv * int((avg + self.bufferSizeDiv - 1) \
-                  / self.bufferSizeDiv)
+            avg = self.bufferSizeDiv * int((avg + self.bufferSizeDiv - 1) / self.bufferSizeDiv)
         self.buffersize = int(max(self.minBufferSize,
                               min(self.maxBufferSize, avg)))
         self.queue._scatter(essid, pwlist, res)
@@ -184,7 +182,7 @@ class LowLatencyCore(Core):
                 if not self.isTested:
                     essid, pwlist = self._getTestData(101)
                 else:
-                    essid, pwlist = self.queue._gather(self.buffersize, \
+                    essid, pwlist = self.queue._gather(self.buffersize,
                                                        timeout=0.5)
                 if essid is not None:
                     work_queue.append((essid, pwlist, not self.isTested))
@@ -304,7 +302,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
 
         def run(self):
             while True:
-                for uuid, client in self.core.clients.items():
+                for _, client in self.core.clients.items():
                     if time.time() - client.lastseen > 15.0:
                         self.core.rpc_unregister(uuid)
                 time.sleep(3)
@@ -388,7 +386,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
         if md.digest() != digest:
             raise IOError("Digest check failed.")
         if len(buf) != len(pwlist) * 32:
-            raise ValueError("Result has invalid size of %i. Expected %i." % \
+            raise ValueError("Result has invalid size of %i. Expected %i." %
                                 (len(buf), len(pwlist) * 32))
         results = [buf[i * 32:i * 32 + 32] for i in xrange(len(pwlist))]
         self.compTime = time.time() - self.startTime
@@ -400,7 +398,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
 
     def rpc_revoke(self, client_uuid):
         client = self._get_client(client_uuid)
-        essid, passwords = client.workunits.pop()
+        essid, password = client.workunits.pop()
         self.queue._revoke(essid, password)
         client.ping()
         return True
@@ -438,7 +436,10 @@ class CPyrit(object):
 
         # CUDA
         if config.cfg['use_CUDA'] == 'true' and 'cpyrit._cpyrit_cuda' in sys.modules and config.cfg['use_OpenCL'] == 'false':
-            import _cpyrit_cuda
+            try:
+                import _cpyrit_cuda
+            except ImportError:
+                print 'CUDA extension not found or installed.'
             CUDA = _cpyrit_cuda.listDevices()
 
             for dev_idx, device in enumerate(CUDA):
@@ -458,15 +459,12 @@ class CPyrit(object):
         if 'cpyrit._cpyrit_calpp' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_calpp.listDevices()):
                 self.cores.append(CALCore(queue=self, dev_idx=dev_idx))
-        
 
-        #CPUs
+        # CPUs
         for i in xrange(util.ncpus):
             self.cores.append(CPUCore(queue=self))
 
-    
-
-        #Network
+        # Network
         if config.cfg['rpc_server'] == 'true':
             for port in xrange(17935, 18000):
                 try:
@@ -488,7 +486,6 @@ class CPyrit(object):
                 self.ncore_uuid = None
         else:
             self.ncore_uuid = None
-                
 
         for core in self.cores:
             self.all.append(core)
@@ -498,7 +495,6 @@ class CPyrit(object):
             self.all.append(CD)
 
     def _check_cores(self):
-        all = []
         for core in self.all:
             if not core.shallStop and not core.isAlive():
                 raise SystemError("The core '%s' has died unexpectedly" % core)
@@ -736,8 +732,7 @@ class StorageIterator(object):
        necessary and requested and yields tuples of (password,PMK)-tuples.
     """
 
-    def __init__(self, storage, essid, \
-                 yieldOldResults=True, yieldNewResults=True):
+    def __init__(self, storage, essid, yieldOldResults=True, yieldNewResults=True):
         self.cp = CPyrit() if yieldNewResults else None
         self.workunits = []
         self.essid = essid
@@ -772,11 +767,9 @@ class StorageIterator(object):
                 if self.yieldNewResults:
                     solvedPMKs = self.cp.dequeue(block=True)
                     if solvedPMKs is not None:
-                        solvedEssid, solvedKey, solvedPasswords = \
-                          self.workunits.pop(0)
+                        solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
                         solvedResults = zip(solvedPasswords, solvedPMKs)
-                        self.storage.essids[solvedEssid, solvedKey] = \
-                          solvedResults
+                        self.storage.essids[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
                 assert len(self.workunits) == 0
                 raise StopIteration
@@ -794,11 +787,9 @@ class StorageIterator(object):
                     self.cp.enqueue(self.essid, passwords)
                     solvedPMKs = self.cp.dequeue(block=False)
                     if solvedPMKs is not None:
-                        solvedEssid, solvedKey, solvedPasswords = \
-                          self.workunits.pop(0)
+                        solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
                         solvedResults = zip(solvedPasswords, solvedPMKs)
-                        self.storage.essids[solvedEssid, solvedKey] = \
-                          solvedResults
+                        self.storage.essids[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
 
 

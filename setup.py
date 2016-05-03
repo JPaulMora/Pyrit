@@ -19,20 +19,18 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
+import sys
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.unixccompiler import UnixCCompiler
 from distutils.errors import CompileError
-import subprocess
-import sys
-import re
 
 VERSION = '0.5.0'
 
 UnixCCompiler.src_extensions.append('.S')
 
 
-EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
+EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing',
                       '-DVERSION="%s"' % (VERSION,)]
 # Support for AES-NI-intrinsics is not found everyhwere
 if sys.platform in ('darwin', 'linux2'):
