@@ -436,10 +436,6 @@ class CPyrit(object):
 
         # CUDA
         if config.cfg['use_CUDA'] == 'true' and 'cpyrit._cpyrit_cuda' in sys.modules and config.cfg['use_OpenCL'] == 'false':
-            try:
-                import _cpyrit_cuda
-            except ImportError:
-                print 'CUDA extension not found or installed.'
             CUDA = _cpyrit_cuda.listDevices()
 
             for dev_idx, device in enumerate(CUDA):
