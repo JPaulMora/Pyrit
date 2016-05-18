@@ -17,18 +17,17 @@
 #
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
+import os
+import sys
+import zlib
+import platform
+import subprocess
 
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
-import os
-import platform
-import re
-import subprocess
-import sys
-import zlib
 
-VERSION = '0.5.0' 
+VERSION = '0.5.0'
 
 NVIDIA_INC_DIRS = []
 NVCC = 'nvcc'
@@ -42,7 +41,7 @@ else:
                         "kernel were not found. Trying to continue anyway..."
 
 
-EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
+EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing',
                       '-DVERSION="%s"' % (VERSION,)]
 
 
@@ -75,7 +74,7 @@ class GPUBuilder(build_ext):
                 raise SystemError("Nvidia's CUDA-compiler 'nvcc' can't be " \
                                   "found.")
             print "Compiling CUDA module using nvcc %s..." % nvcc_version
-            
+
             # We need to hardcode arch at least for MacOS 10.6 / CUDA 3.1
             bits, linkage = platform.architecture()
             if bits == '32bit':
@@ -85,12 +84,12 @@ class GPUBuilder(build_ext):
             else:
                 print >>sys.stderr, "Can't detect platform, using 32bit"
                 bit_flag = ' -m32'
-            
+
             nvcc_cmd = NVCC + bit_flag + ' -Xcompiler "-fPIC" --ptx' \
                                          ' ./_cpyrit_cudakernel.cu'
             print "Executing '%s'" % nvcc_cmd
             subprocess.check_call(nvcc_cmd, shell=True)
-            
+
             f = open("_cpyrit_cudakernel.ptx", "rb")
             ptx = f.read() + '\x00'
             f.close()
