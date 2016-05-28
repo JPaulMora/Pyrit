@@ -40,6 +40,7 @@
 #include <pcap.h>
 #include "cpufeatures.h"
 #include "_cpyrit_cpu.h"
+#include <sys/auxv.h>
 #ifdef COMPILE_AESNI
     #include <wmmintrin.h>
 #endif
@@ -2409,7 +2410,7 @@ static void pathconfig(void)
     #endif
 
     if (!PlatformString)
-        PlatformString = PyString_FromString("x86");
+        PlatformString = PyString_FromString((char *) getauxval(AT_PLATFORM));
     if (!prepare_pmk)
         prepare_pmk = prepare_pmk_openssl;
     if (!finalize_pmk)
