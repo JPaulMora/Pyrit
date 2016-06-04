@@ -73,7 +73,7 @@ class GPUBuilder(build_ext):
         with open("_cpyrit_oclkernel.cl", 'rb') as f:
             kernel = f.read()
         oclkernel_code = header + '\n' + kernel + '\x00'
-        oclkernel_inc = zlib.compress(oclkernel_code)        
+        oclkernel_inc = zlib.compress(oclkernel_code)
         with open("_cpyrit_oclkernel.cl.h", 'wb') as f:
             f.write("unsigned char oclkernel_packedprogram[] = {")
             f.write(",".join(("0x%02X" % ord(c) for c in oclkernel_inc)))
@@ -142,6 +142,6 @@ setup_args = dict(
         options = {'install': {'optimize': 1}, \
                    'bdist_rpm': {'requires': 'pyrit = 0.4.0-1'}}
         )
-        
+
 if __name__ == "__main__":
     setup(**setup_args)
