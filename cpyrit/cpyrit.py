@@ -435,19 +435,12 @@ class CPyrit(object):
 
         # CUDA
         if config.cfg['use_CUDA'] == 'true' and 'cpyrit._cpyrit_cuda' in sys.modules and config.cfg['use_OpenCL'] == 'false':
-<<<<<<< HEAD
+
             CUDA = _cpyrit_cuda.listDevices()
 
             for dev_idx, device in enumerate(CUDA):
                 self.CUDAs.append(CUDACore(queue=self, dev_idx=dev_idx))
-=======
 
-            CUDA =  cpyrit_cuda.listDevices()
-
-            for dev_idx, device in enumerate(CUDA):
-                self.CUDAs.append(CUDACore(queue=self, dev_idx=dev_idx))
-                CUDA -= 1
->>>>>>> master
 
         # OpenCL
         if config.cfg['use_OpenCL'] == 'true' and 'cpyrit._cpyrit_opencl' in sys.modules:
@@ -463,22 +456,15 @@ class CPyrit(object):
         if 'cpyrit._cpyrit_calpp' in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_calpp.listDevices()):
                 self.cores.append(CALCore(queue=self, dev_idx=dev_idx))
-<<<<<<< HEAD
-=======
 
->>>>>>> master
 
         # CPUs
         for i in xrange(util.ncpus):
             self.cores.append(CPUCore(queue=self))
 
-<<<<<<< HEAD
+
         # Network
-=======
 
-
-        #Network
->>>>>>> master
         if config.cfg['rpc_server'] == 'true':
             for port in xrange(17935, 18000):
                 try:
@@ -500,10 +486,7 @@ class CPyrit(object):
                 self.ncore_uuid = None
         else:
             self.ncore_uuid = None
-<<<<<<< HEAD
-=======
 
->>>>>>> master
 
         for core in self.cores:
             self.all.append(core)
