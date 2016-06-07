@@ -27,7 +27,7 @@ from distutils.unixccompiler import UnixCCompiler
 from distutils.errors import CompileError
 
 
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 
 UnixCCompiler.src_extensions.append('.S')
 

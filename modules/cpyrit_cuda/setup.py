@@ -128,7 +128,7 @@ class GPUCleaner(clean):
 
 
 cuda_extension = Extension('cpyrit._cpyrit_cuda',
-                    libraries = ['crypto', 'cuda', 'z'],
+                    libraries = ['crypto','cuda','z'],
                     sources = ['_cpyrit_cuda.c'],
                     include_dirs = NVIDIA_INC_DIRS,
                     extra_compile_args = EXTRA_COMPILE_ARGS)
@@ -162,7 +162,7 @@ setup_args = dict(
         ext_modules = [cuda_extension],
         cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
         options = {'install': {'optimize': 1}, \
-                    'bdist_rpm': {'requires': 'pyrit = 0.4.0-1'}})
+                    'bdist_rpm': {'requires': 'pyrit >= 0.4.0'}})
 
 if __name__ == "__main__":
     setup(**setup_args)

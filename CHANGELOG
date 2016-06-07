@@ -1,9 +1,19 @@
-Whats new 0.5.0:
+Whats new in 0.5.1:
+ * Fixed missing import (#479 and #481), thanks llazzaro
+ * PEP8 improvements, thanks llazzaro
+ * Better arch detection,thanks leitao
+ * Pyrit CUDA now compiles in OSX
+ * Updated wiki
+
+Changes since 0.5.0:
  * Added use_CUDA and use_OpenCL in config file
  * Improved cores listing and managing
  * Updated Wiki and ported to GitHub
  * limit_ncpus now disables all CPUs when set to value below 0
  * Improve CCMP packet identification, thanks to yannayl
+
+Changes since 0.4.0:
+ * Fixed an error in Pyrit server/client mode
 
 Changes since 0.3.0:
  * Added CPyrit-CAL++
