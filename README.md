@@ -30,7 +30,15 @@ These are examples of how multiple computational nodes can access a single stora
 
 # What's new #
 
-See http://pyrit.wordpress.com *_(Outdated, 2011)_*
+ * Fixed #479 and #481
+ * Pyrit CUDA now compiles in OSX with Toolkit 7.5
+ * Added use_CUDA and use_OpenCL in config file
+ * Improved cores listing and managing
+ * limit_ncpus now disables all CPUs when set to value <=  0
+ * Improve CCMP packet identification, thanks to yannayl
+ 
+See [CHANGELOG](https://github.com/JPaulMora/Pyrit/blob/master/CHANGELOG) file for a better description.
+ 
 
 # How to use #
 
