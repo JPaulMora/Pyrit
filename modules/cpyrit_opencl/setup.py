@@ -29,7 +29,7 @@ import subprocess
 import sys
 import zlib
 
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 
 OPENCL_INC_DIRS = []
 OPENCL_LIB_DIRS = []
@@ -42,11 +42,11 @@ if sys.platform == 'darwin':
 else:
     LIBRARIES.append('OpenCL')
     try:
-        if os.path.exists(os.environ['ATISTREAMSDKROOT']):
-            OPENCL_INC_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'], 'include'))
+        if os.path.exists(os.environ['AMDAPPSDKROOT']):
+            OPENCL_INC_DIRS.append(os.path.join(os.environ['AMDAPPSDKROOT'], 'include'))
             for path in ('lib/x86_64','lib/x86'):
-                if os.path.exists(os.path.join(os.environ['ATISTREAMSDKROOT'], path)):
-                    OPENCL_LIB_DIRS.append(os.path.join(os.environ['ATISTREAMSDKROOT'], path))
+                if os.path.exists(os.path.join(os.environ['AMDAPPSDKROOT'], path)):
+                    OPENCL_LIB_DIRS.append(os.path.join(os.environ['AMDAPPSDKROOT'], path))
                     break
     except:
         pass
@@ -140,7 +140,7 @@ setup_args = dict(
         ext_modules = [opencl_extension],
         cmdclass = {'build_ext': GPUBuilder, 'clean': GPUCleaner},
         options = {'install': {'optimize': 1}, \
-                   'bdist_rpm': {'requires': 'pyrit = 0.4.0-1'}}
+                   'bdist_rpm': {'requires': 'pyrit >= 0.4.0-1'}}
         )
 
 if __name__ == "__main__":

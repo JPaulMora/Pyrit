@@ -27,7 +27,7 @@ from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
 from distutils.command.clean import clean
 
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 
 NVIDIA_INC_DIRS = []
 NVCC = 'nvcc'
