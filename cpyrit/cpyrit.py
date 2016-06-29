@@ -58,7 +58,7 @@ del fast_address_string
 
 def version_check(mod):
     ver = getattr(mod, "VERSION", "unknown")
-    if ver >= _cpyrit_cpu.VERSION:
+    if ver > _cpyrit_cpu.VERSION:
         warnings.warn("WARNING: %s version ('%s') is greater than %s ('%s').\n" % (mod, ver, _cpyrit_cpu, _cpyrit_cpu.VERSION))
 
 
