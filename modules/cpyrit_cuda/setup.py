@@ -31,7 +31,7 @@ VERSION = '0.5.1'
 
 NVIDIA_INC_DIRS = []
 NVCC = 'nvcc'
-for path in ('/usr/local/cuda', '/opt/cuda'):
+for path in ('/usr/local/cuda', '/opt/cuda', '/usr/lib/nvidia-cuda-toolkit', '/usr'):
     if os.path.exists(path):
         NVIDIA_INC_DIRS.append(os.path.join(path, 'include'))
         NVCC = os.path.join(path, 'bin', 'nvcc')
