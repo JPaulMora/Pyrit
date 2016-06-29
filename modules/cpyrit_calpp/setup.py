@@ -38,7 +38,7 @@ except KeyError:
     raise
 else:
     if os.path.exists(CALPP_INC_DIR):
-        CALPP_INC_DIRS.append(os.path.join(CALPP_INC_DIR, 'include/CAL'))
+        CALPP_INC_DIRS.append(os.path.join(CALPP_INC_DIR, 'include/cal'))
     else:
         print >>sys.stderr, "The headers required to build CAL++ kernel" \
                             "were not found. Trying to continue anyway..."
