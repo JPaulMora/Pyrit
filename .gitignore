@@ -1,1 +1,5 @@
-build
+build*
+modules/*/build*
+modules/*/temp*
+modules/cpyrit_cuda/*cudakernel.ptx*
+modules/cpyrit_opencl/_cpyrit_oclkernel.h
