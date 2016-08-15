@@ -1,4 +1,7 @@
 # Pyrit #
+
+![Pyrit logo](https://github.com/JPaulMora/Pyrit/blob/master/Pyrit-logo.png)
+
 Pyrit allows you to create massive databases of pre-computed  [WPA/WPA2-PSK](https://secure.wikimedia.org/wikipedia/en/wiki/Wi-Fi_Protected_Access) authentication phase in a space-time-tradeoff. 
 By using the computational power of Multi-Core CPUs and other platforms through [ATI-Stream](http://ati.amd.com/technology/streamcomputing/),[Nvidia CUDA](http://www.nvidia.com/object/cuda_home_new.html) and [OpenCL](http://www.khronos.org/opencl/), 
 it is currently by far the most powerful attack against one of the world's most used security-protocols.
