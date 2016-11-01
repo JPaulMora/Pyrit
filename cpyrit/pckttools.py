@@ -54,12 +54,23 @@ scapy.config.Conf.l2types.register_num2layer(119,
                                             scapy.layers.dot11.PrismHeader)
 
 
+def isEnumField(f):
+    """Return True if f is an instance of EnumField.  This function tries to be
+       portable: scapy versions 2.3.2 and earlier need isinstance(EnumField),
+       while scapy 2.3.3+ requires isinstance(_EnumField).
+    """
+    try:
+        return isinstance(f, scapy.fields._EnumField)
+    except AttributeError:
+        return isinstance(f, scapy.fields.EnumField)
+
+
 def isFlagSet(self, name, value):
     """Return True if the given field 'includes' the given value.
        Exact behaviour of this function is specific to the field-type.
     """
     field, val = self.getfield_and_val(name)
-    if isinstance(field, scapy.fields.EnumField):
+    if isEnumField(field):
         if val not in field.i2s:
             return False
         return field.i2s[val] == value
