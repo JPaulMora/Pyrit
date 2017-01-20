@@ -953,8 +953,8 @@ class Pyrit_CLI(object):
                     for cracker in crackers:
                         cracker.enqueue(results)
                     perfcounter += len(results)
-                    self.tell("Tried %i PMKs so far; %i PMKs per second.\r" % \
-                                (perfcounter.total, perfcounter.avg),
+                    self.tell("Tried %i PMKs so far; %i PMKs per second; %s\r" % \
+                                (perfcounter.total, perfcounter.avg, results[0][0]),
                               end=None, sep=None)
                     if any(c.solution is not None for c in crackers):
                         break
