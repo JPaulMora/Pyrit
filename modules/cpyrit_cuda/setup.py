@@ -85,7 +85,7 @@ class GPUBuilder(build_ext):
                 print >>sys.stderr, "Can't detect platform, using 32bit"
                 bit_flag = ' -m32'
 
-            nvcc_cmd = NVCC + bit_flag + ' -ccbin clang' ' ./_cpyrit_cudakernel.cu'
+            nvcc_cmd = NVCC + bit_flag + ' -ccbin clang -Xcompiler "-fPIC" --ptx ./_cpyrit_cudakernel.cu'
             
             print "Executing '%s'" % nvcc_cmd
             subprocess.check_call(nvcc_cmd, shell=True)
