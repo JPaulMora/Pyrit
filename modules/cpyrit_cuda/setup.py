@@ -90,15 +90,13 @@ class GPUBuilder(build_ext):
             print "Executing '%s'" % nvcc_cmd
             subprocess.check_call(nvcc_cmd, shell=True)
 
-            f = open("_cpyrit_cudakernel.ptx", "rb")
-            ptx = f.read() + '\x00'
-            f.close()
+            with open("_cpyrit_cudakernel.ptx", "rb") as fid:
+                ptx = fid.read() + '\x00'
             ptx_inc = ["0x%02X" % ord(c) for c in zlib.compress(ptx)]
-            f = open("_cpyrit_cudakernel.ptx.h", "wb")
-            f.write("unsigned char __cudakernel_packedmodule[] = {")
-            f.write(','.join(ptx_inc))
-            f.write("};\nsize_t cudakernel_modulesize = %i;\n" % len(ptx))
-            f.close()
+            with open("_cpyrit_cudakernel.ptx.h", "wb") as fid:
+                fid.write("unsigned char __cudakernel_packedmodule[] = {")
+                fid.write(','.join(ptx_inc))
+                fid.write("};\nsize_t cudakernel_modulesize = %i;\n" % len(ptx))
         print "Building modules..."
         build_ext.run(self)
 
