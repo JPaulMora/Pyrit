@@ -176,8 +176,8 @@ class Pyrit_CLI(object):
             raise PyritRuntimeError("No file found that matches '%s'" % \
                                     capturefilemask)
         parser = cpyrit.pckttools.PacketParser()
-        for idx, capturefile in enumerate(filelist):
-            self.tell("Parsing file '%s' (%i/%i)..." % (capturefile, idx + 1, \
+        for idx, capturefile in enumerate(filelist, start=1):
+            self.tell("Parsing file '%s' (%i/%i)..." % (capturefile, idx, \
                                                         len(filelist)))
             dev = cpyrit.pckttools.PcapDevice(capturefile)
             parser.parse_pcapdevice(dev)
@@ -297,21 +297,21 @@ class Pyrit_CLI(object):
                 self.tell("CPUs disabled in config...")
             else:
                 self.tell("The following cores seem available...")
-            for i, core in enumerate(cp.cores):
-                self.tell("#%i:  '%s'" % (i + 1, core))
+            for idx, core in enumerate(cp.cores, start=1):
+                self.tell("#%i:  '%s'" % (idx, core))
             
             if cpyrit.config.cfg['use_OpenCL'] == 'true':
                 if cpyrit.config.cfg['use_CUDA'] == 'true':
                     self.tell("\nWARNING: OpenCL disables CUDA!\n")
                 if len(cp.OpCL) != 0:
                     self.tell("\nThe following OpenCL GPUs seem aviable...")
-                    for i, OCL in enumerate(cp.OpCL):
-                        self.tell("#%i:  '%s'" % (i + 1, OCL))
+                    for idx, OCL in enumerate(cp.OpCL, start=1):
+                        self.tell("#%i:  '%s'" % (idx, OCL))
             elif cpyrit.config.cfg['use_OpenCL'] == 'false' and cpyrit.config.cfg['use_CUDA'] == 'true':
                 if len(cp.CUDAs) != 0:
                     self.tell("\nThe following CUDA GPUs seem aviable...")
-                    for i, CD in enumerate(cp.CUDAs):
-                        self.tell("#%i:  '%s'" % (i + 1, CD))
+                    for idx, CD in enumerate(cp.CUDAs, start=1):
+                        self.tell("#%i:  '%s'" % (idx, CD))
     list_cores.cli_options = ((), ())
 
     def list_essids(self, storage):
@@ -413,13 +413,13 @@ class Pyrit_CLI(object):
         """
         perfcounter = cpyrit.util.PerformanceCounter()
         with cpyrit.util.AsyncFileWriter(outfile) as awriter:
-            for idx, pwset in enumerate(storage.iterpasswords()):
+            for idx, pwset in enumerate(storage.iterpasswords(), start=1):
                 awriter.write('\n'.join(pwset))
                 awriter.write('\n')
                 perfcounter += len(pwset)
                 self.tell("%i lines written (%.1f lines/s, %.1f%%)\r" % \
                             (perfcounter.total, perfcounter.avg, \
-                            (idx + 1) * 100.0 / len(storage.passwords)), \
+                            idx * 100.0 / len(storage.passwords)), \
                             end=None, sep=None)
         self.tell("\nAll done")
     export_passwords.cli_options = (('-o', '-u'), ())
@@ -1017,12 +1017,12 @@ class Pyrit_CLI(object):
                 with cpyrit.cpyrit.StorageIterator(storage, essid) as dbiter:
                     self.tell("Attacking handshake with " \
                               "station %s" % (auth.station,))
-                    for idx, results in enumerate(dbiter):
+                    for idx, results in enumerate(dbiter, start=1):
                         cracker.enqueue(results)
                         perfcounter += len(results)
                         self.tell("Tried %i PMKs so far (%.1f%%); " \
                                   "%i PMKs per second.\r" % (perfcounter.total,
-                                    100.0 * (idx + 1) / len(storage.passwords),
+                                    100.0 * idx / len(storage.passwords),
                                     perfcounter.avg),
                                   end=None, sep=None)
                         if cracker.solution:
@@ -1082,12 +1082,12 @@ class Pyrit_CLI(object):
                           "Station %s..." % auth.station)
                 for idx, results in enumerate(cpyrit.cpyrit.StorageIterator(
                                                 storage, essid,
-                                                yieldNewResults=False)):
+                                                yieldNewResults=False), start=1):
                     cracker.enqueue(results)
                     perfcounter += len(results)
                     self.tell("Tried %i PMKs so far (%.1f%%); " \
                               "%i PMKs per second.\r" % (perfcounter.total,
-                                100.0 * (idx + 1) / WUcount,
+                                100.0 * idx / WUcount,
                                 perfcounter.avg),
                               end=None, sep=None)
                     if cracker.solution is not None:
