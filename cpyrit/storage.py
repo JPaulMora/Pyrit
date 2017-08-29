@@ -382,7 +382,7 @@ class FSStorage(Storage):
     def getStats(self):
         essid_results = dict.fromkeys(self.essids, 0)
         pwcount = 0
-        for i, key in enumerate(self.passwords):
+        for key in enumerate(self.passwords):
             pwsize = self.passwords.size(key)
             pwcount += pwsize
             for essid in essid_results:
