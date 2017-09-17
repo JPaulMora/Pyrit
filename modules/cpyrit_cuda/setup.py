@@ -86,7 +86,7 @@ class GPUBuilder(build_ext):
                 bit_flag = ' -m32'
 
             nvcc_cmd = NVCC + bit_flag + ' -ccbin clang -Xcompiler "-fPIC" --ptx ./_cpyrit_cudakernel.cu'
-            
+
             print "Executing '%s'" % nvcc_cmd
             subprocess.check_call(nvcc_cmd, shell=True)
 

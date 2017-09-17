@@ -119,7 +119,7 @@ class SqlalchemyImportError(ImportError):
 
 class SortedCollection(object):
     '''Sequence sorted by a key function.
-    
+
        Taken from http://code.activestate.com/recipes/577197-sortedcollection/
     '''
 

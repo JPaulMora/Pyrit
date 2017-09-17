@@ -29,7 +29,6 @@ import os
 import random
 import sys
 import time
-
 import cpyrit.cpyrit
 import cpyrit.config
 import cpyrit.util
@@ -299,7 +298,7 @@ class Pyrit_CLI(object):
                 self.tell("The following cores seem available...")
             for idx, core in enumerate(cp.cores, start=1):
                 self.tell("#%i:  '%s'" % (idx, core))
-            
+
             if cpyrit.config.cfg['use_OpenCL'] == 'true':
                 if cpyrit.config.cfg['use_CUDA'] == 'true':
                     self.tell("\nWARNING: OpenCL disables CUDA!\n")
@@ -537,7 +536,7 @@ class Pyrit_CLI(object):
                   (writer.pcktcount, parser.pcktcount, \
                   ["Challenge", "Response", "Confirmation"][idx], \
                   station.ap, station))
-    
+
     def _stripLive_newEncPckt(self, parser, writer, station, pckt):
         writer.write(pckt)
         self.tell("%i/%i: CCMP-Encrypted traffic AP %s <-> STA %s" % \
@@ -575,7 +574,7 @@ class Pyrit_CLI(object):
         parser.new_keypckt_callback = \
             lambda (sta, idx, pckt): \
                     self._stripLive_newKeyPckt(parser, writer, sta, idx, pckt)
-        
+
         parser.new_encpckt_callback = \
             lambda (sta, pckt): \
                     self._stripLive_newEncPckt(parser, writer, sta, pckt)
@@ -1231,7 +1230,7 @@ class Pyrit_CLI(object):
             if cpyrit.config.cfg['use_CUDA'] == 'true':
                     self.tell("CUDA:")
             for i, CD in enumerate(cp.CUDAs):
-                
+
                 if CD.compTime > 0:
                     perf = CD.resCount / CD.compTime
                 else:
@@ -1245,7 +1244,7 @@ class Pyrit_CLI(object):
             if cpyrit.config.cfg['use_OpenCL'] == 'true':
                 self.tell("OpenCL:")
             for i, OCL in enumerate(cp.OpCL):
-                
+
                 if OCL.compTime > 0:
                     perf = OCL.resCount / OCL.compTime
                 else:
@@ -1256,7 +1255,7 @@ class Pyrit_CLI(object):
                     rtt = 0
                 self.tell("#%i: '%s': %.1f PMKs/s (RTT %.1f)" % \
                           (i + 1, OCL.name, perf, rtt))
-            
+
             for r in cp:
                 pass
     benchmark.cli_options = ((), ())
@@ -1286,7 +1285,7 @@ class Pyrit_CLI(object):
                 self.tell("#%i:  '%s'" % (i + 1, CD))
             for i, OCL in enumerate(cp.OpCL):
                 self.tell("#%i:  '%s'" % (i + 1, OCL))
-            
+
             self.tell("\nRunning selftest...")
             workunits = []
             t = time.time()

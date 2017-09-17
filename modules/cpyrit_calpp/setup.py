@@ -24,10 +24,10 @@ from distutils.command.clean import clean
 import os
 import re
 import subprocess
+import sys
 
 VERSION = '0.5.0'
 
-import sys
 
 CALPP_INC_DIRS = []
 

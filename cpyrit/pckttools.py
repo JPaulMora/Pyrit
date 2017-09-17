@@ -167,7 +167,7 @@ scapy.packet.bind_layers(EAPOL_Key, EAPOL_RSNKey, DescType=2)
 
 class SCSortedCollection(util.SortedCollection):
     '''A collection of packets, ordered by their sequence-number'''
-    
+
     def __init__(self):
         util.SortedCollection.__init__(self, key=lambda pckt:pckt.SC)
 
@@ -218,7 +218,7 @@ class Station(object):
         self.ap = ap
         self.mac = mac
         ''' A note about the three data-structures of the Station-class:
-        
+
             self.eapoldict stores the first, second and third frame of an
             authentication so that related packets can be stored and retrieved
             quickly. It is a nested dictionary where every *unique*
@@ -849,7 +849,7 @@ class CCMPCrackerThread(CrackerThread, _cpyrit_cpu.CCMPCracker):
         msg = s[8:8+6]
         counter = (s[0:2] + s[4:8])[::-1]
         mac = scapy.utils.mac2str(auth.ccmpframe.addr2)
-        _cpyrit_cpu.CCMPCracker.__init__(self, auth.pke, msg, mac, counter) 
+        _cpyrit_cpu.CCMPCracker.__init__(self, auth.pke, msg, mac, counter)
 
 
 class AuthCracker(object):
