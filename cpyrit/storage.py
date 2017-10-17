@@ -155,14 +155,14 @@ class PYR2_Buffer(object):
         magic, essidlen = struct.unpack(self.pyrhead, compressed[:self.pyrlen])
         if magic != 'PYR2':
             raise StorageError("Not a PYR2-buffer.")
-        
+
         headfmt = "<%ssi16s" % (essidlen, )
         headsize = struct.calcsize(headfmt)
         header = compressed[self.pyrlen:self.pyrlen + headsize]
         if len(header) != headsize:
             raise StorageError("Invalid header size")
         self.essid, self.numElems, self.digest = struct.unpack(headfmt, header)
-        
+
         pmkoffset = self.pyrlen + headsize
         pwoffset = pmkoffset + self.numElems * 32
         self.pwbuffer = compressed[pwoffset:]
@@ -348,7 +348,7 @@ class Storage(object):
 
     def iterpasswords(self):
         return self.passwords.iterpasswords()
-    
+
     def unfinishedESSIDs(self):
         for e in self.essids:
             if any(not self.essids.containskey(e, k) for k in self.passwords):
@@ -382,7 +382,7 @@ class FSStorage(Storage):
     def getStats(self):
         essid_results = dict.fromkeys(self.essids, 0)
         pwcount = 0
-        for key in enumerate(self.passwords):
+        for key in self.passwords:
             pwsize = self.passwords.size(key)
             pwcount += pwsize
             for essid in essid_results:

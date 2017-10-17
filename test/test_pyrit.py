@@ -202,7 +202,7 @@ class TestCase(BaseTestCase):
         storage = self.getStorage()
         self.assertEqual(len(storage.passwords), 0)
         # valid_passwds should get accepted, short_passwds ignored
-        valid_passwds = ['test123%i' % i  for i in xrange(100000)]
+        valid_passwds = ['test123%i' % i for i in xrange(100000)]
         short_passwds = ['x%i' % i for i in xrange(30000)]
         test_passwds = valid_passwds + short_passwds
         random.shuffle(test_passwds)
