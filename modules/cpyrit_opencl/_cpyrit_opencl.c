@@ -219,7 +219,7 @@ ocldevice_init(OpenCLDevice *self, PyObject *args, PyObject *kwds)
     cl_uint num_entries;
     cl_device_id *devices;
     cl_device_type device_type;
-    char dev_name[64];
+    char dev_name[128];
     size_t name_size, i;
     size_t *max_work_sizes;
     cl_int err;
