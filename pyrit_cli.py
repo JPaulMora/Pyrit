@@ -303,12 +303,12 @@ class Pyrit_CLI(object):
                 if cpyrit.config.cfg['use_CUDA'] == 'true':
                     self.tell("\nWARNING: OpenCL disables CUDA!\n")
                 if len(cp.OpCL) != 0:
-                    self.tell("\nThe following OpenCL GPUs seem aviable...")
+                    self.tell("\nThe following OpenCL GPUs seem available...")
                     for idx, OCL in enumerate(cp.OpCL, start=1):
                         self.tell("#%i:  '%s'" % (idx, OCL))
             elif cpyrit.config.cfg['use_OpenCL'] == 'false' and cpyrit.config.cfg['use_CUDA'] == 'true':
                 if len(cp.CUDAs) != 0:
-                    self.tell("\nThe following CUDA GPUs seem aviable...")
+                    self.tell("\nThe following CUDA GPUs seem available...")
                     for idx, CD in enumerate(cp.CUDAs, start=1):
                         self.tell("#%i:  '%s'" % (idx, CD))
     list_cores.cli_options = ((), ())
