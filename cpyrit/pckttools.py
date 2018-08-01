@@ -50,6 +50,12 @@ try:
 except ImportError, e:
     raise util.ScapyImportError(e)
 
+# Scapy 2.4.0
+try:
+    import scapy.layers.eap
+except:
+    pass
+
 scapy.config.Conf.l2types.register_num2layer(119,
                                             scapy.layers.dot11.PrismHeader)
 
@@ -75,7 +81,10 @@ def isFlagSet(self, name, value):
             return False
         return field.i2s[val] == value
     else:
-        return (1 << field.names.index([value])) & self.__getattr__(name) != 0
+        try:
+            return (1 << field.names.index(value)) & self.__getattr__(name) != 0
+        except:
+            return (1 << field.names.index([value])) & self.__getattr__(name) != 0
 scapy.packet.Packet.isFlagSet = isFlagSet
 del isFlagSet
 
@@ -129,8 +138,10 @@ class EAPOL_Key(scapy.packet.Packet):
     fields_desc = [scapy.fields.ByteEnumField("DescType", 254,
                                                 {2: "RSN Key",
                                                 254: "WPA Key"})]
-scapy.packet.bind_layers(scapy.layers.l2.EAPOL, EAPOL_Key, type=3)
-
+try:
+    scapy.packet.bind_layers(scapy.layers.eap.EAPOL, EAPOL_Key, type=3)
+except:
+    scapy.packet.bind_layers(scapy.layers.l2.EAPOL, EAPOL_Key, type=3)
 
 class EAPOL_AbstractEAPOLKey(scapy.packet.Packet):
     """Base-class for EAPOL WPA/RSN-Key frames"""
@@ -312,7 +323,10 @@ class Station(object):
 
         # We need a revirginized version of the EAPOL-frame which produced
         # that MIC.
-        keymic_frame = pckt[scapy.layers.dot11.EAPOL].copy()
+        try:
+            keymic_frame = pckt[scapy.layers.eap.EAPOL].copy()
+        except:
+            keymic_frame = pckt[scapy.layers.dot11.EAPOL].copy()
         keymic_frame.WPAKeyMIC = '\x00' * len(keymic_frame.WPAKeyMIC)
         # Strip padding and cruft from frame
         keymic_frame = str(keymic_frame)[:keymic_frame.len + 4]
