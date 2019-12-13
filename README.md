@@ -1,6 +1,11 @@
+## Please Read
+
+Pyrit is old, is outdated and it's still Python2 I am currently attempting to rewrite it from scratch, so thanks for all the stars but remember to keep an eye for Python3 version.
+
 # Pyrit #
 
 ![Pyrit logo](https://github.com/JPaulMora/Pyrit/blob/master/Pyrit-logo.png)
+
 
 Pyrit allows you to create massive databases of pre-computed  [WPA/WPA2-PSK](https://secure.wikimedia.org/wikipedia/en/wiki/Wi-Fi_Protected_Access) authentication phase in a space-time-tradeoff. 
 By using the computational power of Multi-Core CPUs and other platforms through [ATI-Stream](http://ati.amd.com/technology/streamcomputing/),[Nvidia CUDA](http://www.nvidia.com/object/cuda_home_new.html) and [OpenCL](http://www.khronos.org/opencl/), 
