@@ -36,16 +36,16 @@
    local installations.
 """
 
-from __future__ import with_statement
+
 
 import bisect
-import cStringIO
+import io
 import gzip
 import os
-import Queue
+import queue
 import random
 import socket
-import SimpleXMLRPCServer
+import xmlrpc.server
 import sys
 import struct
 import time
@@ -53,7 +53,7 @@ import threading
 
 import _cpyrit_cpu
 from _cpyrit_cpu import VERSION, grouper
-import config
+from . import config
 
 __version__ = VERSION
 
@@ -343,7 +343,7 @@ class CowpattyFile(_cpyrit_cpu.CowpattyFile):
     def close(self):
         self.f.close()
 
-    def next(self):
+    def __next__(self):
         if self.mode != 'r':
             raise TypeError("Can't read from write-only file.")
         self.tail = self.tail + self.f.read(512 * 1024)
@@ -372,7 +372,7 @@ class AsyncFileWriter(threading.Thread):
         self.hasstopped = False
         self.maxsize = maxsize
         self.excp = None
-        self.buf = cStringIO.StringIO()
+        self.buf = io.StringIO()
         self.cv = threading.Condition()
         self.start()
 
@@ -460,12 +460,12 @@ class AsyncFileWriter(threading.Thread):
                             self.cv.wait()
                     else:
                         data = self.buf.getvalue()
-                        self.buf = cStringIO.StringIO()
+                        self.buf = io.StringIO()
                         self.cv.notifyAll()
                 if data:
                     self.filehndl.write(data)
             self.filehndl.flush()
-        except Exception, e:
+        except Exception as e:
             # Re-create a 'trans-thread-safe' instance
             self.excp = type(e)(str(e))
         finally:
@@ -502,8 +502,7 @@ class PerformanceCounter(object):
     def __purge(self):
         t = time.time()
         if t - self.datapoints[0][0] > self.window:
-            self.datapoints = filter(lambda x: (t - x[0]) < self.window, \
-                                                self.datapoints)
+            self.datapoints = [x for x in self.datapoints if (t - x[0]) < self.window]
 
     def getAvg(self):
         self.__purge()
@@ -539,7 +538,7 @@ class Thread(threading.Thread):
         self.join()
 
 
-class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
+class AsyncXMLRPCServer(xmlrpc.server.SimpleXMLRPCServer, Thread):
     """A stoppable XMLRPCServer
 
        The main socket is made non-blocking so we can check on
@@ -548,8 +547,9 @@ class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
        Sub-classes should add (name:function)-entries to self.methods
     """
 
-    def __init__(self, (iface, port)=('', 17934)):
-        SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, (iface, port), \
+    def __init__(self, xxx_todo_changeme=('', 17934)):
+        (iface, port) = xxx_todo_changeme
+        xmlrpc.server.SimpleXMLRPCServer.__init__(self, (iface, port), \
                                                         logRequests=False)
         Thread.__init__(self)
         self.setDaemon(True)
