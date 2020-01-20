@@ -23,9 +23,6 @@
 
 """
 
-from __future__ import with_statement
-
-import BaseHTTPServer
 import hashlib
 import itertools
 import os
@@ -34,7 +31,7 @@ import re
 import struct
 import sys
 import threading
-import xmlrpclib
+import xmlrpc.client
 import zlib
 try:
     import sqlalchemy as sql
@@ -47,15 +44,15 @@ else:
     else:
         UniversalBinary = sql.Binary
 
-import config
-import util
+from . import config
+from . import util
 import _cpyrit_cpu
 
 
 # prevent call to socket.getfqdn
 def fast_address_string(self):
     return '%s' % self.client_address[0]
-BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
+http.server.BaseHTTPRequestHandler.address_string = fast_address_string
 del fast_address_string
 
 
@@ -77,7 +74,7 @@ def handle_xmlfault(*params):
         def protected_f(*args, **kwds):
             try:
                 ret = f(*args, **kwds)
-            except xmlrpclib.Fault, e:
+            except xmlrpc.client.Fault as e:
                 # rpc does not know Exceptions so they always come as pure
                 # strings. One way would be to hack into the de-marshalling.
                 # These seems easier and less intrusive.
@@ -95,7 +92,7 @@ def handle_xmlfault(*params):
                     else:
                         raise
             return ret
-        protected_f.func_name = f.func_name
+        protected_f.__name__ = f.__name__
         protected_f.__doc__ = f.__doc__
         return protected_f
     return check_xmlfault
@@ -198,7 +195,7 @@ class PYR2_Buffer(object):
         return self.numElems
 
     def __iter__(self):
-        return itertools.izip(self.passwords, self.pmks)
+        return list(zip(self.passwords, self.pmks))
 
     def getpmkbuffer(self):
         return buffer(self.pmkbuffer)
@@ -272,7 +269,7 @@ class PasswordStore(object):
        Passwords are indexed by keys and are returned as iterables.
        The iterator cycles over all available keys.
     """
-    h1_list = ["%02.2X" % i for i in xrange(256)]
+    h1_list = ["%02.2X" % i for i in range(256)]
     del i
 
     def __init__(self):
@@ -293,7 +290,7 @@ class PasswordStore(object):
            For efficiency reasons this function should not be called if the
            caller wants to add more passwords in the foreseeable future.
         """
-        for pw_h1, pw_bucket in self.pwbuffer.iteritems():
+        for pw_h1, pw_bucket in list(self.pwbuffer.items()):
             self._flush_bucket(pw_h1, pw_bucket)
             self.pwbuffer[pw_h1] = (set if self.unique_check else list)()
 
@@ -414,13 +411,14 @@ class FSEssidStore(ESSIDStore):
             else:
                 print >>sys.stderr, "ESSID %s is corrupted." % essid_hash
 
-    def __getitem__(self, (essid, key)):
+    def __getitem__(self, xxx_todo_changeme6):
         """Receive a iterable of (password,PMK)-tuples stored under
            the given ESSID and key.
 
            Returns a empty iterable if the key is not stored. Raises KeyError
            if the ESSID is not stored.
         """
+        (essid, key) = xxx_todo_changeme6
         try:
             fname = self.essids[essid][1][key]
         except IndexError:
@@ -433,10 +431,11 @@ class FSEssidStore(ESSIDStore):
                 raise StorageError("Invalid ESSID in result-collection")
             return results
 
-    def __setitem__(self, (essid, key), results):
+    def __setitem__(self, xxx_todo_changeme7, results):
         """Store a iterable of (password,PMK)-tuples under the given
            ESSID and key.
         """
+        (essid, key) = xxx_todo_changeme7
         if essid not in self.essids:
             raise KeyError("ESSID not in store.")
         filename = os.path.join(self.essids[essid][0], key) + '.pyr'
@@ -456,10 +455,11 @@ class FSEssidStore(ESSIDStore):
         """Return True if the given ESSID is currently stored."""
         return essid in self.essids
 
-    def __delitem__(self, (essid, key)):
+    def __delitem__(self, xxx_todo_changeme8):
         """Delete the given ESSID:key resultset or the entire ESSID
            and all results from the storage.
         """
+        (essid, key) = xxx_todo_changeme8
         if essid not in self:
             raise KeyError("ESSID not in storage")
         if key is not None:
@@ -471,7 +471,7 @@ class FSEssidStore(ESSIDStore):
         else:
             essid_root, pyrfiles = self.essids[essid]
             del self.essids[essid]
-            for fname in pyrfiles.itervalues():
+            for fname in list(pyrfiles.values()):
                 os.unlink(fname)
             os.unlink(os.path.join(essid_root, 'essid'))
             os.rmdir(essid_root)
@@ -534,7 +534,7 @@ class FSPasswordStore(PasswordStore):
 
     def __iter__(self):
         """Iterate over all keys that can be used to receive password-sets."""
-        return self.pwfiles.keys().__iter__()
+        return list(self.pwfiles.keys()).__iter__()
 
     def __len__(self):
         """Return the number of keys that can be used to receive
@@ -566,7 +566,7 @@ class FSPasswordStore(PasswordStore):
         if len(bucket) == 0:
             return
         if self.unique_check:
-            for key, pwpath in self.pwfiles.iteritems():
+            for key, pwpath in list(self.pwfiles.items()):
                 if pwpath.endswith(pw_h1):
                     bucket.difference_update(self[key])
                     if len(bucket) == 0:
@@ -583,7 +583,7 @@ class FSPasswordStore(PasswordStore):
 class RPCStorage(Storage):
 
     def __init__(self, url):
-        self.cli = xmlrpclib.ServerProxy(url)
+        self.cli = xmlrpc.client.ServerProxy(url)
         self.essids = RPCESSIDStore(self.cli)
         self.passwords = RPCPasswordStore(self.cli)
 
@@ -598,13 +598,14 @@ class RPCESSIDStore(ESSIDStore):
         self.cli = cli
 
     @handle_xmlfault()
-    def __getitem__(self, (essid, key)):
+    def __getitem__(self, xxx_todo_changeme3):
         """Receive a iterable of (password,PMK)-tuples stored under
            the given ESSID and key.
 
            Returns a empty iterable if the key is not stored. Raises KeyError
            if the ESSID is not stored.
         """
+        (essid, key) = xxx_todo_changeme3
         buf = self.cli.essids.getitem(essid, key)
         if buf:
             results = PYR2_Buffer(buf.data)
@@ -615,10 +616,11 @@ class RPCESSIDStore(ESSIDStore):
             raise KeyError
 
     @handle_xmlfault()
-    def __setitem__(self, (essid, key), results):
+    def __setitem__(self, xxx_todo_changeme4, results):
         """Store a iterable of (password,PMK)-tuples under the given
            ESSID and key.
         """
+        (essid, key) = xxx_todo_changeme4
         b = xmlrpclib.Binary(PYR2_Buffer.pack(essid, results))
         self.cli.essids.setitem(essid, key, b)
 
@@ -638,10 +640,11 @@ class RPCESSIDStore(ESSIDStore):
         return self.cli.essids.contains(essid)
 
     @handle_xmlfault()
-    def __delitem__(self, (essid, key)):
+    def __delitem__(self, xxx_todo_changeme5):
         """Delete the ESSID:key resultset or the entire ESSID
            and all results from the storage.
         """
+        (essid, key) = xxx_todo_changeme5
         if key is None:
             key = ''
         self.cli.essids.delitem(essid, key)
@@ -682,7 +685,7 @@ class RPCPasswordStore(PasswordStore):
     @handle_xmlfault()
     def __iter__(self):
         """Iterate over all keys that can be used to receive password-sets."""
-        return self.cli.passwords.keys().__iter__()
+        return list(self.cli.passwords.keys()).__iter__()
 
     @handle_xmlfault()
     def __len__(self):
@@ -757,7 +760,7 @@ class StorageRelay(util.AsyncXMLRPCServer):
 
     def passwords_getitem(self, key):
         newkey, buf = PAW2_Buffer.pack(self.storage.passwords[key])
-        return xmlrpclib.Binary(buf)
+        return xmlrpc.client.Binary(buf)
 
     def passwords_delitem(self, key):
         del self.storage.passwords[key]
@@ -789,7 +792,7 @@ class StorageRelay(util.AsyncXMLRPCServer):
             return False
         else:
             buf = PYR2_Buffer.pack(essid, results)
-            return xmlrpclib.Binary(buf)
+            return xmlrpc.client.Binary(buf)
 
     def essids_setitem(self, essid, key, buf):
         results = PYR2_Buffer(buf.data)
@@ -996,13 +999,14 @@ if 'sqlalchemy' in sys.modules:
             with SessionContext(self.SessionClass) as session:
                 return session.query(ESSID_DBObject).count()
 
-        def __getitem__(self, (essid, key)):
+        def __getitem__(self, xxx_todo_changeme):
             """Receive a iterable of (password,PMK)-tuples stored under
                the given ESSID and key.
 
                Returns a empty iterable if the key is not stored. Raises
                KeyError if the ESSID is not stored.
             """
+            (essid, key) = xxx_todo_changeme
             with SessionContext(self.SessionClass) as session:
                 q = session.query(PYR2_DBObject).join(ESSID_DBObject)
                 result = q.filter(sql.and_(ESSID_DBObject.essid == essid, \
@@ -1013,10 +1017,11 @@ if 'sqlalchemy' in sys.modules:
                 else:
                     return result
 
-        def __setitem__(self, (essid, key), results):
+        def __setitem__(self, xxx_todo_changeme1, results):
             """Store a iterable of (password,PMK)-tuples under the given
                ESSID and key.
             """
+            (essid, key) = xxx_todo_changeme1
             with SessionContext(self.SessionClass) as session:
                 q = session.query(ESSID_DBObject)
                 essid_obj = q.filter(ESSID_DBObject.essid == essid).one()
@@ -1035,10 +1040,11 @@ if 'sqlalchemy' in sys.modules:
                     result_obj.pack(results)
                     session.commit()
 
-        def __delitem__(self, (essid, key)):
+        def __delitem__(self, xxx_todo_changeme2):
             """Delete the given ESSID:key resultset or the entire ESSID
                and all results from the storage.
             """
+            (essid, key) = xxx_todo_changeme2
             with SessionContext(self.SessionClass) as session:
                 essid_query = session.query(ESSID_DBObject)
                 essid_query = essid_query.filter(ESSID_DBObject.essid == essid)
@@ -1156,3 +1162,4 @@ if 'sqlalchemy' in sys.modules:
                             return
                 session.add(PAW2_DBObject(pw_h1, bucket))
                 session.commit()
+

@@ -28,10 +28,9 @@
    CPyrit enumerates the available cores and schedules workunits among them.
 """
 
-from __future__ import with_statement
 
 from collections import deque
-import BaseHTTPServer
+import http.server
 import hashlib
 import random
 import socket
@@ -39,20 +38,21 @@ import sys
 import threading
 import time
 import uuid
-import util
+from . import util
 import warnings
-import xmlrpclib
 
-import config
-import network
-import storage
+import xmlrpc.client
+
+from . import config
+from . import network
+from . import storage
 import _cpyrit_cpu
-
+from functools import reduce
 
 # prevent call to socket.getfqdn
 def fast_address_string(self):
     return '%s' % self.client_address[0]
-BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
+http.server.BaseHTTPRequestHandler.address_string = fast_address_string
 del fast_address_string
 
 
@@ -208,7 +208,7 @@ try:
 except ImportError:
     pass
 except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's OpenCL-core ('%s')." % e
+    print >> sys.stderr, "Failed to load Pyrit's CAL-core ('%s')." % e
 else:
     version_check(_cpyrit_opencl)
 
@@ -301,7 +301,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
 
         def run(self):
             while True:
-                for _, client in self.core.clients.items():
+                for _, client in list(self.core.clients.items()):
                     if time.time() - client.lastseen > 15.0:
                         self.core.rpc_unregister(uuid)
                 time.sleep(3)
@@ -342,7 +342,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
                 client.ping()
                 return client
             else:
-                raise xmlrpclib.Fault(403, "Client unknown or timed-out")
+                raise xmlrpc.client.Fault(403, "Client unknown or timed-out")
 
     def rpc_register(self, uuids):
         with self.client_lock:
@@ -373,7 +373,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
         else:
             client.workunits.append((essid, pwlist))
             key, buf = storage.PAW2_Buffer.pack(pwlist)
-            return (essid, xmlrpclib.Binary(buf))
+            return (essid, xmlrpc.client.Binary(buf))
 
     def rpc_scatter(self, client_uuid, encoded_buf):
         client = self._get_client(client_uuid)
@@ -387,7 +387,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
         if len(buf) != len(pwlist) * 32:
             raise ValueError("Result has invalid size of %i. Expected %i." %
                                 (len(buf), len(pwlist) * 32))
-        results = [buf[i * 32:i * 32 + 32] for i in xrange(len(pwlist))]
+        results = [buf[i * 32:i * 32 + 32] for i in range(len(pwlist))]
         self.compTime = time.time() - self.startTime
         self.resCount += len(results)
         self.callCount += 1
@@ -404,7 +404,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
 
     def __iter__(self):
         with self.client_lock:
-            return self.clients.values().__iter__()
+            return list(self.clients.values()).__iter__()
 
 
 class CPyrit(object):
@@ -459,14 +459,14 @@ class CPyrit(object):
 
 
         # CPUs
-        for i in xrange(util.ncpus):
+        for i in range(util.ncpus):
             self.cores.append(CPUCore(queue=self))
 
 
         # Network
 
         if config.cfg['rpc_server'] == 'true':
-            for port in xrange(17935, 18000):
+            for port in range(17935, 18000):
                 try:
                     ncore = NetworkCore(queue=self, port=port)
                 except socket.error:
@@ -476,7 +476,7 @@ class CPyrit(object):
                     self.cores.append(ncore)
                     if config.cfg['rpc_announce'] == 'true':
                         cl = config.cfg['rpc_knownclients'].split(' ')
-                        cl = filter(lambda x: len(x) > 0, map(str.strip, cl))
+                        cl = [x for x in map(str.strip, cl) if len(x) > 0]
                         bcst = config.cfg['rpc_announce_broadcast'] == 'true'
                         self.announcer = network.NetworkAnnouncer(port=port, \
                                                           clients=cl, \
@@ -501,7 +501,7 @@ class CPyrit(object):
                 raise SystemError("The core '%s' has died unexpectedly" % core)
 
     def _len(self):
-        return sum((sum((len(pwlist) for pwlist in pwdict.itervalues()))
+        return sum((sum((len(pwlist) for pwlist in list(pwdict.values())))
                    for essid, pwdict in self.inqueue))
 
     def __len__(self):
@@ -694,7 +694,7 @@ class CPyrit(object):
             for idx, length in slices:
                 self.outqueue[idx] = list(results[ptr:ptr + length])
                 ptr += length
-            for idx in sorted(self.outqueue.iterkeys(), reverse=True)[1:]:
+            for idx in sorted(iter(list(self.outqueue.keys())), reverse=True)[1:]:
                 res = self.outqueue[idx]
                 o_idx = idx + len(res)
                 if o_idx in self.outqueue:
@@ -760,16 +760,16 @@ class StorageIterator(object):
         if self.cp is not None:
             self.cp.shutdown()
 
-    def next(self):
+    def __next__(self):
         while True:
             try:
-                key = self.iterkeys.next()
+                key = next(self.iterkeys)
             except StopIteration:
                 if self.yieldNewResults:
                     solvedPMKs = self.cp.dequeue(block=True)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
-                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        solvedResults = list(zip(solvedPasswords, solvedPMKs))
                         self.storage.essids[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
                 assert len(self.workunits) == 0
@@ -789,7 +789,7 @@ class StorageIterator(object):
                     solvedPMKs = self.cp.dequeue(block=False)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
-                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        solvedResults = list(zip(solvedPasswords, solvedPMKs))
                         self.storage.essids[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
 
@@ -816,7 +816,7 @@ class PassthroughIterator(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.cp.shutdown()
 
-    def next(self):
+    def __next__(self):
         pwbuffer = []
         for line in self.iterator:
             pw = line.strip('\r\n')[:63]
@@ -828,10 +828,10 @@ class PassthroughIterator(object):
                 pwbuffer = []
                 solvedPMKs = self.cp.dequeue(block=False)
                 if solvedPMKs is not None:
-                    return zip(self.workunits.pop(0), solvedPMKs)
+                    return list(zip(self.workunits.pop(0), solvedPMKs))
         if len(pwbuffer) > 0:
             self.workunits.append(pwbuffer)
             self.cp.enqueue(self.essid, self.workunits[-1])
         for solvedPMKs in self.cp:
-            return zip(self.workunits.pop(0), solvedPMKs)
+            return list(zip(self.workunits.pop(0), solvedPMKs))
         raise StopIteration

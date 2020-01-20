@@ -28,15 +28,15 @@
     AccessPoint -> Station -> EAPOLAuthentication.
 """
 
-from __future__ import with_statement
+
 
 import binascii
 import tempfile
 import threading
-import Queue
+import queue
 import warnings
 
-import util
+from . import util
 import _cpyrit_cpu
 
 try:
@@ -47,7 +47,7 @@ try:
     import scapy.layers.dot11
     import scapy.packet
     import scapy.utils
-except ImportError, e:
+except ImportError as e:
     raise util.ScapyImportError(e)
 
 # Scapy 2.4.0
@@ -192,7 +192,7 @@ class AccessPoint(object):
         self.stations = {}
 
     def __iter__(self):
-        return self.stations.values().__iter__()
+        return list(self.stations.values()).__iter__()
 
     def __str__(self):
         return self.mac
@@ -212,7 +212,7 @@ class AccessPoint(object):
     def getCompletedAuthentications(self):
         """Return list of completed Authentication."""
         auths = []
-        for station in self.stations.itervalues():
+        for station in list(self.stations.values()):
             auths.extend(station.getAuthentications())
         return auths
 
@@ -352,10 +352,10 @@ class Station(object):
     def _buildAuthentications(self, f1_frames, f2_frames, f3_frames):
         auths = []
         for (version, snonce, keymic_frame, WPAKeyMIC), \
-          (f2_idx, f2) in f2_frames.iteritems():
+          (f2_idx, f2) in list(f2_frames.items()):
             # Combinations with Frame3 are of higher value as the AP
             # acknowledges that the STA used the correct PMK in Frame2
-            for anonce, (f3_idx, f3) in f3_frames.iteritems():
+            for anonce, (f3_idx, f3) in list(f3_frames.items()):
                 if anonce in f1_frames:
                     # We have F1+F2+F3. Frame2 is only cornered by the
                     # ReplayCounter. Technically we don't benefit
@@ -374,7 +374,7 @@ class Station(object):
                                         anonce, WPAKeyMIC, keymic_frame, \
                                         1, spread, (None, f2, f3))
                 auths.append(auth)
-            for anonce, (f1_idx, f1) in f1_frames.iteritems():
+            for anonce, (f1_idx, f1) in list(f1_frames.items()):
                 # No third frame. Combinations with Frame1 are possible but
                 # can also be triggered by STAs that use an incorrect PMK.
                 spread = abs(f1_idx - f2_idx)
@@ -422,7 +422,7 @@ class Station(object):
            handshake-packets. Best matches come first.
         """
         auths = []
-        for frames in self.eapoldict.itervalues():
+        for frames in list(self.eapoldict.values()):
             auths.extend(self._buildAuthentications(*frames))
         return sorted(auths)
 
@@ -610,7 +610,7 @@ class PcapDevice(_cpyrit_cpu.PcapDevice):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         pckt = self.read()
         if pckt is not None:
             return pckt
@@ -807,7 +807,7 @@ class PacketParser(object):
 
     def __iter__(self):
         return [ap for essid, ap in sorted([(ap.essid, ap) \
-                               for ap in self.air.itervalues()])].__iter__()
+                               for ap in list(self.air.values())])].__iter__()
 
     def __getitem__(self, bssid):
         return self.air[bssid]
@@ -834,7 +834,7 @@ class CrackerThread(threading.Thread):
         while not self.shallStop:
             try:
                 results = self.workqueue.get(block=True, timeout=0.5)
-            except Queue.Empty:
+            except queue.Empty:
                 pass
             else:
                 solution = self.solve(results)
@@ -869,7 +869,7 @@ class CCMPCrackerThread(CrackerThread, _cpyrit_cpu.CCMPCracker):
 class AuthCracker(object):
 
     def __init__(self, authentication, use_aes=False):
-        self.queue = Queue.Queue(10)
+        self.queue = queue.Queue(10)
         self.workers = []
         self.solution = None
         if authentication.version == "HMAC_SHA1_AES" \
@@ -878,7 +878,7 @@ class AuthCracker(object):
             self.cracker = CCMPCrackerThread
         else:
             self.cracker = EAPOLCrackerThread
-        for i in xrange(util.ncpus):
+        for i in range(util.ncpus):
             self.workers.append(self.cracker(self.queue, authentication))
 
     def _getSolution(self):

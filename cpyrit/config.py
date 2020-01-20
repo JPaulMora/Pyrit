@@ -18,7 +18,6 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import with_statement
 
 import os
 import sys
@@ -43,7 +42,7 @@ def read_configfile(filename):
         for line in f:
             if line.startswith('#') or '=' not in line:
                 continue
-            option, value = map(str.strip, line.split('=', 1))
+            option, value = list(map(str.strip, line.split('=', 1)))
             if option in config:
                 config[option] = value
             else:
@@ -68,3 +67,4 @@ else:
     if not os.path.exists(configpath):
         os.makedirs(configpath)
     write_configfile(cfg, default_configfile)
+

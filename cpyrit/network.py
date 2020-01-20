@@ -18,16 +18,16 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import with_statement
+
 
 import hashlib
 import socket
 import time
 import threading
-import xmlrpclib
+import xmlrpc.client
 
-import storage
-import util
+from . import storage
+from . import util
 
 
 class NetworkClient(util.Thread):
@@ -37,7 +37,7 @@ class NetworkClient(util.Thread):
         def __init__(self, client):
             threading.Thread.__init__(self)
             self.client = client
-            self.server = xmlrpclib.ServerProxy("http://%s:%s" % \
+            self.server = xmlrpc.client.ServerProxy("http://%s:%s" % \
                                                 client.srv_addr)
             self.shallStop = False
             self.setDaemon(True)
@@ -64,7 +64,7 @@ class NetworkClient(util.Thread):
 
     def __init__(self, srv_addr, enqueue_callback, known_uuids):
         util.Thread.__init__(self)
-        self.server = xmlrpclib.ServerProxy("http://%s:%s" % srv_addr)
+        self.server = xmlrpc.client.ServerProxy("http://%s:%s" % srv_addr)
         self.srv_uuid, self.uuid = self.server.register(";".join(known_uuids))
         if not self.uuid:
             raise KeyError("Loop detected to %s" % self.srv_uuid)
@@ -92,7 +92,7 @@ class NetworkClient(util.Thread):
                 buf = ''.join(solvedPMKs)
                 md = hashlib.sha1()
                 md.update(buf)
-                encoded_buf = xmlrpclib.Binary(md.digest() + buf)
+                encoded_buf = xmlrpc.client.Binary(md.digest() + buf)
                 self.server.scatter(self.uuid, encoded_buf)
                 self.stat_sent += len(solvedPMKs)
                 self.ping()
@@ -118,7 +118,7 @@ class NetworkServer(util.Thread):
 
     def __init__(self):
         util.Thread.__init__(self)
-        import cpyrit
+        from . import cpyrit
         self.cp = cpyrit.CPyrit()
         self.clients_lock = threading.Lock()
         self.clients = {}
@@ -131,9 +131,9 @@ class NetworkServer(util.Thread):
 
     def addClient(self, srv_addr):
         with self.clients_lock:
-            if any(c.srv_addr == srv_addr for c in self.clients.itervalues()):
+            if any(c.srv_addr == srv_addr for c in list(self.clients.values())):
                 return
-            known_uuids = set(c.srv_uuid for c in self.clients.itervalues())
+            known_uuids = set(c.srv_uuid for c in list(self.clients.values()))
             if self.cp.ncore_uuid is not None:
                 known_uuids.add(self.cp.ncore_uuid)
             try:
@@ -144,7 +144,8 @@ class NetworkServer(util.Thread):
                 client.start()
                 self.clients[client.uuid] = client
 
-    def enqueue(self, uuid, (essid, pwlist)):
+    def enqueue(self, uuid, xxx_todo_changeme):
+        (essid, pwlist) = xxx_todo_changeme
         with self.clients_lock:
             if uuid not in self.clients:
                 raise KeyError("Client unknown or timed-out")
@@ -167,7 +168,7 @@ class NetworkServer(util.Thread):
                         client.scatter(solvedPMKs)
                         self.stat_scattered += len(solvedPMKs)
             with self.clients_lock:
-                for client in self.clients.values():
+                for client in list(self.clients.values()):
                     if not client.isAlive() or \
                      time.time() - client.lastseen > 15.0:
                         del self.clients[client.uuid]
@@ -177,7 +178,7 @@ class NetworkServer(util.Thread):
 
     def __contains__(self, srv_addr):
         with self.clients_lock:
-            i = self.clients.itervalues()
+            i = iter(list(self.clients.values()))
             return any(c.srv_addr == srv_addr for c in i)
 
     def __len__(self):
@@ -186,12 +187,12 @@ class NetworkServer(util.Thread):
 
     def __iter__(self):
         with self.clients_lock:
-            return self.clients.values().__iter__()
+            return list(self.clients.values()).__iter__()
 
     def shutdown(self):
         self.shallStop = True
         with self.clients_lock:
-            for client in self.clients.itervalues():
+            for client in list(self.clients.values()):
                 client.shutdown()
         self.join()
 
@@ -282,7 +283,7 @@ class NetworkAnnouncementListener(util.Thread):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         return self.waitForAnnouncement(block=True)
 
     def shutdown(self):
