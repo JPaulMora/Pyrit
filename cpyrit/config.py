@@ -46,8 +46,8 @@ def read_configfile(filename):
             if option in config:
                 config[option] = value
             else:
-                print >> sys.stderr, "WARNING: Unknown option '%s' " \
-                                    "in configfile '%s'" % (option, filename)
+                print("WARNING: Unknown option '%s' " \
+                                    "in configfile '%s'" % (option, filename), file=sys.stderr)
     return config
 
 

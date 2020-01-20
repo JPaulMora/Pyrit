@@ -207,8 +207,8 @@ try:
     import _cpyrit_opencl
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CAL-core ('%s')." % e
+except Exception as e:
+    print("Failed to load Pyrit's CAL-core ('%s')." % e, file=sys.stderr)
 else:
     version_check(_cpyrit_opencl)
 
@@ -230,8 +230,8 @@ try:
     import _cpyrit_cuda
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CUDA-core ('%s')." % e
+except Exception as e:
+    print("Failed to load Pyrit's CUDA-core ('%s')." % e, file=sys.stderr)
 else:
     version_check(_cpyrit_cuda)
 
@@ -252,8 +252,8 @@ try:
     import _cpyrit_calpp
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CAL-core ('%s')." % e
+except Exception as e:
+    print("Failed to load Pyrit's CAL-core ('%s')." % e, file=sys.stderr)
 else:
     version_check(_cpyrit_calpp)
 

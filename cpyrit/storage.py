@@ -409,7 +409,7 @@ class FSEssidStore(ESSIDStore):
                         self.essids[essid][1][pyrfile[:len(pyrfile) - 4]] = \
                                             os.path.join(essidpath, pyrfile)
             else:
-                print >>sys.stderr, "ESSID %s is corrupted." % essid_hash
+                print("ESSID %s is corrupted." % essid_hash, file=sys.stderr)
 
     def __getitem__(self, xxx_todo_changeme6):
         """Receive a iterable of (password,PMK)-tuples stored under

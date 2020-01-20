@@ -37,8 +37,8 @@ for path in ('/usr/local/cuda', '/opt/cuda'):
         NVCC = os.path.join(path, 'bin', 'nvcc')
         break
 else:
-    print >>sys.stderr, "The CUDA compiler and headers required to build " \
-                        "kernel were not found. Trying to continue anyway..."
+    print("The CUDA compiler and headers required to build " \
+                        "kernel were not found. Trying to continue anyway...", file=sys.stderr)
 
 
 EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing',
@@ -53,8 +53,8 @@ class GPUBuilder(build_ext):
         if p.returncode == 0:
             return stdo
         else:
-            print >>sys.stderr, "%s\nFailed to execute command '%s'" % \
-                                (stde, comm)
+            print("%s\nFailed to execute command '%s'" % \
+                                (stde, comm), file=sys.stderr)
             return None
 
     def _makedirs(self, pathname):
@@ -65,7 +65,7 @@ class GPUBuilder(build_ext):
 
     def run(self):
         if '_cpyrit_cudakernel.ptx.h' in os.listdir('./'):
-            print "Skipping rebuild of Nvidia CUDA kernel ..."
+            print("Skipping rebuild of Nvidia CUDA kernel ...")
         else:
             nvcc_o = self._call(NVCC + ' -V')
             if nvcc_o is not None:
@@ -73,7 +73,7 @@ class GPUBuilder(build_ext):
             else:
                 raise SystemError("Nvidia's CUDA-compiler 'nvcc' can't be " \
                                   "found.")
-            print "Compiling CUDA module using nvcc %s..." % nvcc_version
+            print("Compiling CUDA module using nvcc %s..." % nvcc_version)
 
             # We need to hardcode arch at least for MacOS 10.6 / CUDA 3.1
             bits, linkage = platform.architecture()
@@ -82,12 +82,12 @@ class GPUBuilder(build_ext):
             elif bits == '64bit':
                 bit_flag = ' -m64'
             else:
-                print >>sys.stderr, "Can't detect platform, using 32bit"
+                print("Can't detect platform, using 32bit", file=sys.stderr)
                 bit_flag = ' -m32'
 
             nvcc_cmd = NVCC + bit_flag + ' -ccbin clang -Xcompiler "-fPIC" --ptx ./_cpyrit_cudakernel.cu'
 
-            print "Executing '%s'" % nvcc_cmd
+            print("Executing '%s'" % nvcc_cmd)
             subprocess.check_call(nvcc_cmd, shell=True)
 
             with open("_cpyrit_cudakernel.ptx", "rb") as fid:
@@ -97,7 +97,7 @@ class GPUBuilder(build_ext):
                 fid.write("unsigned char __cudakernel_packedmodule[] = {")
                 fid.write(','.join(ptx_inc))
                 fid.write("};\nsize_t cudakernel_modulesize = %i;\n" % len(ptx))
-        print "Building modules..."
+        print("Building modules...")
         build_ext.run(self)
 
 
@@ -113,15 +113,16 @@ class GPUCleaner(clean):
             pass
 
     def run(self):
-        print "Removing temporary files and pre-built GPU-kernels..."
+        print("Removing temporary files and pre-built GPU-kernels...")
         try:
             for f in ('_cpyrit_cudakernel.linkinfo', \
                       '_cpyrit_cudakernel.ptx', \
                       '_cpyrit_cudakernel.ptx.h'):
                 self._unlink(f)
-        except Exception, (errno, sterrno):
-            print >>sys.stderr, "Exception while cleaning temporary " \
-                                "files ('%s')" % sterrno
+        except Exception as xxx_todo_changeme:
+            (errno, sterrno) = xxx_todo_changeme.args
+            print("Exception while cleaning temporary " \
+                                "files ('%s')" % sterrno, file=sys.stderr)
         clean.run(self)
 
 
