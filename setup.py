@@ -53,7 +53,7 @@ class LazyBuilder(build_ext):
             return build_ext.build_extension(self, ext)
         except CompileError:
             if ext.extra_compile_args and '-maes' in ext.extra_compile_args:
-                print "Failed to build; Compiling without AES-NI"
+                print ("Failed to build; Compiling without AES-NI")
                 ext.extra_compile_args.remove('-maes')
                 ext.extra_compile_args.remove('-mpclmul')
                 return build_ext.build_extension(self, ext)
