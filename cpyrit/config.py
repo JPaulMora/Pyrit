@@ -18,48 +18,53 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import with_statement
-
 import os
 import sys
 
 
 def default_config():
-    config = {'default_storage': 'file://',
-              'use_CUDA': 'false',
-              'use_OpenCL': 'false',
-              'rpc_server': 'false',
-              'rpc_announce': 'true',
-              'rpc_announce_broadcast': 'false',
-              'rpc_knownclients': '',
-              'workunit_size': '75000',
-              'limit_ncpus': 0}
+    """Defines the default configuration for Pyrit"""
+    config = {
+        "default_storage": "file://",
+        "use_CUDA": "false",
+        "use_OpenCL": "false",
+        "rpc_server": "false",
+        "rpc_announce": "true",
+        "rpc_announce_broadcast": "false",
+        "rpc_knownclients": "",
+        "workunit_size": "75000",
+        "limit_ncpus": 0,
+    }
     return config
 
 
 def read_configfile(filename):
+    """Reads the configuration file and then returns config"""
     config = default_config()
-    with open(filename, 'rb') as f:
+    with open(filename, "rb") as f:
         for line in f:
-            if line.startswith('#') or '=' not in line:
+            if line.startswith("#") or "=" not in line:
                 continue
-            option, value = map(str.strip, line.split('=', 1))
+            option, value = list(map(str.strip, line.split("=", 1)))
             if option in config:
                 config[option] = value
             else:
-                print >> sys.stderr, "WARNING: Unknown option '%s' " \
-                                    "in configfile '%s'" % (option, filename)
+                print(
+                    f"WARNING: Unknown option {option} in configfile {filename}",
+                    file=sys.stderr,
+                )
     return config
 
 
 def write_configfile(config, filename):
-    with open(filename, 'wb') as f:
+    """Writes to the config file"""
+    with open(filename, "wb") as openfile:
         for option, value in sorted(config.items()):
-            f.write("%s = %s\n" % (option, value))
+            openfile.write(f"{option} = {value}\n")
 
 
-configpath = os.path.expanduser(os.path.join('~', '.pyrit'))
-default_configfile = os.path.join(configpath, 'config')
+configpath = os.path.expanduser(os.path.join("~", ".pyrit"))
+default_configfile = os.path.join(configpath, "config")
 
 if os.path.exists(default_configfile):
     cfg = read_configfile(default_configfile)
