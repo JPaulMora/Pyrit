@@ -25,7 +25,7 @@ import os
 import re
 import subprocess
 
-VERSION = '0.5.0'
+VERSION = '0.5.2'
 
 import sys
 
@@ -34,14 +34,14 @@ CALPP_INC_DIRS = []
 try:
     CALPP_INC_DIR = os.environ['ATISTREAMSDKROOT']
 except KeyError:
-    print >>sys.stderr, "unavailable enviroment variable ATISTREAMSDKROOT"
+    print("unavailable enviroment variable ATISTREAMSDKROOT", file=sys.stderr)
     raise
 else:
     if os.path.exists(CALPP_INC_DIR):
         CALPP_INC_DIRS.append(os.path.join(CALPP_INC_DIR, 'include'))
     else:
-        print >>sys.stderr, "The headers required to build CAL++ kernel" \
-                            "were not found. Trying to continue anyway..."
+        print("The headers required to build CAL++ kernel" \
+        "were not found. Trying to continue anyway...", file=sys.stderr)
 
 
 EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
@@ -50,7 +50,7 @@ EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
 
 class GPUBuilder(build_ext):
     def run(self):
-        print "Building modules..."
+        print("Building modules...")
         build_ext.run(self)
 
 
@@ -66,7 +66,7 @@ class GPUCleaner(clean):
             pass
 
     def run(self):
-        print "Removing temporary files and pre-built GPU-kernels..."
+        print("Removing temporary files and pre-built GPU-kernels...")
         clean.run(self)
 
 

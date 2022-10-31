@@ -18,7 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import with_statement
+
 
 import getopt
 import glob
@@ -80,7 +80,7 @@ class Pyrit_CLI(object):
                 raise PyritRuntimeError("The command '%s' requires the " \
                                         "option '%s'. See 'help'." % \
                                         (command, param))
-        for arg, value in args.iteritems():
+        for arg, value in list(args.items()):
             if arg in req_params or arg in opt_params:
                 if arg == '-e':
                     options['essid'] = value
@@ -165,7 +165,7 @@ class Pyrit_CLI(object):
                                             "functions but seems to be " \
                                             "unavailable.")
                 f(*args, **kwds)
-            new_f.func_name = f.func_name
+            new_f.__name__ = f.__name__
             new_f.__doc__ = f.__doc__
             return new_f
         return check_pkttools
@@ -205,10 +205,9 @@ class Pyrit_CLI(object):
             ap = None
         if essid is not None:
             if ap is None:
-                aps = filter(lambda ap: (ap.essid is None
+                aps = [ap for ap in parser if (ap.essid is None
                                           or ap.essid == essid)
-                                        and ap.isCompleted(),
-                                        parser)
+                                        and ap.isCompleted()]
                 if len(aps) > 0:
                     ap = aps[0]
                     self.tell("Picked AccessPoint %s automatically..." % ap)
@@ -343,9 +342,9 @@ class Pyrit_CLI(object):
         pwcount, essid_results = storage.getStats()
         self.tell("\rPasswords available: %i\n" % pwcount)
         if len(essid_results) > 0:
-            m = max(len(essid) for essid in essid_results.iterkeys())
-            n = max(len(str(c)) for c in essid_results.itervalues())
-            for essid, rescnt in sorted(essid_results.iteritems()):
+            mm = max(len(essid) for essid in list(essid_results.keys()))
+            n = max(len(str(c)) for c in list(essid_results.values()))
+            for essid, rescnt in sorted(essid_results.items()):
                 self.tell("ESSID '%s'%s : %s%i (%.2f%%)" % (essid, \
                             ' ' * (m - len(essid)), \
                             ' ' * (n - len(str(rescnt))), rescnt, \
@@ -573,25 +572,25 @@ class Pyrit_CLI(object):
             lambda sta: self._stripLive_newStation(parser, writer, sta)
 
         parser.new_keypckt_callback = \
-            lambda (sta, idx, pckt): \
-                    self._stripLive_newKeyPckt(parser, writer, sta, idx, pckt)
+            lambda sta_idx_pckt: \
+                    self._stripLive_newKeyPckt(parser, writer, sta_idx_pckt[0], sta_idk_pckt[1], sta_idx_pckt[2])
         
         parser.new_encpckt_callback = \
-            lambda (sta, pckt): \
-                    self._stripLive_newEncPckt(parser, writer, sta, pckt)
+            lambda sta_pckt: \
+                    self._stripLive_newEncPckt(parser, writer, sta_pckt[0], sta_pckt[1])
 
         parser.new_auth_callback = \
-            lambda (sta, auth): self._stripLive_newAuth(parser, writer, sta, \
-                                                        auth)
+            lambda sta_auth: self._stripLive_newAuth(parser, writer, sta_auth[0], \
+                                                        sta_auth[1])
 
         self.tell("Parsing packets from '%s'..." % capturefile)
         pckt_rdr = cpyrit.pckttools.PcapDevice(use_bpf=True)
         try:
             pckt_rdr.open_offline(capturefile)
-        except IOError, offline_error:
+        except IOError as offline_error:
             try:
                 pckt_rdr.open_live(capturefile)
-            except IOError, live_error:
+            except IOError as live_error:
                 raise PyritRuntimeError("Failed to open '%s' either as a " \
                                         "file ('%s') or as a device " \
                                         "('%s')" % (capturefile, \
@@ -637,8 +636,8 @@ class Pyrit_CLI(object):
         con.text_factory = str
         cur = con.cursor()
         cur.execute('SELECT * FROM sqlite_master')
-        tbls = [x[1] for x in cur.fetchall() if x[0] == u'table']
-        if u'pmk' not in tbls or u'essid' not in tbls or u'passwd' not in tbls:
+        tbls = [x[1] for x in cur.fetchall() if x[0] == 'table']
+        if 'pmk' not in tbls or 'essid' not in tbls or 'passwd' not in tbls:
             self.tell("The database '%s' seems to be uninitialized. " % \
                       outfile)
             self.tell("Trying to create default table-layout...", end=None)
@@ -1208,13 +1207,13 @@ class Pyrit_CLI(object):
             t = time.time()
             perfcounter = cpyrit.util.PerformanceCounter(timeout + 5)
             while time.time() - t < timeout:
-                pws = ["barbarbar%s" % random.random() for i in xrange(bsize)]
+                pws = ["barbarbar%s" % random.random() for i in range(bsize)]
                 cp.enqueue('foo', pws)
                 r = cp.dequeue(block=False)
                 if r is not None:
                     perfcounter += len(r)
                 self.tell("\rRunning benchmark (%.1f PMKs/s)... %s" % \
-                        (perfcounter.avg, cycler.next()), end=None)
+                        (perfcounter.avg, next(cycler)), end=None)
             self.tell('')
             self.tell("\nComputed %.2f PMKs/s total." % perfcounter.avg)
             for i, core in enumerate(cp.cores):
@@ -1292,10 +1291,10 @@ class Pyrit_CLI(object):
             t = time.time()
             err = False
             while time.time() - t < timeout and not err:
-                essid = random.choice(cpyrit.util.PMK_TESTVECTORS.keys())
+                essid = random.choice(list(cpyrit.util.PMK_TESTVECTORS.keys()))
                 pws = []
-                ref = cpyrit.util.PMK_TESTVECTORS[essid].keys()
-                for i in xrange(random.randrange(10, 1000)):
+                ref = list(cpyrit.util.PMK_TESTVECTORS[essid].keys())
+                for i in range(random.randrange(10, 1000)):
                     pws.append(random.choice(ref))
                 workunits.append((essid, pws))
                 cp.enqueue(essid, pws)
@@ -1356,7 +1355,7 @@ class Pyrit_CLI(object):
                 for key, results in storage.essids.iteritems(essid):
                     sample = random.sample(results, int(len(results) * 0.1))
                     if len(sample) > 0:
-                        pws, pmks = zip(*sample)
+                        pws, pmks = list(zip(*sample))
                         workunits.append((essid, key, tuple(pmks)))
                         cp.enqueue(essid, pws)
                         solvedPMKs = cp.dequeue(block=False)
@@ -1411,14 +1410,14 @@ class Pyrit_CLI(object):
         # Check passwords
         self.tell("Checking workunits...")
         wu_errors = set()
-        for key in storage.passwords.iterkeys():
+        for key in list(storage.passwords.keys()):
             try:
                 # explicit call to iter to work around swallowed
                 # exceptions in CPython's bltinmodule.c:map_new()
                 for l in map(len, iter(storage.passwords[key])):
                     if l < 8 or l > 64:
                         raise cpyrit.storage.StorageError("Invalid password")
-            except cpyrit.storage.StorageError, e:
+            except cpyrit.storage.StorageError as e:
                 self.tell("Error in workunit %s: %s" % (key, e), \
                           stream=sys.stderr)
                 wu_errors.add(key)

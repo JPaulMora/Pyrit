@@ -29,7 +29,7 @@
 """
 
 
-from __future__ import with_statement
+
 
 import os
 import shutil
@@ -38,10 +38,12 @@ import unittest
 import sys
 import tempfile
 
+import cpyrit.
 import cpyrit.config
 import cpyrit.storage
 import cpyrit.util
 import pyrit_cli
+
 
 cpyrit.config.cfg["rpc_server"] = "false"
 
@@ -61,7 +63,7 @@ def requires_pckttools(*params):
                 sys.stderr.write("(Skipped: Scapy not installed) ")
             else:
                 f(*args, **kwds)
-        new_f.func_name = f.func_name
+        new_f.__name__ = f.__name__
         new_f.__doc__ = f.__doc__
         return new_f
     return check_pkttools
@@ -74,8 +76,8 @@ class FilesystemFunctions(object):
 
     def corrupt(self, storage):
         # Destroy some passwords
-        keys = list(storage.passwords.iterkeys())
-        for i in xrange(13):
+        keys = list(storage.passwords.keys())
+        for i in range(13):
             key = random.choice(keys)
             # This is specific to storage.FSPasswordStore
             filename = os.path.join(storage.passwords.pwfiles[key], key)
@@ -95,7 +97,7 @@ class FilesystemFunctions(object):
                 break
         # Destroy some results
         keys = list(storage.essids.iterkeys('test'))
-        for i in xrange(13):
+        for i in range(13):
             key = random.choice(keys)
             # This is specific to storage.FSEssidStore
             filename = os.path.join(storage.essids.essids['test'][0], key)
@@ -135,7 +137,7 @@ class BaseTestCase(unittest.TestCase):
         shutil.rmtree(self.storage_path)
 
     def _createPasswords(self, filename):
-        test_passwds = ['test123%i' % i for i in xrange(5000 - 5)]
+        test_passwds = ['test123%i' % i for i in range(5000 - 5)]
         test_passwds += ['dictionary', 'helium02', 'MOM12345', \
                          'preinstall', 'password']
         random.shuffle(test_passwds)
@@ -150,7 +152,7 @@ class BaseTestCase(unittest.TestCase):
 
     def _computeFakeDatabase(self, storage, essid):
         self.cli.create_essid(storage, essid)
-        for key, passwords in storage.passwords.iteritems():
+        for key, passwords in list(storage.passwords.items()):
             storage.essids[essid, key] = [(pw, 'x' * 32) for pw in passwords]
 
     def _computeDatabase(self, storage, essid):
@@ -164,7 +166,7 @@ class BaseTestCase(unittest.TestCase):
     def _testHandshake(self, filename, essid, ap, sta, passwd, aes=False):
         parser = cpyrit.pckttools.PacketParser(filename)
         with cpyrit.cpyrit.PassthroughIterator(essid, (passwd,)) as cp:
-            solution = cp.next()
+            solution = next(cp)
         auths = parser[ap][sta].getAuthentications()
         for auth in parser[ap][sta].getAuthentications():
             with cpyrit.pckttools.AuthCracker(auth, aes) as cracker:
@@ -202,15 +204,15 @@ class TestCase(BaseTestCase):
         storage = self.getStorage()
         self.assertEqual(len(storage.passwords), 0)
         # valid_passwds should get accepted, short_passwds ignored
-        valid_passwds = ['test123%i' % i  for i in xrange(100000)]
-        short_passwds = ['x%i' % i for i in xrange(30000)]
+        valid_passwds = ['test123%i' % i  for i in range(100000)]
+        short_passwds = ['x%i' % i for i in range(30000)]
         test_passwds = valid_passwds + short_passwds
         random.shuffle(test_passwds)
         with cpyrit.util.AsyncFileWriter(self.tempfile1) as f:
             f.write('\n'.join(test_passwds))
         self.cli.import_passwords(storage, self.tempfile1)
         new_passwds = set()
-        for key, pwset in storage.passwords.iteritems():
+        for key, pwset in list(storage.passwords.items()):
             new_passwds.update(pwset)
         self.assertEqual(new_passwds, set(valid_passwds))
         # There should be no duplicates
@@ -221,7 +223,7 @@ class TestCase(BaseTestCase):
         self.cli.import_passwords(storage, self.tempfile1)
         new_passwds = set()
         i = 0
-        for key, pwset in storage.passwords.iteritems():
+        for key, pwset in list(storage.passwords.items()):
             new_passwds.update(pwset)
             i += len(pwset)
         self.assertEqual(i, len(valid_passwds))
@@ -312,7 +314,7 @@ class TestCase(BaseTestCase):
         # Should be OK
         self.cli.verify(storage)
         keys = list(storage.essids.iterkeys('test'))
-        for i in xrange(25):
+        for i in range(25):
             key = random.choice(keys)
             results = storage.essids['test', key]
             corrupted = tuple((pw, 'x' * 32) for pw, pmk in results)
@@ -338,7 +340,7 @@ class TestCase(BaseTestCase):
         self.cli.import_passwords(storage, self.tempfile1)
         self.cli.export_passwords(storage, self.tempfile1)
         with cpyrit.util.FileWrapper(self.tempfile1) as f:
-            new_passwds = map(str.strip, f.readlines())
+            new_passwds = list(map(str.strip, f.readlines()))
         self.assertEqual(sorted(test_passwds), sorted(new_passwds))
 
     def testExportCowpatty(self):
@@ -392,9 +394,9 @@ class DatabaseTestCase(TestCase):
     def corrupt(self, storage):
         conn = storage.engine.connect()
         # Destroy some passwords
-        keys = list(storage.passwords.iterkeys())
+        keys = list(storage.passwords.keys())
         tbl = cpyrit.storage.passwords_table
-        for i in xrange(13):
+        for i in range(13):
             key = random.choice(keys)
             sql = tbl.update().where(tbl.c._key == key)
             if i % 2 == 0:
@@ -409,7 +411,7 @@ class DatabaseTestCase(TestCase):
         # Destroy some results
         keys = list(storage.essids.iterkeys('test'))
         tbl = cpyrit.storage.results_table
-        for i in xrange(13):
+        for i in range(13):
             key = random.choice(keys)
             if i % 3 == 0:
                 # Delete workunit
@@ -494,18 +496,18 @@ def _runTests(case):
     return unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
 
 if __name__ == "__main__":
-    print "Testing with filesystem-storage..."
+    print("Testing with filesystem-storage...")
     if not _runTests(FilesystemTestCase):
         sys.exit(1)
 
     # should have been imported by cpyrit.storage
     if 'sqlalchemy' not in sys.modules:
-        print "SQLAlchemy seems to be unavailable; skipping all tests..."
+        print("SQLAlchemy seems to be unavailable; skipping all tests...")
     else:
-        print "Testing with database-storage..."
+        print("Testing with database-storage...")
         if not _runTests(DatabaseTestCase):
             sys.exit(1)
 
-    print "Testing with RPC-storage..."
+    print("Testing with RPC-storage...")
     if not _runTests(RPCTestCase):
         sys.exit(1)

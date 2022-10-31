@@ -1,0 +1,21 @@
+Metadata-Version: 2.1
+Name: pyrit
+Version: 0.5.2
+Summary: GPU-accelerated attack against WPA-PSK authentication
+Home-page: https://github.com/JPaulMora/Pyrit
+Author: Lukas Lueg
+Author-email: lukas.lueg@gmail.com
+Maintainer: John Mora
+Maintainer-email: johmora12@engineer.com
+License: GNU General Public License v3
+Platform: any
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: License :: OSI Approved :: GNU General Public License (GPL)
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Topic :: Security
+License-File: COPYING
+
+Pyrit allows to create massive databases, pre-computing part of the WPA/WPA2-PSK authentication phase in a space-time-tradeoff. Exploiting the computational power of Many-Core- and other platforms through ATI-Stream, Nvidia CUDA and OpenCL , it is currently by far the most powerful attack against one of the world's most used security-protocols.

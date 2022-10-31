@@ -18,7 +18,7 @@
 #    You should have received a copy of the GNU General Public License
 #    along with Pyrit.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import with_statement
+
 
 from distutils.core import setup, Extension
 from distutils.command.build_ext import build_ext
@@ -58,8 +58,8 @@ else:
             OPENCL_INC_DIRS.append(path)
             break
     else:
-        print >>sys.stderr, "The headers required to build the OpenCL-kernel " \
-                            "were not found. Trying to continue anyway..."
+        print("The headers required to build the OpenCL-kernel " \
+                            "were not found. Trying to continue anyway...", file=sys.stderr)
 
 
 EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing', \
@@ -78,7 +78,7 @@ class GPUBuilder(build_ext):
             f.write("unsigned char oclkernel_packedprogram[] = {")
             f.write(",".join(("0x%02X" % ord(c) for c in oclkernel_inc)))
             f.write("};\nsize_t oclkernel_size = %i;\n" % len(oclkernel_code))
-        print "Building modules..."
+        print("Building modules...")
         build_ext.run(self)
 
 
@@ -93,13 +93,13 @@ class GPUCleaner(clean):
             pass
 
     def run(self):
-        print "Removing temporary files and pre-built GPU-kernels..."
+        print("Removing temporary files and pre-built GPU-kernels...")
         try:
             for f in ('_cpyrit_oclkernel.cl.h',):
                 self._unlink(f)
-        except Exception, (errno, sterrno):
-            print >>sys.stderr, "Exception while cleaning temporary " \
-                                "files ('%s')" % sterrno
+        except Exception as sterrno:
+            print("Exception while cleaning temporary " \
+                                "files ({sterrno})", file=sys.stderr)
         clean.run(self)
 
 

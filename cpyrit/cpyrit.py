@@ -28,10 +28,8 @@
    CPyrit enumerates the available cores and schedules workunits among them.
 """
 
-from __future__ import with_statement
-
 from collections import deque
-import BaseHTTPServer
+import http.server
 import hashlib
 import random
 import socket
@@ -39,44 +37,91 @@ import sys
 import threading
 import time
 import uuid
-import util
-import warnings
-import xmlrpclib
 
-import config
-import network
-import storage
-import _cpyrit_cpu
+import warnings
+import xmlrpc.client
+from functools import reduce
+from . import util
+from . import config
+from . import network
+from . import storage
+from . import _cpyrit_cpu
+
+
 
 
 # prevent call to socket.getfqdn
 def fast_address_string(self):
-    return '%s' % self.client_address[0]
-BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
+    """Defines the fast address string and returns the client address"""
+    return f"{self.client_address[0]}"
+
+
+http.server.BaseHTTPRequestHandler.address_string = fast_address_string
 del fast_address_string
 
 
 def version_check(mod):
+    """Checks for cpyrit CPU version"""
     ver = getattr(mod, "VERSION", "unknown")
     if ver >= _cpyrit_cpu.VERSION:
-        warnings.warn("WARNING: %s version ('%s') is greater than %s ('%s').\n" % (mod, ver, _cpyrit_cpu, _cpyrit_cpu.VERSION))
+        warnings.warn(
+            f"WARNING: {mod} version ('{ver}') is greater than \
+            {_cpyrit_cpu} ('{_cpyrit_cpu.VERSION}')."
+         )
 
 
 class Core(util.Thread):
     """The class Core provides basic scheduling and testing. It should not be
-       used directly but through sub-classes.
+    used directly but through sub-classes.
 
-       Subclasses must mix-in a .solve()-function and should set the
-       .buffersize-, .minBufferSize- and .maxBufferSize-attributes. The default
-       .run() provided here calibrates itself to pull work from the queue worth
-       3 seconds of execution time in .solve()
+    Subclasses must mix-in a .solve()-function and should set the
+    .buffersize-, .minBufferSize- and .maxBufferSize-attributes. The default
+    .run() provided here calibrates itself to pull work from the queue worth
+    3 seconds of execution time in .solve()
     """
-    TV_ESSID = 'foo'
-    TV_PW = 'barbarbar'
-    TV_PMK = ''.join(map(chr, (6, 56, 101, 54, 204, 94, 253, 3, 243, 250,
-                               132, 170, 142, 162, 204, 132, 8, 151, 61, 243,
-                               75, 216, 75, 83, 128, 110, 237, 48, 35, 205,
-                               166, 126)))
+
+    TV_ESSID = "foo"
+    TV_PW = "barbarbar"
+    TV_PMK = "".join(
+        list(map(
+            chr,
+            (
+                6,
+                56,
+                101,
+                54,
+                204,
+                94,
+                253,
+                3,
+                243,
+                250,
+                132,
+                170,
+                142,
+                162,
+                204,
+                132,
+                8,
+                151,
+                61,
+                243,
+                75,
+                216,
+                75,
+                83,
+                128,
+                110,
+                237,
+                48,
+                35,
+                205,
+                166,
+                126,
+            ),
+        )
+    )
+)
 
     def __init__(self, queue):
         """Create a new Core that pulls work from the given CPyrit instance."""
@@ -97,8 +142,9 @@ class Core(util.Thread):
         self.setDaemon(True)
 
     def _testComputeFunction(self, i):
-        if any((pmk != Core.TV_PMK for pmk in
-                    self.solve(Core.TV_ESSID, [Core.TV_PW] * i))):
+        if any(
+            (pmk != Core.TV_PMK for pmk in self.solve(Core.TV_ESSID, [Core.TV_PW] * i))
+        ):
             raise ValueError("Test-vector does not result in correct PMK.")
 
     def resetStatistics(self):
@@ -119,10 +165,12 @@ class Core(util.Thread):
                 self.callCount += 1
                 if self.compTime > 0:
                     # carefully move towards three seconds of execution-time
-                    avg = (2 * self.buffersize +
-                           (self.resCount / self.compTime * 3)) / 3
-                    self.buffersize = int(max(self.minBufferSize,
-                                              min(self.maxBufferSize, avg)))
+                    avg = (
+                        2 * self.buffersize + (self.resCount / self.compTime * 3)
+                    ) / 3
+                    self.buffersize = int(
+                        max(self.minBufferSize, min(self.maxBufferSize, avg))
+                    )
                 self.queue._scatter(essid, pwlist, res)
 
     def __str__(self):
@@ -131,7 +179,7 @@ class Core(util.Thread):
 
 class CPUCore(Core, _cpyrit_cpu.CPUDevice):
     """Standard-CPU implementation. The underlying C-code may use VIA Padlock,
-       SSE2 or a generic OpenSSL-interface to compute results."""
+    SSE2 or a generic OpenSSL-interface to compute results."""
 
     def __init__(self, queue):
         Core.__init__(self, queue)
@@ -154,22 +202,23 @@ class LowLatencyCore(Core):
             raise ValueError("Test-vector does not result in correct PMK.")
 
     def _processData(self, essid, pwlist, res, tm):
-        assert(len(res) == len(pwlist))
+        assert len(res) == len(pwlist)
         t = time.time()
         self.compTime += t - tm
         self.resCount += len(res)
         self.callCount += 1
         avg = (2 * self.buffersize + (self.resCount / self.compTime)) / 3
         if self.bufferSizeDiv > 0:
-            avg = self.bufferSizeDiv * int((avg + self.bufferSizeDiv - 1) / self.bufferSizeDiv)
-        self.buffersize = int(max(self.minBufferSize,
-                              min(self.maxBufferSize, avg)))
+            avg = self.bufferSizeDiv * int(
+                (avg + self.bufferSizeDiv - 1) / self.bufferSizeDiv
+            )
+        self.buffersize = int(max(self.minBufferSize, min(self.maxBufferSize, avg)))
         self.queue._scatter(essid, pwlist, res)
         return t
 
     def solve(self, essid, pwlist):
         enq = self.send(essid, pwlist)
-        assert(enq)
+        assert enq
         return self.receive(True)
 
     def run(self):
@@ -181,8 +230,7 @@ class LowLatencyCore(Core):
                 if not self.isTested:
                     essid, pwlist = self._getTestData(101)
                 else:
-                    essid, pwlist = self.queue._gather(self.buffersize,
-                                                       timeout=0.5)
+                    essid, pwlist = self.queue._gather(self.buffersize, timeout=0.5)
                 if essid is not None:
                     work_queue.append((essid, pwlist, not self.isTested))
                     self.isTested = True
@@ -204,11 +252,11 @@ class LowLatencyCore(Core):
 
 
 try:
-    import _cpyrit_opencl
+    from . import _cpyrit_opencl
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's OpenCL-core ('%s')." % e
+except Exception as e:
+    print(f"Failed to load Pyrit's CAL-core {e}.", file=sys.stderr)
 else:
     version_check(_cpyrit_opencl)
 
@@ -218,7 +266,7 @@ else:
         def __init__(self, queue, platform_idx, dev_idx):
             Core.__init__(self, queue)
             _cpyrit_opencl.OpenCLDevice.__init__(self, platform_idx, dev_idx)
-            self.name = "OpenCL-Device '%s'" % self.deviceName
+            self.name = f"OpenCL-Device {self.deviceName}"
             self.minBufferSize = 1024
             self.buffersize = 4096
             maxhwsize = reduce(lambda x, y: x * y, self.maxWorkSizes)
@@ -227,11 +275,11 @@ else:
 
 
 try:
-    import _cpyrit_cuda
+    from . import _cpyrit_cuda
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CUDA-core ('%s')." % e
+except Exception as e:
+    print(f"Failed to load Pyrit's CUDA-core {e}.", file=sys.stderr)
 else:
     version_check(_cpyrit_cuda)
 
@@ -241,7 +289,7 @@ else:
         def __init__(self, queue, dev_idx):
             Core.__init__(self, queue)
             _cpyrit_cuda.CUDADevice.__init__(self, dev_idx)
-            self.name = "CUDA-Device #%i '%s'" % (dev_idx + 1, self.deviceName)
+            self.name = f"CUDA-Device #{dev_idx + 1} {self.deviceName}"
             self.minBufferSize = 1024
             self.buffersize = 4096
             self.maxBufferSize = 131072
@@ -249,11 +297,11 @@ else:
 
 
 try:
-    import _cpyrit_calpp
+    from . import _cpyrit_calpp
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CAL-core ('%s')." % e
+except Exception as e:
+    print(f"Failed to load Pyrit's CAL-core {e}.", file=sys.stderr)
 else:
     version_check(_cpyrit_calpp)
 
@@ -263,22 +311,25 @@ else:
         def __init__(self, queue, dev_idx):
             LowLatencyCore.__init__(self, queue)
             _cpyrit_calpp.CALDevice.__init__(self, dev_idx)
-            self.name = "CAL++ Device #%i '%s'" % \
-                        (dev_idx + 1, self.deviceName)
-            self.minBufferSize, self.buffersize, self.maxBufferSize, \
-                self.bufferSizeDiv = self.workSizes()
+            self.name = f"CAL++ Device #{dev_idx + 1} {self.deviceName}"
+            (
+                self.minBufferSize,
+                self.buffersize,
+                self.maxBufferSize,
+                self.bufferSizeDiv,
+            ) = self.workSizes()
             self.start()
 
 
 try:
-    import _cpyrit_null
+    from . import _cpyrit_null
 except ImportError:
     pass
 else:
 
     class NullCore(Core, _cpyrit_null.NullDevice):
         """Dummy-Device that returns zero'ed results instead of PMKs.
-           For testing and demonstration only...
+        For testing and demonstration only...
         """
 
         def __init__(self, queue):
@@ -290,9 +341,7 @@ else:
 
 
 class NetworkCore(util.AsyncXMLRPCServer, Core):
-
     class NetworkObserver(util.Thread):
-
         def __init__(self, core):
             util.Thread.__init__(self)
             self.core = core
@@ -301,13 +350,12 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
 
         def run(self):
             while True:
-                for _, client in self.core.clients.items():
+                for _, client in list(self.core.clients.items()):
                     if time.time() - client.lastseen > 15.0:
                         self.core.rpc_unregister(uuid)
                 time.sleep(3)
 
     class NetworkClient(object):
-
         def __init__(self, known_uuids):
             self.uuid = str(uuid.uuid4())
             self.known_uuids = known_uuids
@@ -317,16 +365,16 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
         def ping(self):
             self.lastseen = time.time()
 
-    def __init__(self, queue, host='', port=17935):
+    def __init__(self, queue, host="", port=17935):
         util.AsyncXMLRPCServer.__init__(self, (host, port))
         Core.__init__(self, queue)
         self.name = "Network-Clients"
         self.uuid = str(uuid.uuid4())
-        self.methods['register'] = self.rpc_register
-        self.methods['unregister'] = self.rpc_unregister
-        self.methods['gather'] = self.rpc_gather
-        self.methods['scatter'] = self.rpc_scatter
-        self.methods['revoke'] = self.rpc_revoke
+        self.methods["register"] = self.rpc_register
+        self.methods["unregister"] = self.rpc_unregister
+        self.methods["gather"] = self.rpc_gather
+        self.methods["scatter"] = self.rpc_scatter
+        self.methods["revoke"] = self.rpc_revoke
         self.client_lock = threading.Lock()
         self.clients = {}
         self.host = host
@@ -341,18 +389,18 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
                 client = self.clients[uuid]
                 client.ping()
                 return client
-            else:
-                raise xmlrpclib.Fault(403, "Client unknown or timed-out")
+
+            raise xmlrpc.client.Fault(403, "Client unknown or timed-out")
 
     def rpc_register(self, uuids):
         with self.client_lock:
-            known_uuids = set(uuids.split(';'))
+            known_uuids = set(uuids.split(";"))
             if self.uuid in known_uuids:
-                return (self.uuid, '')
-            else:
-                client = self.NetworkClient(known_uuids)
-                self.clients[client.uuid] = client
-                return (self.uuid, client.uuid)
+                return (self.uuid, "")
+
+            client = self.NetworkClient(known_uuids)
+            self.clients[client.uuid] = client
+            return (self.uuid, client.uuid)
 
     def rpc_unregister(self, uuid):
         with self.client_lock:
@@ -369,25 +417,27 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
         client = self._get_client(client_uuid)
         essid, pwlist = self.queue._gather(buffersize, block=False)
         if essid is None:
-            return ('', '')
+            return ("", "")
         else:
             client.workunits.append((essid, pwlist))
             key, buf = storage.PAW2_Buffer.pack(pwlist)
-            return (essid, xmlrpclib.Binary(buf))
+            return (essid, xmlrpc.client.Binary(buf))
 
     def rpc_scatter(self, client_uuid, encoded_buf):
         client = self._get_client(client_uuid)
         essid, pwlist = client.workunits.pop(0)
         md = hashlib.sha1()
-        digest = encoded_buf.data[:md.digest_size]
-        buf = encoded_buf.data[md.digest_size:]
+        digest = encoded_buf.data[: md.digest_size]
+        buf = encoded_buf.data[md.digest_size :]
         md.update(buf)
         if md.digest() != digest:
             raise IOError("Digest check failed.")
         if len(buf) != len(pwlist) * 32:
-            raise ValueError("Result has invalid size of %i. Expected %i." %
-                                (len(buf), len(pwlist) * 32))
-        results = [buf[i * 32:i * 32 + 32] for i in xrange(len(pwlist))]
+            raise ValueError(
+                "Result has invalid size of %i. Expected %i."
+                % (len(buf), len(pwlist) * 32)
+            )
+        results = [buf[i * 32 : i * 32 + 32] for i in range(len(pwlist))]
         self.compTime = time.time() - self.startTime
         self.resCount += len(results)
         self.callCount += 1
@@ -404,23 +454,23 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
 
     def __iter__(self):
         with self.client_lock:
-            return self.clients.values().__iter__()
+            yield list(self.clients.values().__iter__())
 
 
 class CPyrit(object):
     """Enumerates and manages all available hardware resources provided in
-       the module and does most of the scheduling-magic.
+    the module and does most of the scheduling-magic.
 
-       The class provides FIFO-scheduling of workunits towards the 'host'
-       which can use .enqueue() and corresponding calls to .dequeue().
-       Scheduling towards the hardware is provided by _gather(), _scatter() and
-       _revoke().
+    The class provides FIFO-scheduling of workunits towards the 'host'
+    which can use .enqueue() and corresponding calls to .dequeue().
+    Scheduling towards the hardware is provided by _gather(), _scatter() and
+    _revoke().
     """
 
     def __init__(self):
         """Create a new instance that blocks calls to .enqueue() when more than
-           the given amount of passwords are currently waiting to be scheduled
-           to the hardware.
+        the given amount of passwords are currently waiting to be scheduled
+        to the hardware.
         """
         self.inqueue = []
         self.outqueue = {}
@@ -434,39 +484,43 @@ class CPyrit(object):
         self.cv = threading.Condition()
 
         # CUDA
-        if config.cfg['use_CUDA'] == 'true' and 'cpyrit._cpyrit_cuda' in sys.modules and config.cfg['use_OpenCL'] == 'false':
+        if (
+            config.cfg["use_CUDA"] == "true"
+            and "cpyrit._cpyrit_cuda" in sys.modules
+            and config.cfg["use_OpenCL"] == "false"
+        ):
 
             CUDA = _cpyrit_cuda.listDevices()
 
             for dev_idx, device in enumerate(CUDA):
                 self.CUDAs.append(CUDACore(queue=self, dev_idx=dev_idx))
 
-
         # OpenCL
-        if config.cfg['use_OpenCL'] == 'true' and 'cpyrit._cpyrit_opencl' in sys.modules:
+        if (
+            config.cfg["use_OpenCL"] == "true"
+            and "cpyrit._cpyrit_opencl" in sys.modules
+        ):
 
             for platform_idx in range(_cpyrit_opencl.numPlatforms):
                 p = _cpyrit_opencl.OpenCLPlatform(platform_idx)
                 for dev_idx in range(p.numDevices):
                     dev = _cpyrit_opencl.OpenCLDevice(platform_idx, dev_idx)
-                    if dev.deviceType in ('GPU', 'ACCELERATOR'):
+                    if dev.deviceType in ("GPU", "ACCELERATOR"):
                         core = OpenCLCore(self, platform_idx, dev_idx)
                         self.OpCL.append(core)
         # CAL++
-        if 'cpyrit._cpyrit_calpp' in sys.modules:
+        if "cpyrit._cpyrit_calpp" in sys.modules:
             for dev_idx, device in enumerate(_cpyrit_calpp.listDevices()):
                 self.cores.append(CALCore(queue=self, dev_idx=dev_idx))
 
-
         # CPUs
-        for i in xrange(util.ncpus):
+        for i in range(util.ncpus):
             self.cores.append(CPUCore(queue=self))
-
 
         # Network
 
-        if config.cfg['rpc_server'] == 'true':
-            for port in xrange(17935, 18000):
+        if config.cfg["rpc_server"] == "true":
+            for port in range(17935, 18000):
                 try:
                     ncore = NetworkCore(queue=self, port=port)
                 except socket.error:
@@ -474,19 +528,18 @@ class CPyrit(object):
                 else:
                     self.ncore_uuid = ncore.uuid
                     self.cores.append(ncore)
-                    if config.cfg['rpc_announce'] == 'true':
-                        cl = config.cfg['rpc_knownclients'].split(' ')
-                        cl = filter(lambda x: len(x) > 0, map(str.strip, cl))
-                        bcst = config.cfg['rpc_announce_broadcast'] == 'true'
-                        self.announcer = network.NetworkAnnouncer(port=port, \
-                                                          clients=cl, \
-                                                          broadcast=bcst)
+                    if config.cfg["rpc_announce"] == "true":
+                        cl = config.cfg["rpc_knownclients"].split(" ")
+                        cl = [x for x in map(str.strip, cl) if len(x) > 0]
+                        bcst = config.cfg["rpc_announce_broadcast"] == "true"
+                        self.announcer = network.NetworkAnnouncer(
+                            port=port, clients=cl, broadcast=bcst
+                        )
                     break
             else:
                 self.ncore_uuid = None
         else:
             self.ncore_uuid = None
-
 
         for core in self.cores:
             self.all.append(core)
@@ -498,21 +551,25 @@ class CPyrit(object):
     def _check_cores(self):
         for core in self.all:
             if not core.shallStop and not core.isAlive():
-                raise SystemError("The core '%s' has died unexpectedly" % core)
+                raise SystemError(f"The core {core} has died unexpectedly")
 
     def _len(self):
-        return sum((sum((len(pwlist) for pwlist in pwdict.itervalues()))
-                   for essid, pwdict in self.inqueue))
+        return sum(
+            (
+                sum((len(pwlist) for pwlist in list(pwdict.values())))
+                for essid, pwdict in self.inqueue
+            )
+        )
 
     def __len__(self):
         """Return the number of passwords that currently wait to be transfered
-           to the hardware."""
+        to the hardware."""
         with self.cv:
             return self._len()
 
     def __iter__(self):
         """Iterates over all pending results. Blocks until no further workunits
-           or results are currently queued.
+        or results are currently queued.
         """
         while True:
             r = self.dequeue(block=True)
@@ -537,7 +594,7 @@ class CPyrit(object):
 
     def waitForSchedule(self, maxBufferSize):
         """Block until less than the given number of passwords wait for being
-           scheduled to the hardware.
+        scheduled to the hardware.
         """
         assert maxBufferSize >= 0
         with self.cv:
@@ -553,24 +610,26 @@ class CPyrit(object):
     def getPeakPerformance(self):
         """Return the summed peak performance of all cores.
 
-           The number returned is based on the performance all cores would have
-           with 100% occupancy. The real performance is lower if the caller
-           fails to keep the pipeline filled.
+        The number returned is based on the performance all cores would have
+        with 100% occupancy. The real performance is lower if the caller
+        fails to keep the pipeline filled.
         """
         return sum([c.resCount / c.compTime for c in self.all if c.compTime])
 
     def enqueue(self, essid, passwords, block=True):
         """Enqueue the given ESSID and iterable of passwords for processing.
 
-           The call may block if block is True and the number of passwords
-           currently waiting for being scheduled to the hardware is higher than
-           five times the current peak performance.
-           Calls to .dequeue() correspond in a FIFO-manner.
+        The call may block if block is True and the number of passwords
+        currently waiting for being scheduled to the hardware is higher than
+        five times the current peak performance.
+        Calls to .dequeue() correspond in a FIFO-manner.
         """
         with self.cv:
             if self._len() > 0:
-                while self.getPeakPerformance() == 0 \
-                 or self._len() > self.getPeakPerformance() * 5:
+                while (
+                    self.getPeakPerformance() == 0
+                    or self._len() > self.getPeakPerformance() * 5
+                ):
                     self.cv.wait(2)
                     self._check_cores()
             passwordlist = list(passwords)
@@ -585,11 +644,11 @@ class CPyrit(object):
     def dequeue(self, block=True, timeout=None):
         """Receive the results corresponding to a previous call to .enqueue().
 
-           The function returns None if block is False and the respective
-           results have not yet been completed. Otherwise the call blocks.
-           The function may return None if block is True and the call waited
-           longer than timeout.
-           Calls to .enqueue() correspond in a FIFO-manner.
+        The function returns None if block is False and the respective
+        results have not yet been completed. Otherwise the call blocks.
+        The function may return None if block is True and the call waited
+        longer than timeout.
+        Calls to .enqueue() correspond in a FIFO-manner.
         """
         t = time.time()
         with self.cv:
@@ -597,15 +656,19 @@ class CPyrit(object):
                 return None
             while True:
                 wu_length = self.workunits[0]
-                if self.out_idx not in self.outqueue \
-                 or len(self.outqueue[self.out_idx]) < wu_length:
+                if (
+                    self.out_idx not in self.outqueue
+                    or len(self.outqueue[self.out_idx]) < wu_length
+                ):
                     self._check_cores()
                     if block:
                         if timeout:
                             while time.time() - t > timeout:
                                 self.cv.wait(0.1)
-                                if self.out_idx in self.outqueue and \
-                                 len(self.outqueue[self.out_idx]) >= wu_length:
+                                if (
+                                    self.out_idx in self.outqueue
+                                    and len(self.outqueue[self.out_idx]) >= wu_length
+                                ):
                                     break
                             else:
                                 return None
@@ -625,13 +688,13 @@ class CPyrit(object):
 
     def _gather(self, desired_size, block=True, timeout=None):
         """Try to accumulate the given number of passwords for a single ESSID
-           in one workunit. Return a tuple containing the ESSID and a tuple of
-           passwords.
+        in one workunit. Return a tuple containing the ESSID and a tuple of
+        passwords.
 
-           The call blocks if no work is available and may return less than the
-           desired number of passwords. The caller should compute the
-           corresponding results and call _scatter() or _revoke() with the
-           (ESSID,passwords)-tuple returned by this call as parameters.
+        The call blocks if no work is available and may return less than the
+        desired number of passwords. The caller should compute the
+        corresponding results and call _scatter() or _revoke() with the
+        (ESSID,passwords)-tuple returned by this call as parameters.
         """
         t = time.time()
         with self.cv:
@@ -650,9 +713,8 @@ class CPyrit(object):
                                 break
                             newslice = pwslice[:restsize]
                             del pwdict[idx]
-                            if len(pwslice[len(newslice):]) > 0:
-                                pwdict[idx + len(newslice)] = \
-                                    pwslice[len(newslice):]
+                            if len(pwslice[len(newslice) :]) > 0:
+                                pwdict[idx + len(newslice)] = pwslice[len(newslice) :]
                             pwslices.append((idx, len(newslice)))
                             passwords.extend(newslice)
                             restsize -= len(newslice)
@@ -681,8 +743,8 @@ class CPyrit(object):
     def _scatter(self, essid, passwords, results):
         """Spray the given results back to their corresponding workunits.
 
-           The caller must use the (ESSID,passwords)-tuple returned by
-           _gather() to indicate which workunit it is returning results for.
+        The caller must use the (ESSID,passwords)-tuple returned by
+        _gather() to indicate which workunit it is returning results for.
         """
         assert len(results) == len(passwords)
         with self.cv:
@@ -692,9 +754,9 @@ class CPyrit(object):
                 del self.slices[wu]
             ptr = 0
             for idx, length in slices:
-                self.outqueue[idx] = list(results[ptr:ptr + length])
+                self.outqueue[idx] = list(results[ptr : ptr + length])
                 ptr += length
-            for idx in sorted(self.outqueue.iterkeys(), reverse=True)[1:]:
+            for idx in sorted(iter(list(self.outqueue.keys())), reverse=True)[1:]:
                 res = self.outqueue[idx]
                 o_idx = idx + len(res)
                 if o_idx in self.outqueue:
@@ -704,11 +766,11 @@ class CPyrit(object):
 
     def _revoke(self, essid, passwords):
         """Re-insert the given workunit back into the global queue so it may
-           be processed by other Cores.
+        be processed by other Cores.
 
-           Should be used if the Core that pulled the workunit is unable to
-           process it. It is the Core's responsibility to ensure that it stops
-           pulling work from the queue in such situations.
+        Should be used if the Core that pulled the workunit is unable to
+        process it. It is the Core's responsibility to ensure that it stops
+        pulling work from the queue in such situations.
         """
         with self.cv:
             wu = (essid, passwords)
@@ -723,14 +785,14 @@ class CPyrit(object):
                 self.inqueue.insert(0, (essid, d))
             ptr = 0
             for idx, length in slices:
-                d[idx] = passwordlist[ptr:ptr + length]
+                d[idx] = passwordlist[ptr : ptr + length]
                 ptr += length
             self.cv.notifyAll()
 
 
 class StorageIterator(object):
     """Iterates over the database, computes new Pairwise Master Keys if
-       necessary and requested and yields tuples of (password,PMK)-tuples.
+    necessary and requested and yields tuples of (password,PMK)-tuples.
     """
 
     def __init__(self, storage, essid, yieldOldResults=True, yieldNewResults=True):
@@ -751,7 +813,7 @@ class StorageIterator(object):
         return len(self.storage.passwords)
 
     def __iter__(self):
-        return self
+        yield self
 
     def __enter__(self):
         return self
@@ -760,16 +822,16 @@ class StorageIterator(object):
         if self.cp is not None:
             self.cp.shutdown()
 
-    def next(self):
+    def __next__(self):
         while True:
             try:
-                key = self.iterkeys.next()
+                key = next(self.iterkeys)
             except StopIteration:
                 if self.yieldNewResults:
                     solvedPMKs = self.cp.dequeue(block=True)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
-                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        solvedResults = list(zip(solvedPasswords, solvedPMKs))
                         self.storage.essids[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
                 assert len(self.workunits) == 0
@@ -789,15 +851,15 @@ class StorageIterator(object):
                     solvedPMKs = self.cp.dequeue(block=False)
                     if solvedPMKs is not None:
                         solvedEssid, solvedKey, solvedPasswords = self.workunits.pop(0)
-                        solvedResults = zip(solvedPasswords, solvedPMKs)
+                        solvedResults = list(zip(solvedPasswords, solvedPMKs))
                         self.storage.essids[solvedEssid, solvedKey] = solvedResults
                         return solvedResults
 
 
 class PassthroughIterator(object):
     """A iterator that takes an ESSID and an iterable of passwords, computes
-       the corresponding Pairwise Master Keys and and yields tuples of
-       (password,PMK)-tuples.
+    the corresponding Pairwise Master Keys and and yields tuples of
+    (password,PMK)-tuples.
     """
 
     def __init__(self, essid, iterable, buffersize=20000):
@@ -808,7 +870,7 @@ class PassthroughIterator(object):
         self.buffersize = buffersize
 
     def __iter__(self):
-        return self
+        yield self
 
     def __enter__(self):
         return self
@@ -816,10 +878,10 @@ class PassthroughIterator(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.cp.shutdown()
 
-    def next(self):
+    def __next__(self):
         pwbuffer = []
         for line in self.iterator:
-            pw = line.strip('\r\n')[:63]
+            pw = line.strip("\r\n")[:63]
             if len(pw) >= 8:
                 pwbuffer.append(pw)
             if len(pwbuffer) > self.buffersize:
@@ -828,10 +890,10 @@ class PassthroughIterator(object):
                 pwbuffer = []
                 solvedPMKs = self.cp.dequeue(block=False)
                 if solvedPMKs is not None:
-                    return zip(self.workunits.pop(0), solvedPMKs)
+                    return list(zip(self.workunits.pop(0), solvedPMKs))
         if len(pwbuffer) > 0:
             self.workunits.append(pwbuffer)
             self.cp.enqueue(self.essid, self.workunits[-1])
         for solvedPMKs in self.cp:
-            return zip(self.workunits.pop(0), solvedPMKs)
+            return list(zip(self.workunits.pop(0), solvedPMKs))
         raise StopIteration
