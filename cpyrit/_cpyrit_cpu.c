@@ -716,7 +716,9 @@ EAPOLCracker_dealloc(EAPOLCracker *self)
         PyMem_Free(self->pke);
     if (self->eapolframe)
         PyMem_Free(self->eapolframe);
-    self->ob_type->tp_free((PyObject*)self);
+
+    // Decrement reference count of self (Python 3 way)
+    Py_DECREF(self);
 }
 
 PyDoc_STRVAR(EAPOLCracker_solve__doc__,
@@ -750,7 +752,7 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
                 return NULL;
             } else {
                 pb = pmkbuffer_obj->ob_type->tp_as_buffer;
-                buffersize = (*pb->bf_getreadbuffer)(pmkbuffer_obj, 0, (void**)&t);
+                buffersize = (*pb->bf_getbuffer)(pmkbuffer_obj, 0, (void**)&t);
                 if (buffersize % 32 != 0)
                 {
                     PyErr_SetString(PyExc_ValueError, "Object's buffer's length is not a multiple of 32.");
@@ -758,7 +760,7 @@ EAPOLCracker_solve(EAPOLCracker *self, PyObject *args)
                     return NULL;
                 }
                 /* Align size to 4*32 for SSE2 */
-                pmkbuffer = PyMem_Malloc(buffersize + 128 - (buffersize % 128));
+                pmkbuffer = PyMem_Malloc(buffersize + (128 - (buffersize % 128)));
                 if (!pmkbuffer)
                 {
                     PyErr_NoMemory();
@@ -907,7 +909,7 @@ CCMPCracker_dealloc(CCMPCracker *self)
         PyMem_Free(self->pke1);
     if (self->pke2)
         PyMem_Free(self->pke2);
-    self->ob_type->tp_free((PyObject*)self);
+    Py_DECREF(self);
 }
 
 #ifdef COMPILE_SSE2
@@ -1172,15 +1174,15 @@ CCMPCracker_solve(CCMPCracker *self, PyObject *args)
                 return NULL;
             } else {
                 pb = pmkbuffer_obj->ob_type->tp_as_buffer;
-                buffersize = (*pb->bf_getreadbuffer)(pmkbuffer_obj, 0, (void**)&t);
-                if (buffersize % 32 != 0)
+                buffersize = (*pb->bf_getbuffer)(pmkbuffer_obj, 0, (void**)&t);
+                if (buffersize % 32 !=0)
                 {
                     PyErr_SetString(PyExc_ValueError, "Object's buffer's length is not a multiple of 32.");
                     Py_DECREF(pmkbuffer_obj);
                     return NULL;
                 }
                 /* Align size to 4*32 for SSE2 */
-                pmkbuffer = PyMem_Malloc(buffersize + 128 - (buffersize % 128));
+                pmkbuffer = PyMem_Malloc(buffersize + (128 - (buffersize % 128)));
                 if (!pmkbuffer)
                 {
                     PyErr_NoMemory();
@@ -1244,7 +1246,7 @@ CowpattyResult_dealloc(CowpattyResult* self)
 {
     if (self->buffer)
         PyMem_Free(self->buffer);
-    self->ob_type->tp_free((PyObject*)self);
+    Py_DECREF(self);
 }
 
 static Py_ssize_t
@@ -1341,9 +1343,9 @@ PyDoc_STRVAR(CowpattyResult_getpmkbuffer__doc__,
     "Return a buffer-object to directly access the PMKs held by this object.");
 
 static PyObject*
-CowpattyResult_getpmkbuffer(PyObject *self, PyObject *args)
+CowpattyResult_getpmkbuffer(CowpattyResult *self, PyObject *args)
 {
-    return PyBuffer_FromObject(self, 0, Py_END_OF_BUFFER);
+    return PyObject_GetBuffer(self, NULL, PyBUF_SIMPLE | PyBUF_WRITABLE);
 }
 
 /*
@@ -1559,7 +1561,7 @@ PcapDevice_dealloc(PcapDevice *self)
     Py_XDECREF(self->datalink_name);
     if (self->p && self->status == 1)
         pcap_close(self->p);
-    self->ob_type->tp_free((PyObject*)self);
+    Py_DECREF(self);
 }
 
 PyDoc_STRVAR(PcapDevice_close__doc__,
@@ -2178,10 +2180,10 @@ static PyMethodDef CowpattyResult_methods[] =
 };
 
 static PyBufferProcs CowpattyResults_buffer_procs = {
-    (readbufferproc)CowpattyResult_bf_getreadbuffer, /* bf_getreadbuffer */
-    0,                                               /* bf_getwritebuffer */
-    (segcountproc)CowpattyResult_bf_getsegcount,     /* bf_getsegcount */
-    0                                                /* bf_getcharbuffer */
+    CowpattyResult_bf_getreadbuffer, /* bf_getreadbuffer */
+    0,                                 /* bf_getwritebuffer */
+    CowpattyResult_bf_getsegcount,     /* bf_getsegcount */
+    0                                  /* bf_getcharbuffer */
 };
 
 static PySequenceMethods CowpattyResult_seq_methods = {
@@ -2507,7 +2509,7 @@ init_cpyrit_cpu(void)
     CPUDevice_type.tp_setattro = PyObject_GenericSetAttr;
     CPUDevice_type.tp_alloc  = PyType_GenericAlloc;
     CPUDevice_type.tp_new = PyType_GenericNew;
-    CPUDevice_type.tp_free = _PyObject_Del;
+    CPUDevice_type.tp_free = PyObject_Del;
     if (PyType_Ready(&CPUDevice_type) < 0)
 	    return;
 
@@ -2515,7 +2517,7 @@ init_cpyrit_cpu(void)
     EAPOLCracker_type.tp_setattro = PyObject_GenericSetAttr;
     EAPOLCracker_type.tp_alloc  = PyType_GenericAlloc;
     EAPOLCracker_type.tp_new = PyType_GenericNew;
-    EAPOLCracker_type.tp_free = _PyObject_Del;
+    EAPOLCracker_type.tp_free = PyObject_Del;
     if (PyType_Ready(&EAPOLCracker_type) < 0)
 	    return;
 
@@ -2523,7 +2525,7 @@ init_cpyrit_cpu(void)
     CCMPCracker_type.tp_setattro = PyObject_GenericSetAttr;
     CCMPCracker_type.tp_alloc  = PyType_GenericAlloc;
     CCMPCracker_type.tp_new = PyType_GenericNew;
-    CCMPCracker_type.tp_free = _PyObject_Del;
+    CCMPCracker_type.tp_free = PyObject_Del;
     if (PyType_Ready(&CCMPCracker_type) < 0)
 	    return;
 
@@ -2531,7 +2533,7 @@ init_cpyrit_cpu(void)
     CowpattyFile_type.tp_setattro = PyObject_GenericSetAttr;
     CowpattyFile_type.tp_alloc  = PyType_GenericAlloc;
     CowpattyFile_type.tp_new = PyType_GenericNew;
-    CowpattyFile_type.tp_free = _PyObject_Del;
+    CowpattyFile_type.tp_free = PyObject_Del;
     if (PyType_Ready(&CowpattyFile_type) < 0)
 	    return;
 
@@ -2539,7 +2541,7 @@ init_cpyrit_cpu(void)
     CowpattyResult_type.tp_setattro = PyObject_GenericSetAttr;
     CowpattyResult_type.tp_alloc  = PyType_GenericAlloc;
     CowpattyResult_type.tp_new = PyType_GenericNew;
-    CowpattyResult_type.tp_free = _PyObject_Del;
+    CowpattyResult_type.tp_free = PyObject_Del;
     CowpattyResult_type.tp_as_sequence = &CowpattyResult_seq_methods;
     CowpattyResult_type.tp_as_buffer = &CowpattyResults_buffer_procs;
     if (PyType_Ready(&CowpattyResult_type) < 0)
@@ -2549,7 +2551,7 @@ init_cpyrit_cpu(void)
     PcapDevice_type.tp_setattro = PyObject_GenericSetAttr;
     PcapDevice_type.tp_alloc  = PyType_GenericAlloc;
     PcapDevice_type.tp_new = PyType_GenericNew;
-    PcapDevice_type.tp_free = _PyObject_Del;
+    PcapDevice_type.tp_free = PyObject_Del;
     if (PyType_Ready(&PcapDevice_type) < 0)
 	    return;
 
