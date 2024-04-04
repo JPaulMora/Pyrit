@@ -31,7 +31,6 @@
 from __future__ import with_statement
 
 from collections import deque
-import BaseHTTPServer
 import hashlib
 import random
 import socket
@@ -39,21 +38,17 @@ import sys
 import threading
 import time
 import uuid
-import util
+from . import util
 import warnings
-import xmlrpclib
+import xmlrpc.client
 
 import config
 import network
 import storage
 import _cpyrit_cpu
+from functools import reduce
 
 
-# prevent call to socket.getfqdn
-def fast_address_string(self):
-    return '%s' % self.client_address[0]
-BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
-del fast_address_string
 
 
 def version_check(mod):
@@ -207,8 +202,8 @@ try:
     import _cpyrit_opencl
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's OpenCL-core ('%s')." % e
+except Exception as e:
+    print(f"Failed to load Pyrit's OpenCL-core ('{e}').", file=sys.stderr)
 else:
     version_check(_cpyrit_opencl)
 
@@ -230,8 +225,8 @@ try:
     import _cpyrit_cuda
 except ImportError:
     pass
-except Exception, e:
-    print >> sys.stderr, "Failed to load Pyrit's CUDA-core ('%s')." % e
+except Exception as e:
+    print(f"Failed to load Pyrit's CUDA-core ('{e}').", file=sys.stderr)
 else:
     version_check(_cpyrit_cuda)
 
@@ -252,7 +247,7 @@ try:
     import _cpyrit_calpp
 except ImportError:
     pass
-except Exception, e:
+except Exception as e:
     print >> sys.stderr, "Failed to load Pyrit's CAL-core ('%s')." % e
 else:
     version_check(_cpyrit_calpp)
@@ -342,7 +337,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
                 client.ping()
                 return client
             else:
-                raise xmlrpclib.Fault(403, "Client unknown or timed-out")
+                raise xmlrpc.client.Fault(403, "Client unknown or timed-out")
 
     def rpc_register(self, uuids):
         with self.client_lock:
@@ -373,7 +368,7 @@ class NetworkCore(util.AsyncXMLRPCServer, Core):
         else:
             client.workunits.append((essid, pwlist))
             key, buf = storage.PAW2_Buffer.pack(pwlist)
-            return (essid, xmlrpclib.Binary(buf))
+            return (essid, xmlrpc.client.Binary(buf))
 
     def rpc_scatter(self, client_uuid, encoded_buf):
         client = self._get_client(client_uuid)
