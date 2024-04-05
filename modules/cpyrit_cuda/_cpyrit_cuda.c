@@ -466,7 +466,7 @@ init_cpyrit_cuda(void)
     CUDADevice_type.tp_setattro = PyObject_GenericSetAttr;
     CUDADevice_type.tp_alloc  = PyType_GenericAlloc;
     CUDADevice_type.tp_new = PyType_GenericNew;
-    CUDADevice_type.tp_free = _PyObject_Del;
+    CUDADevice_type.tp_free = PyObject_Del;
     if (PyType_Ready(&CUDADevice_type) < 0)
 	    return;
 

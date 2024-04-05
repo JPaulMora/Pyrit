@@ -816,7 +816,7 @@ init_cpyrit_opencl(void)
     OpenCLPlatform_type.tp_setattro = PyObject_GenericSetAttr;
     OpenCLPlatform_type.tp_alloc  = PyType_GenericAlloc;
     OpenCLPlatform_type.tp_new = PyType_GenericNew;
-    OpenCLPlatform_type.tp_free = _PyObject_Del;      
+    OpenCLPlatform_type.tp_free = PyObject_Del;      
     if (PyType_Ready(&OpenCLPlatform_type) < 0)
     {
         PyMem_Free(platforms);
@@ -828,7 +828,7 @@ init_cpyrit_opencl(void)
     OpenCLDevice_type.tp_setattro = PyObject_GenericSetAttr;
     OpenCLDevice_type.tp_alloc  = PyType_GenericAlloc;
     OpenCLDevice_type.tp_new = PyType_GenericNew;
-    OpenCLDevice_type.tp_free = _PyObject_Del;      
+    OpenCLDevice_type.tp_free = PyObject_Del;      
     if (PyType_Ready(&OpenCLDevice_type) < 0)
     {
         PyMem_Free(platforms);

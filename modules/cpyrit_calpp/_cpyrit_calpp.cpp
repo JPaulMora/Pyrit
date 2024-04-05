@@ -630,7 +630,7 @@ extern "C" PyMODINIT_FUNC init_cpyrit_calpp(void)
     CALDevice_type.tp_setattro = PyObject_GenericSetAttr;
     CALDevice_type.tp_alloc  = PyType_GenericAlloc;
     CALDevice_type.tp_new = PyType_GenericNew;
-    CALDevice_type.tp_free = _PyObject_Del;
+    CALDevice_type.tp_free = PyObject_Del;
     if (PyType_Ready(&CALDevice_type) < 0)
         return;
 
