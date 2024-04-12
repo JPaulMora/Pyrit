@@ -39,13 +39,13 @@
 from __future__ import with_statement
 
 import bisect
-import cStringIO
+import io
 import gzip
 import os
-import Queue
+import queue
 import random
 import socket
-import SimpleXMLRPCServer
+import xmlrpc.server
 import sys
 import struct
 import time
@@ -465,7 +465,7 @@ class AsyncFileWriter(threading.Thread):
                 if data:
                     self.filehndl.write(data)
             self.filehndl.flush()
-        except Exception, e:
+        except Exception as e:
             # Re-create a 'trans-thread-safe' instance
             self.excp = type(e)(str(e))
         finally:
@@ -539,7 +539,7 @@ class Thread(threading.Thread):
         self.join()
 
 
-class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
+class AsyncXMLRPCServer(xmlrpc.server.SimpleXMLRPCServer, Thread):
     """A stoppable XMLRPCServer
 
        The main socket is made non-blocking so we can check on
@@ -548,8 +548,8 @@ class AsyncXMLRPCServer(SimpleXMLRPCServer.SimpleXMLRPCServer, Thread):
        Sub-classes should add (name:function)-entries to self.methods
     """
 
-    def __init__(self, (iface, port)=('', 17934)):
-        SimpleXMLRPCServer.SimpleXMLRPCServer.__init__(self, (iface, port), \
+    def __init__(self, iface='', port=17934):
+        xmlrpc.server.SimpleXMLRPCServer.__init__(self, (iface, port), \
                                                         logRequests=False)
         Thread.__init__(self)
         self.setDaemon(True)

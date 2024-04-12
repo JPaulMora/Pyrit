@@ -565,36 +565,34 @@ class Pyrit_CLI(object):
         writer = cpyrit.pckttools.Dot11PacketWriter(outfile)
         parser = cpyrit.pckttools.PacketParser()
 
-        parser.new_ap_callback = \
-            lambda ap: self._stripLive_newAP(parser, writer, ap)
+        # Define callback functions with explicit argument declarations for Python 3
+        parser.new_ap_callback = lambda ap: self._stripLive_newAP(parser, writer, ap)
+        parser.new_station_callback = lambda sta: self._stripLive_newStation(
+            parser, writer, sta
+        )
+        parser.new_keypckt_callback = lambda sta, idx, pckt: self._stripLive_newKeyPckt(
+            parser, writer, sta, idx, pckt
+        )
+        parser.new_encpckt_callback = lambda sta, pckt: self._stripLive_newEncPckt(
+            parser, writer, sta, pckt
+        )
+        parser.new_auth_callback = lambda sta, auth: self._stripLive_newAuth(
+            parser, writer, sta, auth
+        )
 
-        parser.new_station_callback = \
-            lambda sta: self._stripLive_newStation(parser, writer, sta)
 
-        parser.new_keypckt_callback = \
-            lambda (sta, idx, pckt): \
-                    self._stripLive_newKeyPckt(parser, writer, sta, idx, pckt)
-
-        parser.new_encpckt_callback = \
-            lambda (sta, pckt): \
-                    self._stripLive_newEncPckt(parser, writer, sta, pckt)
-
-        parser.new_auth_callback = \
-            lambda (sta, auth): self._stripLive_newAuth(parser, writer, sta, \
-                                                        auth)
-
-        self.tell("Parsing packets from '%s'..." % capturefile)
+        self.tell(f"Parsing packets from '{capturefile}'...")  # f-string for formatting
         pckt_rdr = cpyrit.pckttools.PcapDevice(use_bpf=True)
         try:
             pckt_rdr.open_offline(capturefile)
-        except IOError, offline_error:
+        except IOError as offline_error:
             try:
                 pckt_rdr.open_live(capturefile)
-            except IOError, live_error:
-                raise PyritRuntimeError("Failed to open '%s' either as a " \
-                                        "file ('%s') or as a device " \
-                                        "('%s')" % (capturefile, \
-                                        str(offline_error), str(live_error)))
+            except IOError as live_error:
+                raise PyritRuntimeError(
+                    f"Failed to open '{capturefile}' either as a file ('{offline_error}') "
+                    f"or as a device ('{live_error}')"
+                ) from live_error  # Chain exceptions for better tracebacks
         try:
             parser.parse_pcapdevice(pckt_rdr)
         except (KeyboardInterrupt, SystemExit):
@@ -604,16 +602,14 @@ class Pyrit_CLI(object):
         finally:
             writer.close()
         for i, ap in enumerate(parser):
-            self.tell("#%i: AccessPoint %s ('%s')" % (i + 1, ap, ap.essid))
+            self.tell(f"#{i}: AccessPoint {ap} ('{ap.essid}')")  # f-string formatting
             for j, sta in enumerate(ap):
                 auths = sta.getAuthentications()
-                if len(auths) > 0:
-                    self.tell("  #%i: Station %s, %i handshake(s)" % \
-                                (j, sta, len(auths)))
+                if len(auths) > 0:  # Check if there are any authentications ('> 0')
+                    self.tell(f"  # {j}: Station {sta}, {len(auths)} handshake(s)")
                     for k, auth in enumerate(auths):
-                        self.tell("    #%i: %s" % (k + 1, auth))
-        self.tell("\nNew pcap-file '%s' written (%i out of %i packets)" % \
-                    (outfile, writer.pcktcount, parser.pcktcount))
+                        self.tell(f"    # {k}: {auth}")
+        self.tell(f"\nNew pcap-file '{outfile}' written ({writer.pcktcount} out of {parser.pcktcount} packets)")
     stripLive.cli_options = (('-r', '-o'), ())
 
     def export_hashdb(self, storage, outfile, essid=None):
@@ -1417,7 +1413,7 @@ class Pyrit_CLI(object):
                 for l in map(len, iter(storage.passwords[key])):
                     if l < 8 or l > 64:
                         raise cpyrit.storage.StorageError("Invalid password")
-            except cpyrit.storage.StorageError, e:
+            except cpyrit.storage.StorageError as e:
                 self.tell("Error in workunit %s: %s" % (key, e), \
                           stream=sys.stderr)
                 wu_errors.add(key)
@@ -1452,7 +1448,7 @@ class Pyrit_CLI(object):
                             if pw not in res_passwords:
                                 raise cpyrit.storage.StorageError("Password " \
                                                              "not in resultset")
-                except cpyrit.storage.StorageError, e:
+                except cpyrit.storage.StorageError as e:
                     self.tell("Error in results %s for ESSID '%s':" \
                               " %s" % (key, essid, e), stream=sys.stderr)
                     if key not in wu_errors:

@@ -25,7 +25,7 @@
 
 from __future__ import with_statement
 
-import BaseHTTPServer
+
 import hashlib
 import itertools
 import os
@@ -52,11 +52,7 @@ import util
 import _cpyrit_cpu
 
 
-# prevent call to socket.getfqdn
-def fast_address_string(self):
-    return '%s' % self.client_address[0]
-BaseHTTPServer.BaseHTTPRequestHandler.address_string = fast_address_string
-del fast_address_string
+
 
 
 MAX_WORKUNIT_SIZE = int(config.cfg['workunit_size'])
