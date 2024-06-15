@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
 #
 #    Copyright 2015, John Mora, johmora12@engineer.com
@@ -21,21 +21,16 @@
 
 import sys
 import platform
-from distutils.core import setup, Extension
-from distutils.command.build_ext import build_ext
-from distutils.unixccompiler import UnixCCompiler
+from setuptools import setup, Extension
+from setuptools.command.build_ext import build_ext
 from distutils.errors import CompileError
-
 
 VERSION = '0.5.1'
 
-UnixCCompiler.src_extensions.append('.S')
-
-
+# Support for AES-NI-intrinsics is not found everywhere
 EXTRA_COMPILE_ARGS = ['-Wall', '-fno-strict-aliasing',
                       '-DVERSION="%s"' % (VERSION,)]
-# Support for AES-NI-intrinsics is not found everyhwere
-if sys.platform in ('darwin', 'linux2') and \
+if sys.platform in ('darwin', 'linux') and \
    platform.machine() in ('x86_64', 'i386'):
     EXTRA_COMPILE_ARGS.extend(('-maes', '-mpclmul'))
 
@@ -45,7 +40,7 @@ class LazyBuilder(build_ext):
        -maes and -mpclmul first. If that fails, it simply re-tries with
        those flags disabled.
        This is not exactly elegant but probably the most portable solution
-       given the limited capabilities of distutils to detect compiler-versions.
+       given the limited capabilities of setuptools to detect compiler-versions.
     '''
 
     def build_extension(self, ext):
@@ -62,46 +57,47 @@ class LazyBuilder(build_ext):
 
 
 cpu_extension = Extension(name='cpyrit._cpyrit_cpu',
-                    sources = ['cpyrit/_cpyrit_cpu.c',
-                               'cpyrit/_cpyrit_cpu_sse2.S'],
-                    libraries = ['crypto', 'pcap'],
-                    extra_compile_args=EXTRA_COMPILE_ARGS)
+                          sources=['cpyrit/_cpyrit_cpu.c',
+                                   'cpyrit/_cpyrit_cpu_sse2.S'],
+                          libraries=['crypto', 'pcap'],
+                          extra_compile_args=EXTRA_COMPILE_ARGS)
 
-setup_args = {
-        'name': 'pyrit',
-        'version': VERSION,
-        'description': 'GPU-accelerated attack against WPA-PSK authentication',
-        'long_description': \
-            "Pyrit allows to create massive databases, pre-computing part " \
-            "of the WPA/WPA2-PSK authentication phase in a space-time-" \
-            "tradeoff. Exploiting the computational power of Many-Core- " \
-            "and other platforms through ATI-Stream, Nvidia CUDA and OpenCL " \
-            ", it is currently by far the most powerful attack against one " \
-            "of the world's most used security-protocols.",
-        'license': 'GNU General Public License v3',
-        'author': 'Lukas Lueg',
-        'author_email': 'lukas.lueg@gmail.com',
-        'url': 'https://github.com/JPaulMora/Pyrit',
-        'maintainer': 'John Mora',
-        'maintainer_email': 'johmora12@engineer.com',
-        'classifiers': \
-              ['Development Status :: 4 - Beta',
-               'Environment :: Console',
-               'License :: OSI Approved :: GNU General Public License (GPL)',
-               'Natural Language :: English',
-               'Operating System :: OS Independent',
-               'Programming Language :: Python',
-               'Topic :: Security'],
-        'platforms': ['any'],
-        'packages': ['cpyrit'],
-        'py_modules': ['pyrit_cli', 'cpyrit.cpyrit',
-                      'cpyrit.util', 'cpyrit.pckttools',
-                      'cpyrit.config', 'cpyrit.network'],
-        'scripts': ['pyrit'],
-        'ext_modules': [cpu_extension],
-        'cmdclass': {'build_ext': LazyBuilder},
-        'options': {'install': {'optimize': 1}}
-}
+setup(
+    name='pyrit',
+    version=VERSION,
+    description='GPU-accelerated attack against WPA-PSK authentication',
+    long_description=(
+        "Pyrit allows to create massive databases, pre-computing part "
+        "of the WPA/WPA2-PSK authentication phase in a space-time-"
+        "tradeoff. Exploiting the computational power of Many-Core- "
+        "and other platforms through ATI-Stream, Nvidia CUDA and OpenCL "
+        ", it is currently by far the most powerful attack against one "
+        "of the world's most used security-protocols."
+    ),
+    license='GNU General Public License v3',
+    author='Lukas Lueg',
+    author_email='lukas.lueg@gmail.com',
+    url='https://github.com/JPaulMora/Pyrit',
+    maintainer='John Mora',
+    maintainer_email='johmora12@engineer.com',
+    classifiers=[
+        'Development Status :: 4 - Beta',
+        'Environment :: Console',
+        'License :: OSI Approved :: GNU General Public License (GPL)',
+        'Natural Language :: English',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python',
+        'Topic :: Security'
+    ],
+    platforms=['any'],
+    packages=['cpyrit'],
+    py_modules=[
+        'pyrit_cli', 'cpyrit.cpyrit', 'cpyrit.util',
+        'cpyrit.pckttools', 'cpyrit.config', 'cpyrit.network'
+    ],
+    scripts=['pyrit'],
+    ext_modules=[cpu_extension],
+    cmdclass={'build_ext': LazyBuilder},
+    options={'install': {'optimize': 1}}
+)
 
-if __name__ == '__main__':
-    setup(**setup_args)
